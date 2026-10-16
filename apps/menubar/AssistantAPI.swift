@@ -31,8 +31,15 @@ enum AssistantScope: Equatable, Codable {
     var ref: String? { if case .task(let ref) = self { return ref } else { return nil } }
 }
 
+/// A qué board va un issue que propone el asistente: el proyecto y la columna (sin ella, Todo).
+struct IssueBoard: Codable, Hashable {
+    let project_id: String
+    var status: String? = nil
+}
+
 /// Lo que propone el asistente: una acción sobre una tarea (`ref` + `action`, sin `kind`), abrir un issue
-/// (`kind: issue`), mover la card (`move`), sumar un issue al board (`add_to_board`) o cambiarle labels (`labels`).
+/// (`kind: issue`, con `board` si además va al board), mover la card (`move`), sumar un issue al board
+/// (`add_to_board`) o cambiarle labels (`labels`).
 struct AssistantProposal: Codable, Hashable, Identifiable {
     let id: String
     let kind: String?
@@ -54,10 +61,14 @@ struct AssistantProposal: Codable, Hashable, Identifiable {
     var project_id: String? = nil
     var add: [String]? = nil
     var remove: [String]? = nil
+    /// Un issue que además se suma al board de ese proyecto.
+    var board: IssueBoard? = nil
 
     /// `action` para las que no traen `kind` (las de antes de que hubiera otras).
     var kindName: String { kind ?? "action" }
     var isIssue: Bool { kind == "issue" }
+    /// Un issue que se abre y se suma al board en el mismo paso.
+    var isBoardIssue: Bool { isIssue && board != nil }
     /// La tarea de la que habla: la del board, o el issue a sumar.
     var taskRef: String? { ref ?? issue }
 
@@ -130,6 +141,10 @@ struct CreateIssueResult: Codable {
     let ok: Bool
     let message: String
     let url: String?
+    var number: Int? = nil
+    /// Con `board` en el pedido: la columna donde quedó, o por qué no quedó (el issue se abrió igual).
+    var board_status: String? = nil
+    var board_error: String? = nil
 }
 
 private struct AssistantRequest: Encodable {
@@ -188,11 +203,14 @@ extension RunnerClient {
         try JSONDecoder().decode(AssistantConversation.self, from: try await request("/api/assistant/conversations/\(id)", github: github))
     }
 
-    func createIssue(_ proposal: AssistantProposal, github: String) async -> CreateIssueResult {
-        struct Body: Encodable { let repo: String; let title: String; let body: String; let labels: [String]? }
+    /// Abre el issue con tu login; con `board`, además lo suma a ese board (`status` nil = Todo). Un `board_error`
+    /// llega con `ok` true: el issue ya existe y reintentar lo duplicaría.
+    func createIssue(_ proposal: AssistantProposal, board: IssueBoard? = nil, github: String) async -> CreateIssueResult {
+        struct Body: Encodable { let repo: String; let title: String; let body: String; let labels: [String]?; let board: IssueBoard? }
         do {
             let data = try await request("/api/issues", method: "POST", body: Body(repo: proposal.repo ?? "", title: proposal.title ?? "",
-                                                                                    body: proposal.body ?? "", labels: proposal.labels),
+                                                                                    body: proposal.body ?? "", labels: proposal.labels,
+                                                                                    board: board),
                                          github: github)
             return try JSONDecoder().decode(CreateIssueResult.self, from: data)
         } catch let error as RunnerError {

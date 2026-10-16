@@ -207,13 +207,18 @@ struct ProposalCard: View {
                 Text(change).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(2)
             }
             Text(proposal.reason).font(.lh(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if proposal.isBoardIssue {
+                BoardIssueFields(chat: chat, runner: chat.runner, proposal: proposal, locked: state != nil && state?.hasPrefix("✗") != true)
+            }
             HStack {
-                if let state, state != "…" {
+                if let result = chat.issueResults[proposal.id], result.ok, proposal.isBoardIssue {
+                    BoardIssueOutcome(proposal: proposal, result: result)
+                } else if let state, state != "…" {
                     Text(state).font(.lh(11.5, .semibold)).foregroundStyle(state.hasPrefix("✓") ? Color.green : Color.red).lineLimit(2)
                 }
                 Spacer(minLength: 0)
                 if state == nil || state?.hasPrefix("✗") == true {
-                    Button(proposal.isIssue ? "Abrir issue…" : "\(proposal.label)…") { chat.run(proposal) }
+                    Button(proposal.isBoardIssue ? "Crear y agregar al board…" : proposal.isIssue ? "Abrir issue…" : "\(proposal.label)…") { chat.run(proposal) }
                         .buttonStyle(PillButtonStyle(prominent: true, compact: true)).fixedSize()
                 } else if state == "…" {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
@@ -223,6 +228,94 @@ struct ProposalCard: View {
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.07)))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.accentColor.opacity(0.2)))
+    }
+}
+
+/// Un issue que va al board: la columna (las del proyecto, desde la bandeja) y el cuerpo plegado. Una vez abierto
+/// la columna queda fija.
+struct BoardIssueFields: View {
+    @ObservedObject var chat: AssistantModel
+    @ObservedObject var runner: RunnerModel
+    let proposal: AssistantProposal
+    let locked: Bool
+    @State private var showBody = false
+
+    var body: some View {
+        let column = chat.column(for: proposal)
+        let columns = chat.columns(for: proposal)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.stack.badge.plus").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                Text("Columna").font(.lh(11.5)).foregroundStyle(.secondary)
+                if columns.isEmpty || locked {
+                    Text(column).font(.lh(11.5, .semibold))
+                } else {
+                    Menu {
+                        ForEach(columns, id: \.self) { status in
+                            Button { chat.boardColumn[proposal.id] = status } label: {
+                                if status == column { Label(status, systemImage: "checkmark") } else { Text(status) }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Text(column).font(.lh(11.5, .semibold))
+                            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+                        }
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.07)))
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help("En qué columna del board queda")
+                }
+                if let project = proposal.board?.project_id, runner.projects.count > 1 {
+                    Text("· \(project)").font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+            }
+            if let text = proposal.body, !text.isEmpty {
+                Button { withAnimation(.easeOut(duration: 0.15)) { showBody.toggle() } } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: showBody ? "chevron.down" : "chevron.right").font(.system(size: 8.5, weight: .bold))
+                        Text(showBody ? "Ocultar el cuerpo" : "Ver el cuerpo").font(.lh(11.5))
+                    }
+                    .foregroundStyle(.secondary).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if showBody {
+                    Text(markdown(text)).font(.lh(11.5)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.05)))
+                }
+            }
+        }
+    }
+}
+
+/// Cómo quedó un issue abierto para el board: en qué columna, o que se abrió pero no quedó (sin reintentar: el
+/// issue ya existe). El issue, a un clic.
+struct BoardIssueOutcome: View {
+    let proposal: AssistantProposal
+    let result: CreateIssueResult
+
+    var body: some View {
+        let repo = proposal.repo.flatMap { $0.split(separator: "/").last.map(String.init) } ?? proposal.repo ?? ""
+        let number = result.number ?? result.url.flatMap { Int($0.split(separator: "/").last ?? "") }
+        let ref = number.map { "\(repo)#\($0)" } ?? repo
+        VStack(alignment: .leading, spacing: 2) {
+            Button {
+                if let url = result.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
+            } label: {
+                Text(result.board_error == nil
+                     ? "✓ \(ref) abierto y en \(result.board_status ?? "el board")"
+                     : "⚠ \(ref) abierto, pero no quedó en el board")
+                    .font(.lh(11.5, .semibold)).lineLimit(2)
+                    .foregroundStyle(result.board_error == nil ? Color.green : Color.orange)
+            }
+            .buttonStyle(.plain).disabled(result.url == nil).help("Abrir el issue en GitHub")
+            if let error = result.board_error {
+                Text(error).font(.lh(11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

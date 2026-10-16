@@ -111,6 +111,11 @@ tareas y mejoras que te esperan en el runner elegido (se relee cada minuto con e
 **Pestaña «Asistente»:** el chat del asistente del runner (`POST /api/assistant`, streaming), sobre todo el runner
 o sobre una tarea («Preguntar sobre esta tarea…» en el ⋯ de cada fila). Lo que propone (una acción sobre una tarea,
 abrir un issue, mover la card, sumar un issue al board, poner o sacar labels) se ejecuta con confirmación y tu login; las tareas que menciona abren la pestaña Runner filtrada.
+**Issue para el board:** si le pasas un texto, el asistente arma la base del issue y propone abrirlo y sumarlo al
+board en un paso: la card trae el repo, el título, el cuerpo plegado y la columna (las del proyecto, desde la bandeja;
+la que propuso él, o Todo), y «Crear y agregar al board…» lo abre con tu login (`POST /api/issues` con `board`).
+Queda «✓ repo#n abierto y en <columna>», con el issue a un clic; si se abrió pero no entró al board, lo dice con el
+motivo y no ofrece reintentar (duplicaría el issue).
 Con login, la conversación queda guardada en el server y se retoma desde el reloj del encabezado. La respuesta
 sigue llegando aunque se cierre el popover.
 

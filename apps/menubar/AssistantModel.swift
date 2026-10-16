@@ -31,6 +31,10 @@ final class AssistantModel: ObservableObject {
     @Published private(set) var available: Bool?
     /// Las propuestas que ya se ejecutaron (o se están ejecutando) y cómo terminaron.
     @Published private(set) var proposalState: [String: String] = [:]
+    /// La columna elegida para un issue que va al board (sin elegir: la que propuso el asistente, o Todo).
+    @Published var boardColumn: [String: String] = [:]
+    /// Cómo quedó un issue abierto desde el chat: su link y, si iba al board, dónde quedó o por qué no.
+    @Published private(set) var issueResults: [String: CreateIssueResult] = [:]
     /// Lo que viaja delante de la primera pregunta sin mostrarse (la mejora de «¿Por qué?»).
     private var preamble: String?
 
@@ -121,6 +125,8 @@ final class AssistantModel: ObservableObject {
         turns = []
         conversationId = nil
         proposalState = [:]
+        boardColumn = [:]
+        issueResults = [:]
     }
 
     func loadHistory() {
@@ -228,13 +234,15 @@ final class AssistantModel: ObservableObject {
         guard proposalState[proposal.id] == nil || proposalState[proposal.id]?.hasPrefix("✗") == true else { return }
         let detail: String
         switch proposal.kindName {
+        case "issue" where proposal.isBoardIssue:
+            detail = "Abre «\(proposal.title ?? "")» en \(proposal.repo ?? "") y lo suma al board en \(column(for: proposal))."
         case "issue": detail = "Abre «\(proposal.title ?? "")» en \(proposal.repo ?? "")."
         case "move": detail = "Mueve \(proposal.ref ?? "") de \(proposal.from ?? "sin columna") a \(proposal.status ?? ""): arranca el pipeline de esa columna."
         case "add_to_board": detail = "Suma \(proposal.issue ?? "") al board, en \(proposal.status ?? "la columna de entrada")."
         case "labels": detail = "En \(proposal.ref ?? ""): \(proposal.boardChange ?? "")."
         default: detail = "\(proposal.label) en \(proposal.ref ?? "")."
         }
-        let confirmLabel = ["issue": "Abrir issue", "move": "Mover", "add_to_board": "Agregar", "labels": "Aplicar"][proposal.kindName] ?? "Ejecutar"
+        let confirmLabel = proposal.isBoardIssue ? "Crear y agregar" : ["issue": "Abrir issue", "move": "Mover", "add_to_board": "Agregar", "labels": "Aplicar"][proposal.kindName] ?? "Ejecutar"
         runner.confirm?(ConfirmRequest(title: "¿\(proposal.label)?", detail: "\(detail)\n\n\(proposal.reason)",
                                        confirmLabel: confirmLabel) { [weak self] in
             self?.execute(proposal)
@@ -250,7 +258,14 @@ final class AssistantModel: ObservableObject {
             }
             proposalState[proposal.id] = "…"
             let client = RunnerClient(server: server)
-            if proposal.isIssue {
+            if proposal.isBoardIssue, let board = proposal.board {
+                let result = await client.createIssue(proposal, board: IssueBoard(project_id: board.project_id, status: chosenStatus(proposal)),
+                                                      github: session.token)
+                issueResults[proposal.id] = result
+                // `board_error` llega con ok: el issue ya existe, así que no es un ✗ (que ofrecería reintentar).
+                proposalState[proposal.id] = !result.ok ? "✗ \(result.message)" : result.board_error != nil ? "⚠ \(result.message)" : "✓ \(result.message)"
+                if result.ok { runner.refresh() }
+            } else if proposal.isIssue {
                 let result = await client.createIssue(proposal, github: session.token)
                 proposalState[proposal.id] = result.ok ? "✓ \(result.message)" : "✗ \(result.message)"
                 if result.ok, let url = result.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
@@ -264,6 +279,30 @@ final class AssistantModel: ObservableObject {
                 runner.refresh()
             }
         }
+    }
+
+    // MARK: issue al board
+
+    /// Las columnas del board del issue (las del proyecto en la bandeja); vacío si la bandeja no las trae.
+    func columns(for proposal: AssistantProposal) -> [String] {
+        guard let board = proposal.board else { return [] }
+        return runner.projects.first { $0.id == board.project_id }?.statuses ?? []
+    }
+
+    /// La columna que se muestra: la elegida, la que propuso el asistente (si el board la tiene) o Todo.
+    func column(for proposal: AssistantProposal) -> String {
+        if let chosen = boardColumn[proposal.id] { return chosen }
+        let columns = columns(for: proposal)
+        if let proposed = proposal.board?.status {
+            return columns.first { $0.caseInsensitiveCompare(proposed) == .orderedSame } ?? (columns.isEmpty ? proposed : "Todo")
+        }
+        return columns.first { $0.caseInsensitiveCompare("Todo") == .orderedSame } ?? "Todo"
+    }
+
+    /// Lo que viaja como `board.status`: nil para Todo (el runner sabe cuál es su columna de entrada).
+    private func chosenStatus(_ proposal: AssistantProposal) -> String? {
+        let column = column(for: proposal)
+        return column.caseInsensitiveCompare("Todo") == .orderedSame ? nil : column
     }
 
     /// Mover, sumar al board o cambiar labels, contra su endpoint; `nil` si no es una propuesta del board.
