@@ -96,11 +96,15 @@ export function mountInbox(
     settings: cfg.inbox,
     taskActions: (projectId) => taskActionsOf(cfg, projectId),
     capacity: () => capacityOf(mounted.executions?.stats, cfg.engine.executions?.maxConcurrent),
+    // La base vive en un disco de red: armarla cuesta ~1 s. Se rearma con cada cambio (`changed`).
+    cacheMs: 15_000,
   })
 
   const hub = new SseHub<RunnerStreamEvent>()
   const logs = new RunnerLogs()
   const changed = (ref: string | undefined) => {
+    // Lo que avisa a quien mira también suelta la bandeja ya armada: el próximo pedido la rearma.
+    inbox.invalidate()
     if (ref) hub.publish({ type: 'inbox', refs: [ref] })
   }
   const unsubscribe = [
@@ -110,7 +114,10 @@ export function mountInbox(
     store.improvements.onChange(() => hub.publish({ type: 'improvements' })),
     // La bandeja se sirve vieja mientras se relee: cuando la relectura trae cards distintas, quien
     // mira (la web, el menubar) se entera y vuelve a pedir — sin esperar los segundos del board.
-    boards.onCardsChanged((refs) => hub.publish({ type: 'inbox', refs })),
+    boards.onCardsChanged((refs) => {
+      inbox.invalidate()
+      hub.publish({ type: 'inbox', refs })
+    }),
     addLogSink(logs.sink),
   ]
 

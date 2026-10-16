@@ -48,6 +48,10 @@ export interface InboxServiceOptions {
    *  todo en cero en las tareas y la bandeja sin `pipeline`. */
   capacity?: () => RunnerCapacity
   now?: () => Date
+  /** Cuánto vale la bandeja (y los hechos de las tareas) ya armada: entre cambios, los pedidos
+   *  repetidos (la web y el menubar con varios abiertos) no la recalculan. Quien la monta llama
+   *  `invalidate` cuando algo cambia. Sin esto (0), se arma en cada pedido. */
+  cacheMs?: number
 }
 
 const TRACE_LIMIT = 200
@@ -64,8 +68,44 @@ function agentSaid(found: Classification, activity: TaskActivity): string | unde
   return undefined
 }
 
+interface ActivityContext {
+  live: Map<string, ExecutionSummary>
+  waiting: Set<string>
+  closed?: Map<string, ExecutionSummary>
+  lastEvents?: Map<string, string>
+}
+
 export class InboxService {
+  /** Lo ya armado, por vista y proyecto (`inbox:*`, `tasks:p`). La promesa: dos pedidos juntos
+   *  comparten el mismo armado. */
+  private readonly built = new Map<string, { at: number; value: Promise<unknown> }>()
+
   constructor(private readonly options: InboxServiceOptions) {}
+
+  /** Algo cambió (un evento despachado, una ejecución, las cards): lo próximo se arma de nuevo. */
+  invalidate(): void {
+    this.built.clear()
+  }
+
+  private cachedView<T>(
+    view: string,
+    projectId: string | undefined,
+    build: () => Promise<T>,
+  ): Promise<T> {
+    const ttl = this.options.cacheMs ?? 0
+    if (ttl <= 0) return build()
+    const key = `${view}:${projectId ?? '*'}`
+    const now = Date.now()
+    const hit = this.built.get(key)
+    if (hit && now - hit.at < ttl) return hit.value as Promise<T>
+    const value = build()
+    this.built.set(key, { at: now, value })
+    // Un armado que falla no queda guardado: el próximo pedido lo intenta de nuevo.
+    value.catch(() => {
+      if (this.built.get(key)?.value === value) this.built.delete(key)
+    })
+    return value
+  }
 
   private now(): Date {
     return this.options.now?.() ?? new Date()
@@ -148,16 +188,28 @@ export class InboxService {
     return (await this.cards()).find((card) => card.ref === ref)
   }
 
-  private activityOf(
-    ref: string,
-    live: Map<string, ExecutionSummary>,
-    waiting: Set<string>,
-  ): TaskActivity {
+  /** Lo que se lee de la actividad para varias cards, de una vez: las vivas, las que esperan turno
+   *  y —si el puerto lo sabe en lote— la última cerrada y el último evento de cada una. La base
+   *  del deploy vive en un disco de red: una consulta por card eran cientos por carga. */
+  private context(refs: string[]): ActivityContext {
     const { activity } = this.options
-    const lastClosed = activity
-      .executions({ taskRef: ref, statuses: ['done', 'failed', 'superseded'], limit: 1 })
-      .at(0)
-    const lastEventAt = activity.lastEventAt(ref)
+    return {
+      live: this.liveByTask(),
+      waiting: this.waitingTasks(),
+      ...(activity.lastClosedByTask ? { closed: activity.lastClosedByTask(refs) } : {}),
+      ...(activity.lastEventAtByTask ? { lastEvents: activity.lastEventAtByTask(refs) } : {}),
+    }
+  }
+
+  private activityOf(ref: string, context: ActivityContext): TaskActivity {
+    const { activity } = this.options
+    const { live, waiting } = context
+    const lastClosed = context.closed
+      ? context.closed.get(ref)
+      : activity
+          .executions({ taskRef: ref, statuses: ['done', 'failed', 'superseded'], limit: 1 })
+          .at(0)
+    const lastEventAt = context.lastEvents ? context.lastEvents.get(ref) : activity.lastEventAt(ref)
     const running = live.get(ref)
     return {
       waiting: waiting.has(ref),
@@ -253,14 +305,18 @@ export class InboxService {
     }
   }
 
-  async inbox(projectId?: string): Promise<Inbox> {
+  inbox(projectId?: string): Promise<Inbox> {
+    return this.cachedView('inbox', projectId, () => this.buildInbox(projectId))
+  }
+
+  private async buildInbox(projectId?: string): Promise<Inbox> {
     const cards = await this.cards(projectId)
-    const live = this.liveByTask()
-    const waiting = this.waitingTasks()
+    const context = this.context(cards.map((card) => card.ref))
+    const { live, waiting } = context
     const unlocks = unlocksOf(cards)
     const items: InboxItem[] = []
     for (const card of cards) {
-      const activity = this.activityOf(card.ref, live, waiting)
+      const activity = this.activityOf(card.ref, context)
       const found = classify(card, activity, this.classifyOptions())
       if (!found) continue
       const item = this.toItem(card, activity, found, unlocks.get(card.ref) ?? 0)
@@ -284,13 +340,16 @@ export class InboxService {
    * en qué orden va y cómo se llama lo decide el dashboard de quien mira. Cada tarea trae qué
    * acciones del runner (`taskActions`) aplican ahora, sin más filtro que su `available`.
    */
-  async tasks(projectId?: string): Promise<Tasks> {
+  tasks(projectId?: string): Promise<Tasks> {
+    return this.cachedView('tasks', projectId, () => this.buildTasks(projectId))
+  }
+
+  private async buildTasks(projectId?: string): Promise<Tasks> {
     const cards = await this.cards(projectId)
-    const live = this.liveByTask()
-    const waiting = this.waitingTasks()
+    const context = this.context(cards.map((card) => card.ref))
     const unlocks = unlocksOf(cards)
     const tasks: TaskFact[] = cards.map((card) => {
-      const activity = this.activityOf(card.ref, live, waiting)
+      const activity = this.activityOf(card.ref, context)
       const facts = this.factsOf(card, activity, unlocks.get(card.ref) ?? 0)
       const defs = this.options.taskActions?.(card.projectId) ?? {}
       const ids = availableTaskActions(defs, facts)
@@ -327,7 +386,7 @@ export class InboxService {
     const cards = await this.cards()
     const card = cards.find((candidate) => candidate.ref === ref)
     if (!card) return undefined
-    const activity = this.activityOf(ref, this.liveByTask(), this.waitingTasks())
+    const activity = this.activityOf(ref, this.context([ref]))
     return this.factsOf(card, activity, unlocksOf(cards).get(ref) ?? 0)
   }
 
@@ -336,7 +395,7 @@ export class InboxService {
     const cards = await this.cards()
     const card = cards.find((candidate) => candidate.ref === ref)
     if (!card) return undefined
-    const activity = this.activityOf(ref, this.liveByTask(), this.waitingTasks())
+    const activity = this.activityOf(ref, this.context([ref]))
     const found = classify(card, activity, this.classifyOptions()) ?? {
       group: 'idle',
       kind: 'idle',

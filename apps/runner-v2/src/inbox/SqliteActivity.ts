@@ -10,7 +10,7 @@ import type {
   StoredTraceRecord,
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { EventLogEntry, ExecutionSummary, TraceEntry } from '@ia-flow/shared'
-import type { ActivityPort, StoredEvent } from './ActivityPort.js'
+import { type ActivityPort, type StoredEvent, taskOfKey } from './ActivityPort.js'
 
 /** Los eventos que el engine despachó a algo (lo que tiene sentido volver a despachar). */
 const DISPATCHED = new Set(['dispatched', 'injected', 'resumed'])
@@ -140,6 +140,25 @@ export class SqliteActivity implements ActivityPort {
 
   executions(query: Parameters<ActivityPort['executions']>[0]) {
     return this.reader.executions(query).map((row) => this.summary(row))
+  }
+
+  /** La última cerrada de cada task: una sola lectura de las ejecuciones (son pocas: se podan) y el
+   *  resumen sólo de las que se piden. */
+  lastClosedByTask(taskRefs: string[]): Map<string, Summary> {
+    const wanted = new Set(taskRefs)
+    const latest = new Map<string, ExecutionOverview>()
+    for (const row of this.reader.executions({
+      statuses: ['done', 'failed', 'superseded'],
+      limit: 5_000,
+    })) {
+      const ref = taskOfKey(row.key).taskRef
+      if (ref && wanted.has(ref) && !latest.has(ref)) latest.set(ref, row)
+    }
+    return new Map([...latest].map(([ref, row]) => [ref, this.summary(row)]))
+  }
+
+  lastEventAtByTask(taskRefs: string[]): Map<string, string> {
+    return this.reader.lastEventAtByTask(taskRefs)
   }
 
   lastEventAt(taskRef: string): string | undefined {

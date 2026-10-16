@@ -22,6 +22,12 @@ export interface ActivityPort {
   }): Array<ExecutionSummary & { key: string; task_ref?: string; project_id?: string }>
   /** Cuándo llegó el último evento de una task (ISO). */
   lastEventAt(taskRef: string): string | undefined
+  /** Lo mismo que `executions({ taskRef, statuses: cerradas, limit: 1 })` y `lastEventAt`, para
+   *  varias tasks de una vez: la bandeja lo pide por cada card. Opcional: sin esto, una por una. */
+  lastClosedByTask?(
+    taskRefs: string[],
+  ): Map<string, ExecutionSummary & { key: string; task_ref?: string; project_id?: string }>
+  lastEventAtByTask?(taskRefs: string[]): Map<string, string>
   eventsForTask(taskRef: string, limit: number): EventLogEntry[]
   /** Lo último que llegó al runner (de un proyecto, o de todos). */
   recentEvents(limit: number, projectId?: string): EventLogEntry[]
