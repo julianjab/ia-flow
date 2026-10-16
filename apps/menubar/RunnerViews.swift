@@ -426,6 +426,17 @@ struct SearchField: View {
                     if runner.repoFilter == repo.name { Label(title, systemImage: "checkmark") } else { Text(title) }
                 }
             }
+            // El resto de la organización: sólo para buscar en GitHub (no están en el board).
+            let known = Set(runner.repos.map(\.name))
+            let others = runner.orgRepos.filter { !known.contains($0) }
+            if !others.isEmpty {
+                Divider()
+                Menu("Más repos de \(runner.organization ?? "la organización")") {
+                    ForEach(others, id: \.self) { repo in
+                        Button(repo) { runner.repoFilter = repo }
+                    }
+                }
+            }
         } label: {
             if let repo = runner.repoFilter {
                 RepoTag(repo: repo, chevron: true)
@@ -442,6 +453,7 @@ struct SearchField: View {
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
         .help("Filtrar por repo")
+        .onAppear { runner.loadOrgRepos() }
     }
 }
 

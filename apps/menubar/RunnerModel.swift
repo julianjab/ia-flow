@@ -134,6 +134,9 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var githubResults: [GithubIssue] = []
     /// Por qué no se buscó en GitHub (sin login, un error de la API).
     @Published private(set) var githubNote: String?
+    /// Todos los repos de la organización que ve tu login (para el selector y para buscar un número), por actividad.
+    @Published private(set) var orgRepos: [String] = []
+    private var orgReposAt: Date?
     private var boardCache: (items: [BoardItem], at: Date)?
     private var searchTask: Task<Void, Never>?
 
@@ -281,7 +284,9 @@ final class RunnerModel: ObservableObject {
             }
             var wanted = board.prefix(3).map(\.ref)
             // La ref exacta (o `repo#n` con un owner conocido) que no aparece en ningún lado: se pide igual.
-            let exact = search.fullRef ?? search.number.flatMap { n in search.repo.flatMap { ownerOf(repo: $0).map { "\($0)/\(search.repo!)#\(n)" } } }
+            let exact = search.fullRef ?? search.number.flatMap { n in
+                search.repo.flatMap { repo in (ownerOf(repo: repo) ?? organization).map { "\($0)/\(repo)#\(n)" } }
+            }
             if let exact, !inBox.contains(exact), !board.contains(where: { $0.ref == exact }) { wanted.append(exact) }
             var found: [InboxItem] = []
             var miss: String?
@@ -312,13 +317,22 @@ final class RunnerModel: ObservableObject {
     private func searchGithub(_ search: RunnerSearch, miss: String?, hiding shown: Set<String>) async -> ([GithubIssue], String?) {
         guard let org = organization ?? search.owner else { return ([], nil) }
         let wantsText = (search.text?.count ?? 0) >= 3
-        guard miss != nil || wantsText else { return ([], nil) }
+        // Un número suelto (`1881`): GitHub no busca por número en toda la org, así que se pide ese número en
+        // el repo elegido, o en los del board y los de actividad reciente.
+        let wantsNumber = search.number != nil && search.repo == nil && search.owner == nil
+        guard miss != nil || wantsText || wantsNumber else { return ([], nil) }
         guard let session = await validSession() else {
             return ([], "Inicia sesión con GitHub para buscar también en todos los repos de \(org).")
         }
         let github = GithubSearch(token: session.token)
         do {
             if let miss { return ((try await github.issue(miss)).map { [$0] } ?? [], nil) }
+            if wantsNumber, let number = search.number {
+                await loadOrgRepos(github, org: org)
+                let candidates = repoFilter.map { [$0] } ?? Self.unique(repos.map(\.name) + orgRepos.prefix(15))
+                let found = await github.issues(number: number, owner: org, repos: candidates)
+                return (found.filter { !shown.contains($0.ref) }, nil)
+            }
             let found = try await github.search(search.text ?? "", org: org, repo: repoFilter)
             return (found.filter { !shown.contains($0.ref) }, nil)
         } catch let error as RunnerError {
@@ -326,6 +340,27 @@ final class RunnerModel: ObservableObject {
         } catch {
             return ([], nil)
         }
+    }
+
+    /// Los repos de la organización, una vez por hora (con tu login).
+    func loadOrgRepos() {
+        guard !isFixture, let org = organization else { return }
+        Task { @MainActor in
+            guard let session = await validSession() else { return }
+            await loadOrgRepos(GithubSearch(token: session.token), org: org)
+        }
+    }
+
+    private func loadOrgRepos(_ github: GithubSearch, org: String) async {
+        if let at = orgReposAt, Date().timeIntervalSince(at) < 3600, !orgRepos.isEmpty { return }
+        guard let names = try? await github.repos(org: org) else { return }
+        orgRepos = names
+        orgReposAt = Date()
+    }
+
+    private static func unique(_ names: [String]) -> [String] {
+        var seen = Set<String>()
+        return names.filter { seen.insert($0.lowercased()).inserted }
     }
 
     func openIssue(_ issue: GithubIssue) { _ = URL(string: issue.url).map { NSWorkspace.shared.open($0) } }

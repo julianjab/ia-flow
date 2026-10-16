@@ -42,7 +42,9 @@ con su acción), las **mejoras propuestas** por la retrospectiva (abrirlas como 
 PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
 del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). Con
 login de GitHub busca además en **todos los repos de la organización** (aunque no estén en el board): issues por
-título (`search/issues`, desde 3 letras, respeta el repo elegido) o la ref exacta; va directo a api.github.com con tu
+título (`search/issues`, desde 3 letras, respeta el repo elegido), la ref exacta (`repo#n` también de un repo
+fuera del board) o un número suelto (se pide en el repo elegido, o en los del board y los 15 de actividad más
+reciente, en paralelo); el tag de repo suma «Más repos de la organización» (todos los que ve tu login); va directo a api.github.com con tu
 token, sólo lee y cada resultado sólo se abre en el navegador —no pasa por el runner ni toca el board—. **En vivo:** una tarea que corre trae «En vivo» (y cualquier tarea, «Ver la última ejecución» en ⋯): la traza de la
 ejecución que el runner guarda mientras corre (`GET /api/tasks/:owner/:repo/:n?execution=`, cada 3 s), plegada en pasos —
 cada tool una vez con su descripción o comando, el resultado y cuánto tardó (clic para ver input y resultado), los

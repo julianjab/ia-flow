@@ -51,6 +51,29 @@ struct GithubSearch {
         return page.items.compactMap(\.issue)
     }
 
+    /// Los repos de la organización que se pueden ver, del de actividad más reciente al más viejo (hasta 300).
+    func repos(org: String) async throws -> [String] {
+        struct Repo: Decodable { let name: String; let archived: Bool }
+        var names: [String] = []
+        for page in 1...3 {
+            let url = URL(string: "https://api.github.com/orgs/\(org)/repos?per_page=100&sort=pushed&page=\(page)")!
+            let batch: [Repo] = try await get(url)
+            names += batch.filter { !$0.archived }.map(\.name)
+            if batch.count < 100 { break }
+        }
+        return names
+    }
+
+    /// El mismo número en varios repos, en paralelo: los que existen y se pueden ver.
+    func issues(number: Int, owner: String, repos: [String]) async -> [GithubIssue] {
+        await withTaskGroup(of: GithubIssue?.self) { group in
+            for repo in repos { group.addTask { try? await issue("\(owner)/\(repo)#\(number)") } }
+            var found: [GithubIssue] = []
+            for await issue in group { if let issue { found.append(issue) } }
+            return found.sorted { $0.updatedAt > $1.updatedAt }
+        }
+    }
+
     /// Un issue o PR por su ref; nil si no existe o no se puede ver.
     func issue(_ ref: String) async throws -> GithubIssue? {
         guard let parts = RunnerSearch.split(ref),
