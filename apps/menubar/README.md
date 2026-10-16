@@ -61,7 +61,9 @@ toca el board.
 un PR, para abrirlo como issue o descartarlo. **«¿Por qué?»** abre un chat con el asistente sobre la tarea de la
 mejora: la mejora (agente, ejecución, razón, cuerpo) viaja delante de la primera pregunta sin mostrarse, y el
 asistente lee esa ejecución aunque la tarea ya no esté en el board (su issue se cerró con el merge). Arriba queda
-la mejora con su issue a un clic y sus acciones; la misma mejora retoma su chat, ✎ empieza otro.
+la mejora con su issue a un clic y sus acciones; la misma mejora retoma su chat, ✎ empieza otro. Si le pides ajustarla, el asistente
+cambia la card (`assistant_revise_improvement`) o guarda otra con el mismo destino (`assistant_add_improvement`),
+en vez de pegar el issue en el chat; la card de arriba y la lista se releen al terminar cada respuesta.
 
 **Al día:** con el popover o la ventana abiertos, el menú escucha `GET /api/stream` (SSE, como la web) y relee la
 bandeja y las mejoras cuando algo cambia (varios cambios seguidos, una sola relectura); «En vivo» se relee con la traza
