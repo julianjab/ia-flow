@@ -36,7 +36,7 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
-con su acción), cuántas **mejoras propuestas** esperan (llevan a su pantalla), lo que
+con su acción), lo que
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
 **Buscador:** un tag al inicio elige el repo (o todos; filtra todo aunque no se escriba nada) y cada tarea lleva el tag de su repo, del mismo color. Acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
 PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
@@ -51,7 +51,7 @@ número pide elegir repo (GitHub no busca por número en toda la org). `repo#n`,
 Va a api.github.com con tu login, sólo lee y cada resultado sólo se abre en el navegador: no pasa por el runner ni
 toca el board.
 
-**Mejoras propuestas** (el enlace naranja de la bandeja o la 💡 del pie): lo que dejó la retrospectiva al mergearse
+**Mejoras propuestas** («Mejoras · N» al pie de la bandeja, junto a «Logs del server»): lo que dejó la retrospectiva al mergearse
 un PR, para abrirlo como issue o descartarlo. **«¿Por qué?»** abre un chat con el asistente sobre la tarea de la
 mejora: la mejora (agente, ejecución, razón, cuerpo) viaja delante de la primera pregunta sin mostrarse, y el
 asistente lee esa ejecución aunque la tarea ya no esté en el board (su issue se cerró con el merge). Arriba queda
