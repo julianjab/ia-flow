@@ -5,11 +5,21 @@ import { browserDictation, browserSpeaker } from '@/features/assistant/voice/spe
 import { spanishVoices } from '@/features/assistant/voice/voices'
 
 // La voz del asistente: si lee las respuestas, si está en modo charla (lee y
-// vuelve a escuchar), con qué voz, y qué se está diciendo ahora. La lectura y la
-// voz elegida quedan en este navegador; la charla se prende a propósito cada vez.
+// vuelve a escuchar), con qué voz y a qué velocidad, y qué se está diciendo ahora.
+// La lectura, la voz y la velocidad quedan en este navegador; la charla se prende
+// a propósito cada vez.
 
 const READ_KEY = 'ia-flow.assistant.read-aloud'
 const VOICE_KEY = 'ia-flow.assistant.voice'
+const RATE_KEY = 'ia-flow.assistant.rate'
+
+/** Las velocidades que se ofrecen (1 es la normal de la voz). */
+export const RATES = [1, 1.25, 1.5, 1.75, 2] as const
+
+function loadRate(): number {
+  const rate = Number(load(RATE_KEY))
+  return (RATES as readonly number[]).includes(rate) ? rate : 1
+}
 
 function load(key: string): string | null {
   try {
@@ -34,6 +44,7 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
   const read = ref(speaker !== null && load(READ_KEY) === '1')
   const talk = ref(false)
   const voiceId = ref<string | null>(load(VOICE_KEY))
+  const rate = ref(loadRate())
   const voices = ref(spanishVoices(speaker?.voices() ?? [], globalThis.navigator?.language))
   /** Qué se está diciendo (la clave que pasó quien lo pidió), o `null`. */
   const speaking = ref<string | null>(null)
@@ -56,10 +67,14 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
   function say(markdown: string, key: string, after?: () => void): void {
     if (!speaker) return
     speaking.value = key
-    speaker.speak(spokenParts(markdown), voice.value?.id ?? null, () => {
-      speaking.value = null
-      after?.()
-    })
+    speaker.speak(
+      spokenParts(markdown),
+      { voiceId: voice.value?.id ?? null, rate: rate.value },
+      () => {
+        speaking.value = null
+        after?.()
+      },
+    )
   }
 
   function cancel(): void {
@@ -93,6 +108,12 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     save(VOICE_KEY, id)
   }
 
+  /** La próxima lectura sale a esta velocidad (la que está sonando sigue igual). */
+  function chooseRate(value: number): void {
+    rate.value = value
+    save(RATE_KEY, String(value))
+  }
+
   return {
     supported,
     talkSupported,
@@ -100,6 +121,7 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     talk,
     voices,
     voice,
+    rate,
     speaking,
     listenTick,
     wantsSpeech,
@@ -109,5 +131,6 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     toggleRead,
     toggleTalk,
     chooseVoice,
+    chooseRate,
   }
 })

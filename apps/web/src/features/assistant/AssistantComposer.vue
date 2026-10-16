@@ -5,7 +5,7 @@ import { dropScopeQuery, scopeQuery, typedRef } from '@/features/assistant/scope
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
 import { browserDictation } from '@/features/assistant/voice/speech';
 import { useDictation } from '@/features/assistant/voice/useDictation';
-import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
+import { RATES, useVoiceStore } from '@/features/assistant/voice/voiceStore';
 
 // La caja de pregunta, con el contexto de la conversación encima: una chip que se
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
@@ -194,16 +194,28 @@ function onKeydown(e: KeyboardEvent) {
       ● Escuchando · terminá con «enviar» o quedate callado 4 s para mandarla
     </p>
     <p v-else-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
-    <p v-if="voice.wantsSpeech && voice.voices.length > 1" class="co__ctx">
-      <label class="co__lbl" for="assistant-voice">Voz</label>
+    <p v-if="voice.wantsSpeech" class="co__ctx">
+      <template v-if="voice.voices.length > 1">
+        <label class="co__lbl" for="assistant-voice">Voz</label>
+        <select
+          id="assistant-voice"
+          class="co__voice"
+          data-test="voice-pick"
+          :value="voice.voice?.id"
+          @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
+        >
+          <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
+        </select>
+      </template>
+      <label class="co__lbl" for="assistant-rate">Velocidad</label>
       <select
-        id="assistant-voice"
+        id="assistant-rate"
         class="co__voice"
-        data-test="voice-pick"
-        :value="voice.voice?.id"
-        @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
+        data-test="rate-pick"
+        :value="voice.rate"
+        @change="voice.chooseRate(Number(($event.target as HTMLSelectElement).value))"
       >
-        <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
+        <option v-for="r in RATES" :key="r" :value="r">{{ r }}×</option>
       </select>
     </p>
   </form>

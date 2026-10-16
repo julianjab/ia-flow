@@ -11,10 +11,16 @@ export interface VoiceOption {
   local: boolean
 }
 
+/** Con qué voz y a qué velocidad se lee (`rate` 1 es la normal). */
+export interface SpeakOptions {
+  voiceId: string | null
+  rate: number
+}
+
 /** Lee en voz alta. `speak` corta lo que se estaba diciendo; `onDone` llega al terminar de decir
  *  todo (no si se cortó). */
 export interface Speaker {
-  speak(parts: string[], voiceId: string | null, onDone?: () => void): void
+  speak(parts: string[], options: SpeakOptions, onDone?: () => void): void
   cancel(): void
   voices(): VoiceOption[]
   /** Las voces llegan tarde en algunos navegadores: avisa cuando cambian. */
@@ -43,7 +49,7 @@ export function browserSpeaker(): Speaker | null {
   /** Sube con cada `speak`/`cancel`: el `onend` de una lectura cortada no avisa. */
   let turn = 0
   return {
-    speak(parts, voiceId, onDone) {
+    speak(parts, { voiceId, rate }, onDone) {
       turn++
       synth.cancel()
       const mine = turn
@@ -52,6 +58,7 @@ export function browserSpeaker(): Speaker | null {
         const utterance = new Utterance(part)
         utterance.lang = voice?.lang ?? spanish()
         if (voice) utterance.voice = voice
+        utterance.rate = rate
         if (i === parts.length - 1) {
           utterance.onend = () => {
             if (mine === turn) onDone?.()
