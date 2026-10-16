@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { GithubClient } from '@ia-flow/github-api'
 import type { IssueRef } from '@ia-flow/github-tools'
-import type { InboxItem } from '@ia-flow/shared'
 import { BoardMoves, issueOf } from './BoardMoves.js'
 import type { BoardCard } from './classify.js'
 
@@ -47,6 +46,7 @@ function setup(
     push?: boolean
     holds?: boolean
     projects?: string[]
+    failColumn?: boolean
   } = {},
 ) {
   const cards = options.cards ?? [todo]
@@ -57,22 +57,15 @@ function setup(
   const moves = new BoardMoves({
     inbox: {
       card: async (ref) => cards.find((card) => card.ref === ref),
-      item: async (ref) =>
-        cards.some((card) => card.ref === ref)
-          ? ({
-              ref,
-              ...(options.live
-                ? { execution: { id: 'e', pipeline_id: 'x', status: options.live, started_at: '' } }
-                : {}),
-            } as InboxItem)
-          : undefined,
     },
+    isLive: () => options.live !== undefined,
     board: () => ({
       describe: () => 'o#1',
       meta: async () => ({ url: '', boardUrl: '', statuses: ['Todo', 'Refine', 'Build'] }),
       holds: () => options.holds ?? true,
       writerFor: (by) => ({
         setFields: async (issue, set) => {
+          if (options.failColumn) throw new Error('el item no está en el proyecto')
           written.push({ issue, set, by })
         },
       }),
@@ -191,5 +184,22 @@ describe('adding an issue to the board', () => {
       status: 404,
     })
     expect(await moves.add({ issue: 'o/r#2', project_id: 'q' }, julian)).toMatchObject({ ok: true })
+  })
+
+  it('never moves, while adding, a card an agent is working on', async () => {
+    const { moves, added } = setup({ cards: [], live: 'running', issues: { 2: open } })
+    await expect(moves.add({ issue: 'o/r#2' }, julian)).rejects.toThrow('agente corriendo')
+    expect(added).toEqual([])
+  })
+
+  it('says what was left done when GitHub refuses the column', async () => {
+    const { moves, added, changed } = setup({ failColumn: true, issues: { 2: open } })
+    const error = moves.add({ issue: 'o/r#2' }, julian)
+    await expect(error).rejects.toMatchObject({ status: 502 })
+    await expect(error).rejects.toThrow(
+      'O/R#2 quedó en el board, pero no pude ponerle la columna Todo',
+    )
+    expect(added).toEqual(['I_2'])
+    expect(changed).toEqual(['O/R#2'])
   })
 })
