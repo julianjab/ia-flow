@@ -122,6 +122,10 @@ const ISSUE_REF = 'number state url repository { name owner { login } }'
 interface Optional {
   blockers: boolean
   epic: boolean
+  /** `items(query: "is:open")`: GitHub filtra los cerrados de su lado. Un Project con historia
+   *  tiene mucho más cerrado que abierto (la-haus#119: 203 items, 28 abiertos): sin el filtro son
+   *  3 páginas pesadas en serie (~4,5 s); con él, una (~0,9 s). */
+  openOnly: boolean
 }
 
 const PARENT =
@@ -130,11 +134,12 @@ const PARENT =
 const itemsQuery = ({
   blockers,
   epic,
+  openOnly,
 }: Optional) => `query($owner: String!, $number: Int!, $after: String) {
   repositoryOwner(login: $owner) {
     ... on ProjectV2Owner {
     projectV2(number: $number) {
-      items(first: 100, after: $after) {
+      items(first: 100, after: $after${openOnly ? ', query: "is:open"' : ''}) {
         pageInfo { hasNextPage endCursor }
         nodes {
           id updatedAt isArchived
@@ -213,7 +218,7 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
 export class BoardReader {
   /** GitHub todavía no expone `blockedBy` ni `parent`/`subIssuesSummary` en todos lados: lo que
    *  la query rechace, se deja de pedir. */
-  private readonly optional: Optional = { blockers: true, epic: true }
+  private readonly optional: Optional = { blockers: true, epic: true, openOnly: true }
 
   constructor(private readonly client: GithubClient) {}
 
@@ -283,6 +288,11 @@ export class BoardReader {
     }
     if (this.optional.blockers && /blockedBy/.test(message)) {
       this.optional.blockers = false
+      return true
+    }
+    // Un GitHub (o un GHES) sin `items(query:)`: se pagina todo y se filtran los cerrados acá.
+    if (this.optional.openOnly && /\bquery\b/.test(message)) {
+      this.optional.openOnly = false
       return true
     }
     return false

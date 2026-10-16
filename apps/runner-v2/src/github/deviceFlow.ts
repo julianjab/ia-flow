@@ -16,8 +16,11 @@ const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
 export class RefreshRejectedError extends Error {}
 
 export interface DeviceFlowOptions {
-  /** El client id de la GitHub App (`github.clientId` / IA_FLOW_GITHUB_CLIENT_ID). */
+  /** El client id (`github.clientId` / IA_FLOW_GITHUB_CLIENT_ID): de una GitHub App o de una OAuth App. */
   clientId: string
+  /** Los scopes (`github.scopes` / IA_FLOW_GITHUB_SCOPES), separados por espacio. Una OAuth App sin
+   *  scopes da un token que sólo lee lo público; una GitHub App los ignora. */
+  scopes?: string
   fetchImpl?: typeof fetch
 }
 
@@ -43,8 +46,10 @@ export class DeviceFlow {
   }
 
   async start(): Promise<DeviceCode> {
+    const scope = this.options.scopes?.trim()
     const data = await postForm(this.fetchImpl, DEVICE_CODE_URL, {
       client_id: this.options.clientId,
+      ...(scope ? { scope } : {}),
     })
     if (typeof data.device_code !== 'string') {
       throw new Error(`GitHub no devolvió un device code: ${JSON.stringify(data)}`)

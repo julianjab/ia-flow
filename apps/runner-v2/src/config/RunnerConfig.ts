@@ -179,8 +179,12 @@ export const RunnerFileSchema = z.strictObject({
       installationId: z.string().optional(),
       /** La ruta al PEM de la App: relativa a `runner.yaml`, `~/…` o absoluta. El PEM, nunca en git. */
       privateKeyPath: z.string().optional(),
-      /** El client id de la GitHub App: el login de cada persona en la web (device flow). */
+      /** El client id del login de cada persona en la web (device flow): de una GitHub App, o de
+       *  una OAuth App si se quiere que el token actúe en todo lo que la persona ve. */
       clientId: z.string().optional(),
+      /** Los scopes que pide ese login, separados por espacio: sólo para una OAuth App (`repo
+       *  project read:org`); una GitHub App los ignora — sus permisos son los de la App. */
+      scopes: z.string().optional(),
     })
     .optional(),
   /** Los defaults de cada provider para todos sus agentes (`anthropic-api: { maxTokens, … }`). */
@@ -557,6 +561,7 @@ const GITHUB_ENV: Record<string, string> = {
   installationId: 'IA_FLOW_GITHUB_APP_INSTALLATION_ID',
   privateKeyPath: 'IA_FLOW_GITHUB_APP_PRIVATE_KEY_PATH',
   clientId: 'IA_FLOW_GITHUB_CLIENT_ID',
+  scopes: 'IA_FLOW_GITHUB_SCOPES',
 }
 
 export interface RunnerEnvReport {

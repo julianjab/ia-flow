@@ -101,7 +101,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health }
+    enum Screen { case inbox, logs, run, health, github }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -128,12 +128,15 @@ final class RunnerModel: ObservableObject {
     /// Las tareas buscadas fuera de la bandeja, ya con sus acciones (las primeras del board, o la ref exacta).
     @Published private(set) var lookups: [InboxItem] = []
     @Published private(set) var searching = false
-    /// La ref exacta que se buscó y no está en ningún board del runner (ni se encontró en GitHub).
+    /// La ref exacta que se buscó y no está en ningún board del runner.
     @Published private(set) var lookupMiss: String?
-    /// Lo que coincide en GitHub fuera del runner (toda la organización): sólo para abrirlo.
-    @Published private(set) var githubResults: [GithubIssue] = []
-    /// Por qué no se buscó en GitHub (sin login, un error de la API).
-    @Published private(set) var githubNote: String?
+    /// El stream del runner (SSE) está conectado: la bandeja se relee cuando algo cambia, no cada 6 s.
+    @Published private(set) var live = false
+    private let stream = RunnerStream()
+    private var pendingRefresh: DispatchWorkItem?
+    private var pendingTrace: DispatchWorkItem?
+    /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
+    @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
     private var searchTask: Task<Void, Never>?
 
@@ -251,7 +254,7 @@ final class RunnerModel: ObservableObject {
     }
     var resultCount: Int {
         shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
-            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count + githubResults.count
+            + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count
     }
 
     func clearSearch() { query = "" }
@@ -261,7 +264,7 @@ final class RunnerModel: ObservableObject {
     private func searchChanged() {
         searchTask?.cancel()
         guard let search, !isFixture else {
-            boardResults = []; lookups = []; lookupMiss = nil; githubResults = []; githubNote = nil; searching = false
+            boardResults = []; lookups = []; lookupMiss = nil; searching = false
             return
         }
         let server = selected
@@ -281,7 +284,9 @@ final class RunnerModel: ObservableObject {
             }
             var wanted = board.prefix(3).map(\.ref)
             // La ref exacta (o `repo#n` con un owner conocido) que no aparece en ningún lado: se pide igual.
-            let exact = search.fullRef ?? search.number.flatMap { n in search.repo.flatMap { ownerOf(repo: $0).map { "\($0)/\(search.repo!)#\(n)" } } }
+            let exact = search.fullRef ?? search.number.flatMap { n in
+                search.repo.flatMap { repo in (ownerOf(repo: repo) ?? organization).map { "\($0)/\(repo)#\(n)" } }
+            }
             if let exact, !inBox.contains(exact), !board.contains(where: { $0.ref == exact }) { wanted.append(exact) }
             var found: [InboxItem] = []
             var miss: String?
@@ -292,13 +297,6 @@ final class RunnerModel: ObservableObject {
             boardResults = board
             lookups = found
             lookupMiss = miss
-            // GitHub: lo que no es del runner, en toda la organización —sólo lectura, con tu login—.
-            let shown = inBox.union(board.map(\.ref)).union(found.map(\.ref))
-            let (issues, note) = await searchGithub(search, miss: miss, hiding: shown)
-            guard !Task.isCancelled, server == selected else { return }
-            githubResults = issues
-            githubNote = note
-            if let miss, issues.contains(where: { $0.ref == miss }) { lookupMiss = nil }
         }
     }
 
@@ -308,27 +306,17 @@ final class RunnerModel: ObservableObject {
         return refs.lazy.compactMap(RunnerSearch.split).first?.owner
     }
 
-    /// Una ref exacta que el runner no tiene se pide directo; un texto (desde 3 letras), por título en la organización.
-    private func searchGithub(_ search: RunnerSearch, miss: String?, hiding shown: Set<String>) async -> ([GithubIssue], String?) {
-        guard let org = organization ?? search.owner else { return ([], nil) }
-        let wantsText = (search.text?.count ?? 0) >= 3
-        guard miss != nil || wantsText else { return ([], nil) }
-        guard let session = await validSession() else {
-            return ([], "Inicia sesión con GitHub para buscar también en todos los repos de \(org).")
-        }
-        let github = GithubSearch(token: session.token)
-        do {
-            if let miss { return ((try await github.issue(miss)).map { [$0] } ?? [], nil) }
-            let found = try await github.search(search.text ?? "", org: org, repo: repoFilter)
-            return (found.filter { !shown.contains($0.ref) }, nil)
-        } catch let error as RunnerError {
-            return ([], "GitHub no respondió la búsqueda: \(error.message)")
-        } catch {
-            return ([], nil)
-        }
+    /// Abre la pantalla «GitHub», con lo que se estaba buscando (y el repo del tag) si se viene de la bandeja.
+    func showGithub(query: String? = nil, repo: String? = nil) {
+        let org = organization ?? UserDefaults.standard.string(forKey: "githubOrg") ?? "la-haus"
+        if !isFixture, organization != nil { UserDefaults.standard.set(org, forKey: "githubOrg") }
+        let model = githubSearch?.org == org ? githubSearch! : (isFixture ? GithubSearchModel.fixture(runner: self)
+                                                                         : GithubSearchModel(org: org, runner: self))
+        githubSearch = model
+        if let repo { model.repo = repo }
+        if let query { model.query = query }
+        screen = .github
     }
-
-    func openIssue(_ issue: GithubIssue) { _ = URL(string: issue.url).map { NSWorkspace.shared.open($0) } }
 
     /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
     private func ownerOf(repo: String) -> String? {
@@ -363,6 +351,8 @@ final class RunnerModel: ObservableObject {
         comment = nil
         resetLogs()
         refresh()
+        // El stream es de un server: si estaba abierto, se reabre contra el nuevo.
+        if stream.server != nil { startStream() }
     }
 
     func reloadServers() {
@@ -543,6 +533,49 @@ final class RunnerModel: ObservableObject {
         sessions[selected.baseUrl] = nil
         saveGithubSessions(sessions)
         objectWillChange.send()
+    }
+
+    // MARK: en vivo (SSE)
+
+    /// Con el popover o la ventana abiertos: escuchar `/api/stream` del server elegido.
+    func startStream() {
+        guard !isFixture else { return }
+        stream.onState = { [weak self] state in self?.live = state == .live }
+        stream.onEvent = { [weak self] event in self?.handle(event) }
+        stream.start(selected)
+    }
+
+    /// Con todo cerrado: en reposo no queda ninguna conexión abierta.
+    func stopStream() {
+        stream.stop()
+        live = false
+    }
+
+    private func handle(_ event: RunnerStreamEvent) {
+        switch event.type {
+        case "inbox", "improvements": refreshSoon()
+        case "trace":
+            // Sólo si «En vivo» mira esa ejecución (o la última de la tarea, que es la que corre).
+            guard let watch = watching, let id = event.entry?.execution_id,
+                  watch.execution == nil || watch.execution?.id == id else { return }
+            pendingTrace?.cancel()
+            let work = DispatchWorkItem { [weak watch] in watch?.poll() }
+            pendingTrace = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+        default: break
+        }
+    }
+
+    /// Varios cambios seguidos (un webhook mueve varias cosas) son una sola relectura; si hay una en vuelo, se
+    /// espera a que termine para no perder el cambio.
+    private func refreshSoon() {
+        pendingRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            if self.loading { self.refreshSoon() } else { self.refresh() }
+        }
+        pendingRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
 
     // MARK: estado del runner
