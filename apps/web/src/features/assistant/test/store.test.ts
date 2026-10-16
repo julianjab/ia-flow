@@ -29,7 +29,10 @@ vi.mock('../api', () => ({
   addToBoard: (...a: unknown[]) => addToBoard(...a),
   changeLabels: (...a: unknown[]) => changeLabels(...a),
   fetchRunner: () => fetchRunner(),
-  fetchTasks: async () => [{ ref: 'acme/api#7', title: 'Algo', group: 'need', kind: 'merge' }],
+  fetchTasks: async () => ({
+    items: [{ ref: 'acme/api#7', title: 'Algo', group: 'need', kind: 'merge' }],
+    statuses: { core: ['Todo', 'Refine', 'Build'] },
+  }),
 }))
 
 import { useGithubSessionStore } from '@/stores/githubSession'
@@ -257,6 +260,79 @@ describe('useAssistantChatStore', () => {
     )
   })
 
+  it('un issue para el board se abre en la columna elegida y guarda dónde quedó', async () => {
+    const issue: AssistantProposal = {
+      id: 'i1',
+      kind: 'issue',
+      repo: 'acme/api',
+      title: 'Exportar CSV',
+      body: 'B',
+      board: { project_id: 'core', status: 'Todo' },
+      label: 'Abrir y sumar al board',
+      reason: 'lo pidió la persona',
+    }
+    script = async function* () {
+      yield { type: 'proposal', proposal: issue }
+      yield { type: 'done', text: '' }
+    }
+    createIssue.mockResolvedValue({
+      ok: true,
+      message: 'acme/api#9 abierto',
+      url: 'https://github.com/acme/api/issues/9',
+      board_status: 'Refine',
+    })
+    const chat = useAssistantChatStore()
+    await chat.send('armá un issue')
+    const id = chat.turns.find((t) => t.kind === 'proposal')?.id as number
+
+    await chat.runProposal(id, 'gho_1', { status: 'Refine' })
+    expect(createIssue).toHaveBeenCalledWith(
+      { ...issue, board: { project_id: 'core', status: 'Refine' } },
+      'gho_1',
+    )
+    expect(chat.turns.find((t) => t.id === id)).toMatchObject({
+      status: 'done',
+      url: 'https://github.com/acme/api/issues/9',
+      boardStatus: 'Refine',
+    })
+
+    script = say('ok')
+    await chat.send('¿y?')
+    expect(requests.at(-1)?.messages.at(-1)?.content).toContain('(en el board, en Refine)')
+  })
+
+  it('un issue abierto que no quedó en el board queda hecho (no se reintenta) con el motivo', async () => {
+    const issue: AssistantProposal = {
+      id: 'i2',
+      kind: 'issue',
+      repo: 'acme/api',
+      title: 'T',
+      body: 'B',
+      board: { project_id: 'core' },
+      label: 'Abrir',
+      reason: 'r',
+    }
+    script = async function* () {
+      yield { type: 'proposal', proposal: issue }
+      yield { type: 'done', text: '' }
+    }
+    createIssue.mockResolvedValue({
+      ok: true,
+      message: 'acme/api#10 abierto',
+      url: 'https://github.com/acme/api/issues/10',
+      board_error: 'sin permisos en el Project',
+    })
+    const chat = useAssistantChatStore()
+    await chat.send('a')
+    const id = chat.turns.find((t) => t.kind === 'proposal')?.id as number
+    await chat.runProposal(id, 'gho_1')
+    expect(createIssue).toHaveBeenCalledWith(issue, 'gho_1')
+    expect(chat.turns.find((t) => t.id === id)).toMatchObject({
+      status: 'done',
+      boardError: 'sin permisos en el Project',
+    })
+  })
+
   it('descartar deja una nota; un rechazo del runner deja la propuesta abierta con su error', async () => {
     script = async function* () {
       yield { type: 'proposal', proposal }
@@ -348,6 +424,7 @@ describe('useAssistantChatStore', () => {
     await one.loadProjects()
     expect(one.scope).toEqual({ kind: 'project', project_id: 'core' })
     expect(one.tasks.map((t) => t.ref)).toEqual(['acme/api#7'])
+    expect(one.statuses).toEqual({ core: ['Todo', 'Refine', 'Build'] })
 
     setActivePinia(createPinia())
     fetchRunner.mockResolvedValue({

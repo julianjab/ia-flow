@@ -12,6 +12,7 @@ import {
   createIssue,
   executeProposal,
   fetchRunner,
+  fetchTasks,
   moveTask,
   streamAssistant,
 } from '../api'
@@ -173,6 +174,53 @@ describe('executeProposal / createIssue / fetchRunner', () => {
     expect(url).toBe('/api/issues')
     expect(body).toEqual({ repo: 'o/r', title: 'T', body: 'B', labels: ['x'] })
     expect(config.headers['x-github-token']).toBe('gho_1')
+  })
+
+  it('con board, el issue se pide abierto y sumado a ese proyecto en la columna elegida', async () => {
+    const post = vi.spyOn(axios, 'post').mockResolvedValue({
+      status: 200,
+      data: {
+        ok: true,
+        message: 'o/r#4 abierto',
+        url: 'https://github.com/o/r/issues/4',
+        board_error: 'el Project no acepta el repo',
+      },
+    })
+    const result = await createIssue(
+      { repo: 'o/r', title: 'T', body: 'B', board: { project_id: 'core', status: 'Refine' } },
+      'gho_1',
+    )
+    expect(result).toMatchObject({ ok: true, board_error: 'el Project no acepta el repo' })
+    expect(post.mock.calls[0]?.[1]).toEqual({
+      repo: 'o/r',
+      title: 'T',
+      body: 'B',
+      board: { project_id: 'core', status: 'Refine' },
+    })
+
+    // Sin columna: el runner lo deja en Todo.
+    await createIssue({ repo: 'o/r', title: 'T', body: 'B', board: { project_id: 'core' } }, 'g')
+    expect(post.mock.calls[1]?.[1]).toEqual({
+      repo: 'o/r',
+      title: 'T',
+      body: 'B',
+      board: { project_id: 'core' },
+    })
+  })
+
+  it('fetchTasks trae las tareas y las columnas de cada proyecto de /api/inbox', async () => {
+    const get = vi.spyOn(axios, 'get').mockResolvedValue({
+      data: {
+        generated_at: 'x',
+        projects: [
+          { id: 'core', board: { owner: 'a', number: 1 }, statuses: ['Todo', 'Refine'] },
+          { id: 'old', board: { owner: 'b', number: 2 } },
+        ],
+        items: [],
+      },
+    })
+    expect(await fetchTasks()).toEqual({ items: [], statuses: { core: ['Todo', 'Refine'] } })
+    expect(get).toHaveBeenCalledWith('/api/inbox')
   })
 
   it('fetchRunner lee los proyectos y los agentes del asistente de /api/runner', async () => {

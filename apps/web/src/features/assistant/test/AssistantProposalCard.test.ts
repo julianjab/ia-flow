@@ -115,4 +115,93 @@ describe('AssistantProposalCard', () => {
     expect(done.text()).toContain('✓ Aplicado · labels: +e2e-test, -blocked')
     expect(done.find('[data-test="run"]').exists()).toBe(false)
   })
+
+  describe('issue para el board', () => {
+    const boardIssue: AssistantProposal = {
+      ...issue,
+      id: 'b1',
+      board: { project_id: 'core', status: 'Refine' },
+    } as AssistantProposal
+    const statuses = ['Todo', 'Refine', 'Build']
+
+    it('muestra repo, título, cuerpo y la columna propuesta; confirma con la elegida', async () => {
+      const wrapper = card({ proposal: boardIssue, status: 'open', statuses })
+      expect(wrapper.get('[data-test="issue-title"]').text()).toBe('Cortar el loop del reviewer')
+      expect(wrapper.text()).toContain('julianjab/ia-flow')
+      expect(wrapper.get('[data-test="issue-body"]').text()).toContain('Se re-dispara.')
+      const select = wrapper.get<HTMLSelectElement>('[data-test="board-column"]')
+      expect(select.findAll('option').map((o) => o.text())).toEqual(statuses)
+      expect(select.element.value).toBe('Refine')
+      const run = wrapper.get('[data-test="run"]')
+      expect(run.text()).toBe('Crear y agregar al board')
+
+      await select.setValue('Build')
+      await run.trigger('click')
+      expect(wrapper.emitted('run')).toEqual([[{ status: 'Build' }]])
+    })
+
+    it('sin columna propuesta (o una que el board no tiene) preselecciona Todo', () => {
+      const wrapper = card({
+        proposal: { ...boardIssue, board: { project_id: 'core', status: 'Nope' } },
+        status: 'open',
+        statuses: ['Backlog', 'To do', 'Done'],
+      })
+      expect(wrapper.get<HTMLSelectElement>('[data-test="board-column"]').element.value).toBe(
+        'To do',
+      )
+    })
+
+    it('sin las columnas del proyecto no hay selector y se manda la propuesta tal cual', async () => {
+      const wrapper = card({ proposal: boardIssue, status: 'open' })
+      expect(wrapper.find('[data-test="board-column"]').exists()).toBe(false)
+      expect(wrapper.get('[data-test="board"]').text()).toBe('→ Refine · core')
+      await wrapper.get('[data-test="run"]').trigger('click')
+      expect(wrapper.emitted('run')).toEqual([[{ status: 'Refine' }]])
+    })
+
+    it('las columnas que llegan después preseleccionan la propuesta', async () => {
+      const wrapper = card({ proposal: boardIssue, status: 'open' })
+      await wrapper.setProps({ statuses })
+      expect(wrapper.get<HTMLSelectElement>('[data-test="board-column"]').element.value).toBe(
+        'Refine',
+      )
+    })
+
+    it('hecho: dice en qué columna quedó y linkea el issue', () => {
+      const wrapper = card({
+        proposal: boardIssue,
+        status: 'done',
+        statuses,
+        message: 'julianjab/ia-flow#77 abierto',
+        url: 'https://github.com/julianjab/ia-flow/issues/77',
+        boardStatus: 'Build',
+      })
+      const done = wrapper.get('[data-test="done"]')
+      expect(done.text().replace(/\s+/g, ' ')).toBe('✓ julianjab/ia-flow#77 abierto y en Build')
+      expect(done.get('a').attributes('href')).toBe(
+        'https://github.com/julianjab/ia-flow/issues/77',
+      )
+      expect(wrapper.find('[data-test="board-column"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="board-error"]').exists()).toBe(false)
+    })
+
+    it('abierto pero fuera del board: link al issue, el motivo y ningún botón para reintentar', () => {
+      const wrapper = card({
+        proposal: boardIssue,
+        status: 'done',
+        url: 'https://github.com/julianjab/ia-flow/issues/78',
+        boardError: 'sin permisos en el Project',
+      })
+      const done = wrapper.get('[data-test="done"]')
+      expect(done.text().replace(/\s+/g, ' ')).toBe('✓ julianjab/ia-flow#78 abierto')
+      expect(done.get('a').attributes('href')).toBe(
+        'https://github.com/julianjab/ia-flow/issues/78',
+      )
+      expect(wrapper.get('[data-test="board-error"]').text()).toContain(
+        'sin permisos en el Project',
+      )
+      expect(wrapper.find('[data-test="run"]').exists()).toBe(false)
+      expect(wrapper.find('button').exists()).toBe(false)
+    })
+  })
 })

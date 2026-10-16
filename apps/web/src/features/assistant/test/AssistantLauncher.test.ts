@@ -10,7 +10,7 @@ vi.mock('../api', () => ({
   streamAssistant: () => script(),
   executeProposal: (...a: unknown[]) => executeProposal(...a),
   fetchRunner: async () => ({ projects: [], agents: [] }),
-  fetchTasks: async () => [],
+  fetchTasks: async () => ({ items: [], statuses: {} }),
   listConversations: async () => [],
 }))
 
