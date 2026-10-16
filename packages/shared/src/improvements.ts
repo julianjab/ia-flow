@@ -21,8 +21,9 @@ export type ImprovementStatus = z.infer<typeof ImprovementStatusSchema>
 export const ImprovementProposalSchema = z.object({
   id: z.string(),
   created_at: z.string(),
-  /** La tarea de la que sale (`owner/repo#n`). */
-  task_ref: z.string(),
+  /** La tarea de la que sale (`owner/repo#n`). Sin ella, una mejora de config o del engine que se
+   *  propuso desde el chat general o de un proyecto. */
+  task_ref: z.string().optional(),
   /** El PR mergeado que la disparó. */
   pr_url: z.string().optional(),
   /** El agente que la propuso y su ejecución (la evidencia). */

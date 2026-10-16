@@ -203,7 +203,8 @@ struct RunnerLogs: Codable {
 struct Improvement: Codable, Identifiable, Hashable {
     let id: String
     let created_at: String
-    let task_ref: String
+    /// La tarea de la que sale; nil en una de config o del engine propuesta desde el chat general.
+    let task_ref: String?
     let pr_url: String?
     let agent: String
     /// `docs`, `config` o `engine`: dónde se arregla.
@@ -216,6 +217,16 @@ struct Improvement: Codable, Identifiable, Hashable {
     let status: String
     /// La ejecución del agente que la propuso: la evidencia de por qué.
     var execution_id: String? = nil
+
+    /// El nombre del repo de donde sale (el de su tarea; sin tarea, el del issue): lo que filtra el tag del buscador.
+    var originRepo: String {
+        task_ref.flatMap { RunnerSearch.split($0)?.repo } ?? (repo.split(separator: "/").last.map(String.init) ?? repo)
+    }
+
+    /// `#n` de su tarea (o `repo#n`), para la línea de la fila; nil sin tarea.
+    var taskLabel: String? {
+        task_ref.map { ref in ref.split(separator: "/").last.map(String.init) ?? ref }
+    }
 }
 
 private struct ImprovementList: Codable { let items: [Improvement] }

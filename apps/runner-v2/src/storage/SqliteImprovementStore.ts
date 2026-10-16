@@ -11,11 +11,10 @@ import type {
   NewImprovement,
 } from '../assistant/ImprovementStore.js'
 
-const SCHEMA = `
-  CREATE TABLE IF NOT EXISTS improvement_proposal (
+const COLUMNS = `
     id           TEXT PRIMARY KEY,
     created_at   TEXT NOT NULL,
-    task_ref     TEXT NOT NULL,
+    task_ref     TEXT,
     pr_url       TEXT,
     agent        TEXT NOT NULL,
     execution_id TEXT,
@@ -28,16 +27,44 @@ const SCHEMA = `
     status       TEXT NOT NULL,
     issue_url    TEXT,
     decided_by   TEXT,
-    decided_at   TEXT
-  );
+    decided_at   TEXT`
+
+const INDEX = `
   CREATE INDEX IF NOT EXISTS improvement_proposal_status
-    ON improvement_proposal (status, created_at);
-`
+    ON improvement_proposal (status, created_at);`
+
+const SCHEMA = `CREATE TABLE IF NOT EXISTS improvement_proposal (${COLUMNS});${INDEX}`
+
+/**
+ * Una base de cuando toda mejora salía de una tarea tiene `task_ref NOT NULL`, y SQLite no sabe
+ * sacarle un `NOT NULL` a una columna: se rehace la tabla con las mismas filas, todo en una
+ * transacción (si algo falla, queda la de antes, entera).
+ */
+function allowTaskless(database: Database): void {
+  const taskRef = database
+    .query<{ name: string; notnull: number }, []>('PRAGMA table_info(improvement_proposal)')
+    .all()
+    .find((column) => column.name === 'task_ref')
+  if (!taskRef?.notnull) return
+  const names = COLUMNS.split(',')
+    .map((column) => column.trim().split(/\s+/)[0])
+    .join(', ')
+  database.transaction(() => {
+    database.exec(`CREATE TABLE improvement_proposal_next (${COLUMNS})`)
+    database.exec(
+      `INSERT INTO improvement_proposal_next (${names})
+       SELECT ${names} FROM improvement_proposal ORDER BY rowid`,
+    )
+    database.exec('DROP TABLE improvement_proposal')
+    database.exec('ALTER TABLE improvement_proposal_next RENAME TO improvement_proposal')
+    database.exec(INDEX)
+  })()
+}
 
 interface Row {
   id: string
   created_at: string
-  task_ref: string
+  task_ref: string | null
   pr_url: string | null
   agent: string
   execution_id: string | null
@@ -53,7 +80,14 @@ interface Row {
   decided_at: string | null
 }
 
-const OPTIONAL = ['pr_url', 'execution_id', 'issue_url', 'decided_by', 'decided_at'] as const
+const OPTIONAL = [
+  'task_ref',
+  'pr_url',
+  'execution_id',
+  'issue_url',
+  'decided_by',
+  'decided_at',
+] as const
 
 function proposal(row: Row): ImprovementProposal {
   const labels = JSON.parse(row.labels_json) as string[]
@@ -63,7 +97,6 @@ function proposal(row: Row): ImprovementProposal {
   return {
     id: row.id,
     created_at: row.created_at,
-    task_ref: row.task_ref,
     agent: row.agent,
     target: row.target,
     repo: row.repo,
@@ -86,6 +119,7 @@ export class SqliteImprovementStore implements ImprovementStore {
     private readonly now: () => Date = () => new Date(),
   ) {
     database.exec(SCHEMA)
+    allowTaskless(database)
   }
 
   add(input: NewImprovement): ImprovementProposal {
@@ -100,7 +134,7 @@ export class SqliteImprovementStore implements ImprovementStore {
       .run(
         id,
         this.now().toISOString(),
-        input.task_ref,
+        input.task_ref ?? null,
         input.pr_url ?? null,
         input.agent,
         input.execution_id ?? null,

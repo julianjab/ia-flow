@@ -41,7 +41,8 @@ struct ImprovementsScreen: View {
     }
 }
 
-/// «¿Por qué?»: la mejora arriba (con su cuerpo a un clic) y el chat con el asistente sobre la tarea que la originó.
+/// «¿Por qué?»: la mejora arriba (con su cuerpo a un clic) y el chat con el asistente sobre la tarea que la originó
+/// (sin tarea, en el contexto general).
 struct ImprovementChatScreen: View {
     @ObservedObject var runner: RunnerModel
     let improvement: Improvement
@@ -94,7 +95,8 @@ struct ImprovementChatScreen: View {
 
     private var suggestions: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("El asistente lee la ejecución de \(improvement.agent) sobre \(improvement.task_ref) y te cuenta qué vio.")
+            Text(improvement.task_ref.map { "El asistente lee la ejecución de \(improvement.agent) sobre \($0) y te cuenta qué vio." }
+                 ?? "No sale de una tarea: el asistente la mira en el contexto general y te cuenta por qué conviene.")
                 .font(.lh(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             FlowLayout {
                 ForEach(["¿Por qué propusiste esto?", "¿Qué viste en la ejecución que lo justifica?", "¿Qué pasa si no se hace?"],
@@ -122,7 +124,7 @@ struct ImprovementRow: View {
                 Chip(text: target, tone: .info).fixedSize()
                 RepoTag(repo: improvement.repo.split(separator: "/").last.map(String.init) ?? improvement.repo)
                     .help("El issue se abre en \(improvement.repo)")
-                Text([ago(improvement.created_at), "de \(improvement.task_ref.split(separator: "/").last.map { String($0) } ?? improvement.task_ref)"]
+                Text([ago(improvement.created_at), improvement.taskLabel.map { "de \($0)" }]
                         .compactMap { $0 }.joined(separator: " · "))
                     .font(.lh(11)).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer(minLength: 0)
@@ -156,7 +158,7 @@ struct ImprovementRow: View {
                 }
                 Spacer(minLength: 0)
                 Menu {
-                    Button("Abrir la tarea \(improvement.task_ref)") { runner.openTask(improvement.task_ref) }
+                    if let ref = improvement.task_ref { Button("Abrir la tarea \(ref)") { runner.openTask(ref) } }
                     if let pr = improvement.pr_url, let url = URL(string: pr) { Button("Abrir el PR") { NSWorkspace.shared.open(url) } }
                     Button("Copiar el cuerpo del issue") {
                         NSPasteboard.general.clearContents()

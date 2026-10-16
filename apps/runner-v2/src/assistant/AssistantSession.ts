@@ -297,7 +297,8 @@ export class AssistantSession {
     }
     const pending = this.backend.improvements.findOpen(issue.repo, issue.title)
     if (pending) {
-      return `Ya hay una propuesta igual pendiente en la bandeja (${pending.id}, de ${pending.task_ref}): no la repito.`
+      const from = pending.task_ref ? `, de ${pending.task_ref}` : ''
+      return `Ya hay una propuesta igual pendiente en la bandeja (${pending.id}${from}): no la repito.`
     }
     const { labels, ...rest } = issue
     const stored = this.backend.improvements.add({
@@ -319,7 +320,8 @@ export class AssistantSession {
     const found = this.backend.improvements.get(wanted)
     if (!found) throw new Error(`No existe la mejora ${wanted}`)
     if (this.scope.kind === 'task' && found.task_ref !== this.scope.ref) {
-      throw new Error(`Fuera de contexto: la mejora ${wanted} es de ${found.task_ref}`)
+      const from = found.task_ref ? `es de ${found.task_ref}` : 'no sale de ninguna tarea'
+      throw new Error(`Fuera de contexto: la mejora ${wanted} ${from}`)
     }
     if (open && found.status !== 'open') {
       const how = found.status === 'opened' ? 'ya se abrió como issue' : 'ya se descartó'
@@ -350,8 +352,9 @@ export class AssistantSession {
 
   /**
    * Una mejora nueva como card de la bandeja, que una persona abre o descarta como las demás. Con
-   * `based_on`, hereda el destino, la tarea y la evidencia de una que ya existe; sin ella, sale de
-   * una tarea del contexto (la de la conversación, o `task_ref`) y va a `repo`.
+   * `based_on`, hereda el destino, la tarea y la evidencia de una que ya existe; sin ella, va a
+   * `repo` y sale de la tarea del contexto (la de la conversación, o `task_ref`) o, en el chat
+   * general o de un proyecto sin `task_ref`, de ninguna (una de config o del engine).
    */
   async addImprovement(input: {
     based_on?: string
@@ -374,7 +377,7 @@ export class AssistantSession {
     }
     this.activity('add_improvement', `guardando una mejora nueva en ${base.repo}`)
     const stored = this.backend.improvements.add({
-      task_ref: base.task_ref,
+      ...(base.task_ref ? { task_ref: base.task_ref } : {}),
       ...(base.pr_url ? { pr_url: base.pr_url } : {}),
       agent: IMPROVEMENT_AUTHOR,
       ...(base.execution_id ? { execution_id: base.execution_id } : {}),
@@ -389,7 +392,8 @@ export class AssistantSession {
     return `Mejora ${stored.id} guardada como card nueva en la bandeja (se abriría en ${base.repo}). En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué es${differs}.`
   }
 
-  /** De dónde sale una mejora sin base: la tarea del contexto y el repo donde se abriría. */
+  /** De dónde sale una mejora sin base: la tarea del contexto (si hay) y el repo donde se abriría.
+   *  En el contexto de una tarea, es esa; fuera de él, la de `task_ref` o ninguna. */
   private async improvementOrigin(input: {
     task_ref?: string
     repo?: string
@@ -402,11 +406,10 @@ export class AssistantSession {
     if (!REPO_RE.test(repo)) {
       throw new Error(`Sin based_on, la mejora necesita repo (owner/repo), no "${repo}"`)
     }
+    const target = input.target ?? 'engine'
     const wanted = input.task_ref ?? (this.scope.kind === 'task' ? this.scope.ref : undefined)
-    if (!wanted) {
-      throw new Error('Sin based_on, la mejora necesita task_ref: la tarea de la que sale')
-    }
-    return { task_ref: await this.taskRef(wanted), repo, target: input.target ?? 'engine' }
+    if (!wanted) return { repo, target }
+    return { task_ref: await this.taskRef(wanted), repo, target }
   }
 
   /** Las mejoras de la bandeja (de cualquier tarea): las pendientes, para no proponer otra igual,
@@ -417,7 +420,7 @@ export class AssistantSession {
     const { improvements } = this.backend
     const brief = (proposal: ImprovementProposal) => ({
       id: proposal.id,
-      task_ref: proposal.task_ref,
+      ...(proposal.task_ref ? { task_ref: proposal.task_ref } : {}),
       target: proposal.target,
       repo: proposal.repo,
       title: proposal.title,

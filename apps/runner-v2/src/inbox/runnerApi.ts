@@ -24,6 +24,7 @@ import {
   GithubUserTokenSchema,
   type ImprovementDecisionResult,
   type ImprovementList,
+  type ImprovementProposal,
   ImprovementStatusSchema,
   type InboxProject,
   MoveTaskRequestSchema,
@@ -102,6 +103,11 @@ class IssueRejectedError extends Error {
   ) {
     super(message)
   }
+}
+
+/** Para el log: de qué tarea sale una mejora (una de config o del engine puede no salir de ninguna). */
+function improvementOrigin(proposal: ImprovementProposal): string {
+  return proposal.task_ref ? `mejora de ${proposal.task_ref}` : 'mejora sin tarea'
 }
 
 async function createIssue(
@@ -322,7 +328,7 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
         by: login,
         issue_url: created.html_url,
       })
-      options.log(`${login}: abrió ${repo}#${created.number} (mejora de ${proposal.task_ref})`)
+      options.log(`${login}: abrió ${repo}#${created.number} (${improvementOrigin(proposal)})`)
       return {
         ok: true,
         message: `${repo}#${created.number} abierto`,

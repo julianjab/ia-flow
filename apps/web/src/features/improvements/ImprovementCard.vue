@@ -35,8 +35,15 @@ const done = computed(() => props.proposal.status === 'opened' || props.state?.s
     </p>
     <p class="ic__meta">
       <span class="ic__repo mono" data-test="repo">{{ proposal.repo }}</span>
-      <!-- La tarea de origen no se repite como card: su ref la abre en la bandeja. -->
-      <button type="button" class="ic__ref mono" data-test="task" @click="emit('open', proposal.task_ref)">
+      <!-- La tarea de origen no se repite como card: su ref la abre en la bandeja. Una de config o
+           del engine propuesta desde el chat general no sale de ninguna: no hay link. -->
+      <button
+        v-if="proposal.task_ref"
+        type="button"
+        class="ic__ref mono"
+        data-test="task"
+        @click="emit('open', proposal.task_ref)"
+      >
         {{ proposal.task_ref }} →
       </button>
       <a v-if="proposal.pr_url" class="ic__link" data-test="pr" :href="proposal.pr_url" target="_blank" rel="noopener">PR ↗</a>

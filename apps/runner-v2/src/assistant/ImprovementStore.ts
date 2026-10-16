@@ -6,7 +6,8 @@
 import type { ImprovementProposal, ImprovementStatus, ImprovementTarget } from '@ia-flow/shared'
 
 export interface NewImprovement {
-  task_ref: string
+  /** Sin ella, no sale de una tarea (una de config o del engine, desde el chat general). */
+  task_ref?: string
   pr_url?: string
   agent: string
   execution_id?: string

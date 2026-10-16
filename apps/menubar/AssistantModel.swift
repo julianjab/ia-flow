@@ -72,9 +72,10 @@ final class AssistantModel: ObservableObject {
 
     /// «¿Por qué propuso esto?»: la tarea de la mejora como scope y la mejora delante de la primera pregunta. La
     /// tarea suele estar cerrada (la retrospectiva corre al mergear): el runner igual la lee, con sus ejecuciones.
+    /// Una que no sale de una tarea (de config o del engine, desde el chat general) va al contexto general.
     func discuss(_ improvement: Improvement) {
         reset()
-        scope = .task(ref: improvement.task_ref)
+        scope = improvement.task_ref.map { .task(ref: $0) } ?? .general
         scopeTitle = improvement.title
         preamble = Self.preamble(for: improvement)
     }
@@ -83,8 +84,12 @@ final class AssistantModel: ObservableObject {
         let body = improvement.body.count > 4000 ? String(improvement.body.prefix(4000)) + "… [recortado]" : improvement.body
         let origin = [improvement.pr_url.map { "PR \($0)" }, improvement.execution_id.map { "ejecución \($0)" }]
             .compactMap { $0 }.joined(separator: ", ")
+        let about = improvement.task_ref.map { "sobre \($0)" } ?? "sin una tarea de origen"
+        let evidence = improvement.task_ref == nil
+            ? "No sale de una tarea: para contestar, apóyate en la config y en lo que sabés del runner."
+            : "Para contestar, mira la ejecución del agente (get_task y get_trace) y apóyate en lo que muestra la traza."
         return """
-        Pregunto por la mejora \(improvement.id), que propuso el agente «\(improvement.agent)» sobre \(improvement.task_ref)\(origin.isEmpty ? "" : " (\(origin))"). \
+        Pregunto por la mejora \(improvement.id), que propuso el agente «\(improvement.agent)» \(about)\(origin.isEmpty ? "" : " (\(origin))"). \
         Se abriría como issue en \(improvement.repo) (\(improvement.target)). Si te pido ajustarla, usá \
         assistant_revise_improvement con id \(improvement.id); si hace falta otra mejora, assistant_add_improvement \
         basada en \(improvement.id). No me pegues el issue en la respuesta: lo leo en la card.
@@ -93,7 +98,7 @@ final class AssistantModel: ObservableObject {
         Cuerpo propuesto:
         \(body)
 
-        Para contestar, mira la ejecución del agente (get_task y get_trace) y apóyate en lo que muestra la traza.
+        \(evidence)
 
         Mi pregunta:
         """

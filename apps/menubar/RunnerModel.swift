@@ -245,7 +245,10 @@ final class RunnerModel: ObservableObject {
     var shownRunning: [InboxItem] { running.filter(keep) }
     var shownQueued: [InboxItem] { queued.filter(keep) }
     var shownImprovements: [Improvement] {
-        improvements.filter { inRepo($0.task_ref) && (search?.matches(ref: $0.task_ref, title: $0.title) ?? true) }
+        improvements.filter { improvement in
+            repoFilter.map { improvement.originRepo == $0 } ?? true
+                && (search?.matches(ref: improvement.task_ref ?? improvement.repo, title: improvement.title) ?? true)
+        }
     }
     /// Una épica se muestra si la buscada es ella (su número) o alguna de sus tareas; con un repo, si tiene tareas ahí.
     var shownEpics: [EpicView] {
