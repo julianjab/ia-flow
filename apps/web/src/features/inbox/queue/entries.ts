@@ -3,6 +3,7 @@
 
 import type { InboxItem } from '@ia-flow/shared'
 import { type Age, ageOf } from '@/features/inbox/queue/age'
+import { actingAgent } from '@/features/inbox/queue/agents'
 import { withEpic } from '@/features/inbox/queue/epics'
 import { groupSummary, oldestAge } from '@/features/inbox/queue/groupTitle'
 import {
@@ -115,7 +116,7 @@ export function reasonsOf(item: InboxItem): Reason[] {
 
 export function detailOf(item: InboxItem): EntryDetail {
   const tech = item.execution?.failure?.message
-  const agent = item.execution?.agent_id
+  const agent = actingAgent(item.execution)
   const happened = item.context || item.why
   return {
     happened: happened === tech ? '' : happened,

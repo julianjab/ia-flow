@@ -5,6 +5,7 @@ import { formatRelative } from '@/composables/formatRelative';
 import { costLine, duration, executionStatus, traceLine, usageLine } from '@/features/inbox/format';
 import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import Disclosure from '@/features/inbox/Disclosure.vue';
+import AgentLanes from '@/features/inbox/AgentLanes.vue';
 import { loadFailure } from '@/features/inbox/queue/advice';
 import LogLine from '@/ui/LogLine.vue';
 
@@ -33,6 +34,12 @@ const GLYPH: Record<ExecutionSummary['status'], string> = {
 };
 
 const live = computed(() => props.execution.status === 'running');
+/** Corrió más de un agente (en paralelo): la ejecución se nombra por su pipeline y cada agente va
+ *  abajo con su estado — su `agent_id` es sólo el del último que cerró. */
+const parallel = computed(() => (props.execution.agents?.length ?? 0) > 1);
+const who = computed(() =>
+  parallel.value ? props.execution.pipeline_id : (props.execution.agent_id ?? props.execution.pipeline_id),
+);
 const traceFailure = computed(() => (props.error ? loadFailure('cargar la traza', props.error) : null));
 const failedBy = computed(() => (props.execution.failure?.by === 'agent' ? 'la cortó el agente' : 'falló el runner'));
 const took = computed(() => {
@@ -67,12 +74,13 @@ watch(
       <span class="xr__glyph" :title="executionStatus(execution.status)" aria-hidden="true">{{ GLYPH[execution.status] }}</span>
       <span class="xr__main">
         <span class="xr__line">
-          <span class="xr__agent">{{ execution.agent_id ?? execution.pipeline_id }}</span>
-          <span v-if="execution.agent_id" class="xr__dim mono">{{ execution.pipeline_id }}</span>
+          <span class="xr__agent">{{ who }}</span>
+          <span v-if="execution.agent_id && !parallel" class="xr__dim mono">{{ execution.pipeline_id }}</span>
           <span class="xr__dim mono">{{ execution.id.slice(0, 8) }}</span>
           <span v-if="live" class="xr__live"><span class="live-dot" aria-hidden="true" />en curso</span>
           <span v-else class="xr__status">{{ executionStatus(execution.status) }}</span>
         </span>
+        <AgentLanes v-if="parallel" :agents="execution.agents" />
         <span v-if="execution.failure" class="xr__err">✕ {{ failedBy }}</span>
         <span v-else-if="execution.exit" class="xr__dim">salida <span class="mono">{{ execution.exit }}</span></span>
       </span>

@@ -3,6 +3,7 @@
 
 import { Condition, type ConditionRow, renderText } from '@ia-flow/rules'
 import type { InboxGroup, InboxItem, RunnerCapacity, TaskFact, Tasks } from '@ia-flow/shared'
+import { whoOf } from '@/features/inbox/queue/agents'
 import type { Dashboard, DashboardRow, Decision } from '@/features/inbox/view/dashboard'
 
 const GROUP_ORDER: Record<Exclude<InboxGroup, 'idle'>, number> = {
@@ -31,7 +32,7 @@ function fmtOf(task: TaskFact) {
   return {
     pr: task.pr ? ` · PR #${task.pr.number}` : ' · sin PR abierto',
     tokens: tokens(task),
-    who: live ? (live.agent_id ? `${live.pipeline_id} → ${live.agent_id}` : live.pipeline_id) : '',
+    who: live ? whoOf(live) : '',
     pause: live?.pause?.pause_id ?? 'pausa',
     expires: live?.pause?.expires_at ? ` · vence ${live.pause.expires_at}` : '',
     summary: excerpt(task.run.summary),

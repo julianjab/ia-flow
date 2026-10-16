@@ -3,6 +3,7 @@
 
 import type { InboxItem, TaskActionDef } from '@ia-flow/shared'
 import { KIND_LABEL, primaryAction } from '@/features/inbox/labels'
+import { actingAgent } from '@/features/inbox/queue/agents'
 import { shortRef } from '@/features/inbox/queue/shortRef'
 
 /** El tipo de una decisión: lo que filtra y lo que da el color. */
@@ -62,7 +63,7 @@ export function typeOf(item: Pick<InboxItem, 'kind' | 'group'>): QueueType {
 /** El verbo de la decisión: el del dashboard o uno por caso. */
 export function verbOf(item: InboxItem): string {
   if (item.verb) return item.verb
-  const agent = item.execution?.agent_id
+  const agent = actingAgent(item.execution)
   switch (item.kind) {
     case 'merge':
       return item.pr ? `Mergear el PR #${item.pr.number}` : 'Mergear el PR'

@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import AgentLanes from '@/features/inbox/AgentLanes.vue';
 import ActionButton from '@/features/inbox/decisions/ActionButton.vue';
 import AgeStamp from '@/features/inbox/decisions/AgeStamp.vue';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import type { RunningEntry } from '@/features/inbox/queue/build';
 import { useInboxStore } from '@/features/inbox/store';
 
-// Lo que corre ahora (o, con `waiting`, lo que espera su turno): título, link, agente, cuánto
+// Lo que corre ahora (o, con `waiting`, lo que espera su turno): título, link, agente (o los agentes
+// en paralelo, cada uno con su estado), cuánto
 // lleva y «Detener…» si el runner lo ofrece. No son tarjetas: no hay nada que decidir. El título
 // abre el detalle (la traza en vivo de lo que corre).
 
@@ -23,7 +25,9 @@ const store = useInboxStore();
         <span class="rl__meta">
           <RefLink :short="r.short" :url="r.url" />
           <!-- El separador va pegado a su dato: si falta el agente o la antigüedad, no cuelga un «·». -->
-          <span v-if="r.agent" class="mono">· {{ r.agent }}</span>
+          <!-- Varios agentes en paralelo: cada uno con su estado, en vez del último que cerró. -->
+          <template v-if="r.agents"><span aria-hidden="true">·</span><AgentLanes :agents="r.agents" /></template>
+          <span v-else-if="r.agent" class="mono">· {{ r.agent }}</span>
           <template v-if="r.age.text"><span aria-hidden="true">·</span><AgeStamp :age="r.age" /></template>
         </span>
       </div>

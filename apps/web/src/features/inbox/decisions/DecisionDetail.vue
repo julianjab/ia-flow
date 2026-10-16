@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { formatRelative } from '@/composables/formatRelative';
+import AgentLanes from '@/features/inbox/AgentLanes.vue';
 import ActionButton from '@/features/inbox/decisions/ActionButton.vue';
 import Disclosure from '@/features/inbox/Disclosure.vue';
 import { nextOf } from '@/features/inbox/queue/advice';
@@ -30,6 +31,8 @@ const takesText = computed(() =>
 const blocked = (action: QueueAction) => action.comment === 'required' && !comment.value.trim();
 const replyId = computed(() => `reply-${props.entry.ref}`);
 const runId = computed(() => props.entry.item.execution?.id);
+/** Los agentes de su ejecución, si corrió más de uno: cuál espera, cuál terminó, cuál falló. */
+const agents = computed(() => props.entry.item.execution?.agents ?? []);
 
 const reply = ref<HTMLTextAreaElement | null>(null);
 defineExpose({ focus: () => reply.value?.focus() });
@@ -47,6 +50,10 @@ defineExpose({ focus: () => reply.value?.focus() });
         <time v-if="detail.saidAt" :datetime="detail.saidAt" :title="detail.saidAt"> · {{ formatRelative(detail.saidAt) }}</time>
       </span>
       <p class="dd__said">{{ detail.said }}</p>
+    </div>
+    <div v-if="agents.length > 1" class="dd__block">
+      <span class="uc-label">Agentes</span>
+      <AgentLanes :agents="agents" />
     </div>
     <p v-if="next" class="dd__next">→ {{ next }}</p>
 

@@ -2,7 +2,13 @@
 // manda un runner viejo) a lo que se dibuja — el titular, «Lo primero», «Después» numerado y
 // agrupado, el filtro por tipo, el pipeline, lo que corre y lo que le das. Puro: `now` se inyecta.
 
-import type { InboxFeed, InboxItem, InboxPipeline, RunnerCapacity } from '@ia-flow/shared'
+import type {
+  ExecutionAgent,
+  InboxFeed,
+  InboxItem,
+  InboxPipeline,
+  RunnerCapacity,
+} from '@ia-flow/shared'
 import { type Age, ageOf } from '@/features/inbox/queue/age'
 import {
   entryOf,
@@ -69,6 +75,8 @@ export interface RunningEntry {
   title: string
   /** El agente (o la pipeline) que corre. */
   agent: string
+  /** Los agentes de la ejecución, si corre más de uno (en paralelo): cada uno con su estado. */
+  agents?: ExecutionAgent[]
   age: Age
   /** «Detener…», si el runner la ofrece. */
   stop?: QueueAction
@@ -193,6 +201,7 @@ function liveOf(items: readonly InboxItem[], group: 'run' | 'queue', now: number
         url: item.url,
         title: item.title,
         agent: run?.agent_id ?? run?.pipeline_id ?? '',
+        ...(run?.agents && run.agents.length > 1 ? { agents: run.agents } : {}),
         age: ageOf(run?.started_at ?? item.since, now),
         ...(item.actions.includes('stop') ? { stop: actionOf('stop', item.action_defs) } : {}),
       }
