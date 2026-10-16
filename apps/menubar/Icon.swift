@@ -50,7 +50,29 @@ func appIcon(size: CGFloat, running: Bool) -> NSImage {
     return image
 }
 
-/// El ícono de la barra de menú: el tile a 16 pt dentro del lienzo de 18 pt de la barra. Con `badge` > 0, un
+/// Identificador de la app sobre el tile de la marca: una pastilla lima abajo a la derecha con unas letras
+/// (`IA` acá, `MP` en MacPulse). Distingue apps que comparten el tile de jabsolutions en la barra.
+private let tagText = NSAttributedString(string: "IA", attributes: [
+    .font: NSFont.systemFont(ofSize: 6.5, weight: .black), .foregroundColor: Brand.ink, .kern: -0.2,
+])
+/// La pastilla arranca donde termina el último chevron (x ≈ 14.8: 441/512 del tile de 16 corrido 1): pisa
+/// sólo el borde del tile, no las etapas.
+private let tagX: CGFloat = 15
+private let tagWidth = tagText.size().width + 3
+
+private func drawTag() {
+    let text = tagText
+    let size = text.size()
+    let pill = NSRect(x: tagX, y: 0, width: tagWidth, height: 8)
+    // un aro del color de la barra separa la pastilla del tile
+    NSColor.windowBackgroundColor.setFill()
+    NSBezierPath(roundedRect: pill.insetBy(dx: -1, dy: -1), xRadius: 3, yRadius: 3).fill()
+    Brand.lime.setFill()
+    NSBezierPath(roundedRect: pill, xRadius: 2.5, yRadius: 2.5).fill()
+    text.draw(at: NSPoint(x: pill.midX - size.width / 2, y: pill.midY - size.height / 2))
+}
+
+/// El ícono de la barra de menú: el tile a 16 pt con la pastilla `IA` abajo a la derecha. Con `badge` > 0, un
 /// círculo rojo arriba a la derecha con cuántas tareas te esperan en el runner elegido (más de 9 → «9+»).
 func menuBarIcon(running: Bool, badge: Int = 0) -> NSImage {
     let inner = appIcon(size: 16, running: running)
@@ -58,8 +80,10 @@ func menuBarIcon(running: Bool, badge: Int = 0) -> NSImage {
     let font = NSFont.systemFont(ofSize: 8, weight: .heavy)
     let text = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: NSColor.white])
     let badgeWidth = badge > 0 ? max(10, text.size().width + 4) : 0
-    let image = NSImage(size: NSSize(width: 18 + max(0, badgeWidth - 4), height: 18), flipped: false) { rect in
+    let width = max(tagX + tagWidth + 1, 18 + max(0, badgeWidth - 4))
+    let image = NSImage(size: NSSize(width: width, height: 18), flipped: false) { rect in
         inner.draw(in: NSRect(x: 1, y: 1, width: 16, height: 16))
+        drawTag()
         guard badge > 0 else { return true }
         let pill = NSRect(x: rect.maxX - badgeWidth, y: rect.maxY - 10, width: badgeWidth, height: 10)
         // un aro del color de la barra separa el badge del tile

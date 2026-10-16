@@ -139,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func refreshIcon() {
-        statusItem.length = badge > 0 ? NSStatusItem.variableLength : NSStatusItem.squareLength
+        statusItem.length = NSStatusItem.variableLength  // la pastilla «IA» lo hace más ancho que un cuadrado
         statusItem.button?.image = menuBarIcon(running: model.activeCount > 0, badge: badge)
         statusItem.button?.toolTip = badge > 0 ? "ia-flow · \(badge) tareas te esperan en \(model.runner.selected.name)" : "ia-flow"
     }
