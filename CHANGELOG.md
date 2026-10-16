@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.13.0](https://github.com/julianjab/ia-flow/compare/v2.12.1...v2.13.0) (2026-10-16)
+
+
+### Features
+
+* **menubar:** «¿Por qué?» le pasa el id de la mejora y relee la card al terminar cada respuesta ([fd54114](https://github.com/julianjab/ia-flow/commit/fd54114dabac4f17b7121b3b94db83d980e1c121))
+* **runner:** el asistente ajusta una mejora propuesta o guarda otra, en vez de pegar el issue ([3694fb2](https://github.com/julianjab/ia-flow/commit/3694fb23f7c4c11f1c62fa900b5bb5d3ecbf725c))
+
 ## [2.12.1](https://github.com/julianjab/ia-flow/compare/v2.12.0...v2.12.1) (2026-10-16)
 
 
