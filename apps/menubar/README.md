@@ -38,6 +38,12 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), lo que
 **corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
+**Worktree:** «Abrir worktree del issue/PR en iTerm» (en el ⋯ de cada tarea) abre una ventana de iTerm con
+`claude --worktree <owner>/<repo>/pr-N` (o `issue-N` sin PR), desde `~/development`. No va la URL: Claude Code
+rechaza `:` y `#` en el nombre y toma una URL de PR como PR del repo del cwd; el hook global `WorktreeCreate`
+resuelve `owner/repo/…` al clone local y a la branch. Sin iTerm, el comando queda copiado. «Pedir review en
+Slack» (o re-review en el mismo hilo) no es del menú: es una `taskAction` del proyecto (`request_slack_review`) y
+aparece como cualquier otra acción.
 **Buscador:** un tag al inicio elige el repo (o todos; filtra todo aunque no se escriba nada) y cada tarea lleva el tag de su repo, del mismo color. Acepta `1775`, `#1775`, `subscriptions#1775`, `la-haus/subscriptions#1775`, el link del issue o del
 PR, o texto del título (aproximado: sin tildes, palabras en cualquier orden, prefijos y typos); filtra todas las secciones (buscar una épica trae sus tareas) y busca también en el resto
 del board (`/api/board`): las primeras coincidencias se traen con sus acciones (`/api/tasks/:owner/:repo/:n`). Es
