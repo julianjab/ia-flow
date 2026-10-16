@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import type { ImprovementProposal, InboxItem } from '@ia-flow/shared'
+import type { AssistantScope, ImprovementProposal, InboxItem } from '@ia-flow/shared'
 import { type AssistantBackend, AssistantSession } from './AssistantSession.js'
+import type { TraceInsight } from './TraceInsight.js'
 
 const merge: InboxItem = {
   ref: 'o/r#1',
@@ -26,7 +27,7 @@ const backend = {
 describe('AssistantSession.listTasks', () => {
   it('each task says its place in the order, why, and how much it unblocks', async () => {
     const session = new AssistantSession({ kind: 'general' }, backend, () => {})
-    const [first] = await session.listTasks()
+    const [first] = (await session.listTasks()).tasks
     expect(first).toMatchObject({
       ref: 'o/r#1',
       priority: 1,
@@ -37,8 +38,120 @@ describe('AssistantSession.listTasks', () => {
 
   it('each task says its epic and how far along it is', async () => {
     const session = new AssistantSession({ kind: 'general' }, backend, () => {})
-    const [first] = await session.listTasks()
+    const [first] = (await session.listTasks()).tasks
     expect(first?.epic).toEqual({ ref: 'o/r#9', title: 'Bandeja', done: 1, total: 4 })
+  })
+})
+
+describe('AssistantSession: la hora, el último paso y cada agente', () => {
+  const NOW = new Date('2026-10-16T10:10:00.000Z')
+  const running = {
+    id: 'e9',
+    key: 'k',
+    task_ref: 'o/r#1',
+    project_id: 'p',
+    pipeline_id: 'review',
+    status: 'running' as const,
+    started_at: '2026-10-16T10:00:00.000Z',
+  }
+  const searches: unknown[] = []
+  const traces: TraceInsight = {
+    lastStepAt: (ids) => new Map(ids.map((id) => [id, '2026-10-16T10:08:00.000Z'])),
+    agentRuns: () => [
+      {
+        agent_id: 'reviewer',
+        started_at: '2026-10-16T10:00:00.000Z',
+        ended_at: '2026-10-16T10:04:00.000Z',
+        status: 'ok',
+        exit: 'approve',
+        last_step_at: '2026-10-16T10:04:00.000Z',
+      },
+      {
+        agent_id: 'e2e-visual-qa',
+        started_at: '2026-10-16T10:00:00.000Z',
+        last_step_at: '2026-10-16T10:08:00.000Z',
+      },
+    ],
+    search: (query) => {
+      searches.push(query)
+      return { executions: [], truncated: false }
+    },
+  }
+  const live = { ...merge, group: 'run' as const, execution: running }
+  const backend = {
+    inbox: {
+      inbox: async () => ({ items: [live] }),
+      item: async () => live,
+      detail: async () => ({ item: live, executions: [running], events: [], trace: [] }),
+    },
+    activity: {
+      executions: () => [running, { ...running, id: 'e8', task_ref: 'o/r#2', project_id: 'q' }],
+      trace: () => [],
+    },
+    status: () => ({ providers: ['anthropic-api'] }),
+    traces,
+    now: () => NOW,
+  } as unknown as AssistantBackend
+  const session = (scope: AssistantScope) => new AssistantSession(scope, backend, () => {})
+
+  it('list_tasks says the time and, for a live execution, how long since its last step', async () => {
+    const listed = await session({ kind: 'general' }).listTasks()
+    expect(listed.now).toBe('2026-10-16T10:10:00.000Z')
+    expect(listed.tasks[0]).toMatchObject({
+      running: {
+        execution_id: 'e9',
+        last_step_at: '2026-10-16T10:08:00.000Z',
+        idle_seconds: 120,
+        agents: [
+          { agent_id: 'reviewer', state: 'done', exit: 'approve' },
+          { agent_id: 'e2e-visual-qa', state: 'running', idle_seconds: 120 },
+        ],
+      },
+    })
+  })
+
+  it('get_task tells the agents of a parallel group apart', async () => {
+    const detail = await session({ kind: 'general' }).taskDetail('o/r#1')
+    expect(detail.now).toBe('2026-10-16T10:10:00.000Z')
+    expect(detail.executions[0]).toMatchObject({
+      idle_seconds: 120,
+      agents: [{ state: 'done' }, { state: 'running' }],
+    })
+  })
+
+  it('get_trace of a live execution says the time and its last step', async () => {
+    const page = await session({ kind: 'general' }).trace('o/r#1', 'e9')
+    expect(page).toMatchObject({
+      now: '2026-10-16T10:10:00.000Z',
+      status: 'running',
+      idle_seconds: 120,
+      execution_id: 'e9',
+    })
+  })
+
+  it('runner_status works in every context, with the live executions of that context', () => {
+    const general = session({ kind: 'general' }).status()
+    expect(general).toMatchObject({ now: '2026-10-16T10:10:00.000Z', providers: ['anthropic-api'] })
+    expect(general.live_executions.map((row) => row.id)).toEqual(['e9', 'e8'])
+    const project = session({ kind: 'project', project_id: 'q' }).status()
+    expect(project.live_executions.map((row) => row.id)).toEqual(['e8'])
+    const task = session({ kind: 'task', ref: 'o/r#1' }).status()
+    expect(task.live_executions).toEqual([
+      expect.objectContaining({ id: 'e9', idle_seconds: 120, agents: expect.any(Array) }),
+    ])
+  })
+
+  it('search_traces is bound to the task or the project of the context', () => {
+    searches.length = 0
+    session({ kind: 'task', ref: 'o/r#1' }).searchTraces({ text: 'pause_turn' })
+    session({ kind: 'project', project_id: 'p' }).searchTraces({ text: 'pause_turn' })
+    const found = session({ kind: 'general' }).searchTraces({ text: 'pause_turn' })
+    expect(found.now).toBe('2026-10-16T10:10:00.000Z')
+    expect(searches).toEqual([
+      expect.objectContaining({ taskRef: 'o/r#1' }),
+      expect.objectContaining({ projectId: 'p' }),
+      expect.not.objectContaining({ taskRef: expect.anything() }),
+    ])
   })
 })
 

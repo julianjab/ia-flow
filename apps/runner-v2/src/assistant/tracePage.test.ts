@@ -103,4 +103,15 @@ describe('traceWindow', () => {
       /Campos desconocidos: nombre\. Hay: at,/,
     )
   })
+
+  it('cada entrada dice su agente, y se filtra por uno (un grupo paralelo los intercala)', () => {
+    const entries = [
+      entry('chat', { 'ia.agent.id': 'reviewer' }),
+      entry('chat', { 'ia.agent.id': 'e2e-visual-qa' }),
+      entry('chat', { 'ia.agent.id': 'reviewer' }),
+    ]
+    const page = traceWindow('e', entries, { agent: 'e2e-visual-qa' })
+    expect(page.matched).toBe(1)
+    expect(page.entries).toEqual([expect.objectContaining({ index: 1, agent: 'e2e-visual-qa' })])
+  })
 })

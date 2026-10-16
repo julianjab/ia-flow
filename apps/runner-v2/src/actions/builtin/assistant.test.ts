@@ -165,6 +165,20 @@ describe('the assistant tools in the pipeline of a task', () => {
     )
   })
 
+  it('reads the runner status from the context of a task, with the time', async () => {
+    const { tool } = mount()
+    const status = JSON.parse(String(await tool('assistant_runner_status').execute({}, run)))
+    expect(Date.parse(status.now)).not.toBeNaN()
+    expect(status.live_executions).toEqual([])
+  })
+
+  it('searching the traces needs a runner that keeps them in a database', async () => {
+    const { tool } = mount()
+    await expect(
+      tool('assistant_search_traces').execute({ text: 'pause_turn' }, run),
+    ).rejects.toThrow(/no guarda las trazas/)
+  })
+
   it('does not propose actions on a task: nobody is there to confirm them', async () => {
     const { tool } = mount()
     await expect(
