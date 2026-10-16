@@ -129,10 +129,20 @@ export class McpHttpClient {
     return message.result ?? {}
   }
 
+  /** Con un token renovable, un 401 fuerza uno nuevo y se reintenta una vez (vencido o revocado). */
   private async post(body: Record<string, unknown>): Promise<Response> {
+    const res = await this.send(body, false)
+    if (res.status !== 401 || typeof this.options.authorizationToken !== 'function') return res
+    await res.body?.cancel()
+    return this.send(body, true)
+  }
+
+  private async send(body: Record<string, unknown>, force: boolean): Promise<Response> {
     const { authorizationToken, fetchImpl = fetch, url } = this.options
     const token =
-      typeof authorizationToken === 'function' ? await authorizationToken() : authorizationToken
+      typeof authorizationToken === 'function'
+        ? await authorizationToken({ force })
+        : authorizationToken
     return fetchImpl(url, {
       method: 'POST',
       headers: {

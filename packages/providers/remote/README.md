@@ -23,12 +23,15 @@ host:    su provider.run(ctx) sobre SU worktree
 host   ──POST /v1/runs/<token>/tools {name, input}─────────────────▶ runner   una tool del engine corre acá
 host   ──POST /v1/runs/<token>/inbox | conversation | text──────────▶ runner   la bandeja, la conversación, el texto
 host   ──POST /v1/runs/<token>/result {output | failed}─────────────▶ runner   lo que devolvió su provider
+host   ──POST /v1/runs/<token>/mcp-token {id, force}─────────────────▶ runner   un token nuevo para un MCP
 ```
 
 - **Todas las conexiones las abre el host.** Sólo necesita salida: nada de URL pública ni túneles.
   El runner ya es público (recibe los webhooks de GitHub).
 - **La tarea es el `ProviderRunContext` en JSON**: prompt, system prompts, variables,
-  `providerConfig` (lo valida el provider del host), los MCP externos con su credencial resuelta,
+  `providerConfig` (lo valida el provider del host), los MCP externos con su credencial resuelta
+  (si el servidor la rechaza, `RunnerLink.mcpServers` pide otra por `/mcp-token`; un runner
+  anterior contesta 404 y sigue la que viajó),
   la conversación a retomar (`resume`, opaca: la armó el provider del host) y el evento.
 - **Las tools se parten en dos.** Las del engine (`submit_*`, GitHub…) viajan como `ToolSpec` y se
   corren en el runner por `/tools`, cada una con su span. Las de workspace (`fs_*`, `bash_run`)

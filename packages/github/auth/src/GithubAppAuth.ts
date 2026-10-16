@@ -82,4 +82,8 @@ export class GithubAppAuth implements GithubAuth {
     this.cached = { token: data.token, expiresAt: new Date(data.expires_at).getTime() }
     return data.token
   }
+
+  invalidate(): void {
+    this.cached = undefined
+  }
 }

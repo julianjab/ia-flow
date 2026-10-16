@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { McpServerRef } from '@ia-flow/agent-engine'
-import { MCP_SERVER_NAME, mcpToolName } from '@ia-flow/provider-shared'
+import { MCP_SERVER_NAME, mcpToolName, resolveMcpToken } from '@ia-flow/provider-shared'
 import type { RunEndpoints } from './RunServer.js'
 
 /** Los hooks de Claude Code que se reenvían al runner: traza (`Pre`/`PostToolUse`), inbox
@@ -119,21 +119,24 @@ function settingsOf(spec: SessionSpec): Record<string, unknown> {
 }
 
 /** El MCP de la corrida y los externos que tienen URL (el CLI no recibe uno sin transporte
- *  remoto desde acá). Un token que es función se resuelve ahora. */
+ *  remoto desde acá). Uno con token renovable (una función) va por el servidor local, que le pone
+ *  el del momento a cada request; uno con token fijo, con su header. */
 async function mcpConfig(spec: SessionSpec): Promise<Record<string, unknown>> {
   const servers: Record<string, unknown> = {
     [MCP_SERVER_NAME]: { type: 'http', url: spec.endpoints.mcp },
   }
   for (const { id, config } of spec.mcpServers) {
     if (typeof config.url !== 'string' || id === MCP_SERVER_NAME) continue
-    const raw = config.authorizationToken
-    const token = typeof raw === 'function' ? await (raw as () => unknown)() : raw
+    const type = config.type === 'sse' ? 'sse' : 'http'
+    if (spec.endpoints.upstreams.includes(id)) {
+      servers[id] = { type, url: `${spec.endpoints.upstream}/${encodeURIComponent(id)}` }
+      continue
+    }
+    const token = await resolveMcpToken(config.authorizationToken)
     servers[id] = {
-      type: config.type === 'sse' ? 'sse' : 'http',
+      type,
       url: config.url,
-      ...(typeof token === 'string' && token
-        ? { headers: { Authorization: `Bearer ${token}` } }
-        : {}),
+      ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
     }
   }
   return { mcpServers: servers }

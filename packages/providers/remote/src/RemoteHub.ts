@@ -8,6 +8,8 @@ import {
   HostStats,
   type HostTask,
   type InboxResponse,
+  McpTokenRequest,
+  type McpTokenResponse,
   PollRequest,
   type PollResponse,
   PROTOCOL_PREFIX,
@@ -376,6 +378,12 @@ export class RemoteHub {
       case 'result':
         run.finish(parse(RunResult, await body(req)))
         return json(200, {})
+      case 'mcp-token': {
+        const { id, force } = parse(McpTokenRequest, await body(req))
+        const token = await run.mcpToken(id, force)
+        const response: McpTokenResponse = token ? { token } : {}
+        return json(200, response)
+      }
       default:
         return json(404, { error: 'ruta desconocida' })
     }

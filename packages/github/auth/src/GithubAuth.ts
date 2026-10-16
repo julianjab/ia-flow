@@ -11,4 +11,7 @@ export interface GithubAuth {
   /** Puede ser sync (un PAT ya está resuelto) o async (un installation token vence y hay que
    *  refrescarlo) — por eso siempre devuelve una Promise, incluso `GithubTokenAuth`. */
   getToken(): Promise<string>
+  /** Descarta el token en caché: el próximo `getToken` pide uno nuevo. Para cuando un servicio
+   *  rechazó el que tenía (venció o lo revocaron antes de lo que decía `expires_at`). */
+  invalidate?(): void
 }

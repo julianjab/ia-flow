@@ -99,13 +99,19 @@ export async function resolveMcpCatalog(
         continue
       }
       // El token se vuelve a resolver en cada request (el provider acepta una función): el
-      // installation token de GITHUB_TOKEN vence a la hora, y el servidor vive más que eso.
+      // installation token de GITHUB_TOKEN vence a la hora, y el servidor vive más que eso. Con
+      // `force` (el servidor rechazó el que tenía) se descarta el de la caché y se pide otro.
       catalog[entry.id] = {
         id: entry.id,
         config: {
           url,
           ...(tokenTemplate
-            ? { authorizationToken: () => interpolate(tokenTemplate, resolveSecret) }
+            ? {
+                authorizationToken: (options?: { force?: boolean }) => {
+                  if (options?.force) auth.invalidate?.()
+                  return interpolate(tokenTemplate, resolveSecret)
+                },
+              }
             : {}),
         },
       }

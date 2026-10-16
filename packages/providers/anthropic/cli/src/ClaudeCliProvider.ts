@@ -101,7 +101,7 @@ export class ClaudeCliProvider implements Provider {
       since: new Date(),
     })
     const server = this.server()
-    const endpoints = await server.open(channel)
+    const endpoints = await server.open(channel, ctx.mcpServers)
     const resumed = conversationOf(ctx.resume?.conversation)
     // La sesión anterior sigue viva si el runner se reinició mientras corría: se cierra antes de
     // retomar su conversación en una nueva.

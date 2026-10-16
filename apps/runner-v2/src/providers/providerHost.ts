@@ -17,7 +17,6 @@
 import { join } from 'node:path'
 import {
   EventBus,
-  type McpServerRef,
   type PipelineExecutionContext,
   type Provider,
   type Tool,
@@ -195,7 +194,7 @@ export function providerTaskRunner(opts: {
         systemPrompts: task.systemPrompts,
         variables: task.variables,
         providerConfig: task.providerConfig,
-        mcpServers: task.mcpServers as McpServerRef[],
+        mcpServers: link.mcpServers(),
         tools,
         ctx,
         inbox: () => link.inbox(),

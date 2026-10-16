@@ -44,7 +44,11 @@ providerRegistry.register(
 - **Archivos de la sesión** (carpeta 0700, archivos 0600, se borran al terminar):
   `--append-system-prompt-file` (los `systemPrompts` del agente + la nota de sesión
   desatendida), `--settings` (`env` con `CLAUDE_CODE_OAUTH_TOKEN` + hooks), `--mcp-config`
-  (`ia-flow` + los MCP externos del agente, con su token como header).
+  (`ia-flow` + los MCP externos del agente). Uno con token fijo va con su header; uno con token
+  renovable (una función, como el installation token de GitHub, que vence a la hora) va por el
+  servidor local (`/upstream/<corrida>/<id>`, `McpUpstream.ts`): cada request sale con el token del
+  momento y un 401 fuerza uno nuevo y se reintenta una vez. El CLI lee el `--mcp-config` al
+  arrancar y no lo relee: con el header fijo, una corrida de más de una hora perdía el MCP.
 - **Fin del turno:** cuando el modelo llama una tool terminal por MCP, el provider corta la
   sesión y el engine lee la salida elegida. Si la sesión termina sin cerrar el turno, o supera
   `timeoutMinutes`, el resultado es `error`.

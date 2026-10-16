@@ -9,7 +9,8 @@
  *   POST /v1/runs/<token>/inbox           lo que llegó a la ejecución (sus `injects`) │ corrida, en el
  *   POST /v1/runs/<token>/conversation    la conversación en curso, para retomarla    │ path
  *   POST /v1/runs/<token>/text            el texto del modelo, en vivo                │
- *   POST /v1/runs/<token>/result          cómo terminó: el `ProviderRunOutput`        ┘
+ *   POST /v1/runs/<token>/result          cómo terminó: el `ProviderRunOutput`        │
+ *   POST /v1/runs/<token>/mcp-token       un token nuevo para un MCP externo          ┘
  *   POST /v1/hosts/telemetry/traces       (bearer de hosts) OTLP/HTTP JSON estándar: las trazas
  *   POST /v1/hosts/telemetry/logs         y los logs del host, que el runner guarda y reexporta
  *
@@ -188,6 +189,23 @@ export type InboxResponse = z.infer<typeof InboxResponse>
 /** `POST /conversation`: la conversación en curso (opaca), para retomarla si algo se corta. */
 export const ConversationPost = z.strictObject({ conversation: z.unknown() })
 export type ConversationPost = z.infer<typeof ConversationPost>
+
+/**
+ * `POST /mcp-token`: el token de un MCP externo de la corrida (`mcpServers` de la tarea), resuelto
+ * otra vez en el runner — con `force`, sin su caché. El host lo pide cuando el servidor rechazó el
+ * que viajó con la tarea (un installation token de GitHub vence a la hora). La ruta no está en
+ * `HostTask.endpoints` (el host la deriva con `mcpTokenPath`): un host anterior rechazaría el campo
+ * nuevo, y uno nuevo contra un runner anterior recibe 404 y sigue con el que tenía.
+ */
+export const McpTokenRequest = z.strictObject({ id: z.string(), force: z.boolean().default(false) })
+export type McpTokenRequest = z.infer<typeof McpTokenRequest>
+export const McpTokenResponse = z.strictObject({ token: z.string().optional() })
+export type McpTokenResponse = z.infer<typeof McpTokenResponse>
+
+/** La ruta de `/mcp-token` de una corrida, al lado de su `/tools`. */
+export function mcpTokenPath(endpoints: HostTask['endpoints']): string {
+  return endpoints.tools.replace(/\/tools$/, '/mcp-token')
+}
 
 /** `POST /text`: el texto del modelo a medida que se escribe, en orden. */
 export const TextPost = z.strictObject({ deltas: z.array(z.string()) })

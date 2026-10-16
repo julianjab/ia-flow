@@ -1,7 +1,13 @@
-import type { Tool } from '@ia-flow/agent-engine'
+import type { McpServerRef, Tool } from '@ia-flow/agent-engine'
 import { endingOf, type RunEnding } from '@ia-flow/provider-shared'
 import { createLogger } from '@ia-flow/telemetry'
-import { type HostTask, InboxResponse, ToolResult } from './protocol.js'
+import {
+  type HostTask,
+  InboxResponse,
+  McpTokenResponse,
+  mcpTokenPath,
+  ToolResult,
+} from './protocol.js'
 
 const DEFAULT_TEXT_EVERY_MS = 1_000
 
@@ -23,6 +29,8 @@ export interface RunnerLinkOptions {
  *   que el agente no alcanzó a leer queda sin leer, y el engine lo re-despacha al cerrar.
  * - `saveConversation`: en orden, la última gana.
  * - `onText`: se junta y se manda cada `textEveryMs`.
+ * - `mcpServers`: los MCP externos con el token que viajó con la tarea y, si el servidor lo
+ *   rechaza (`force`), uno nuevo pedido al runner por `/mcp-token`.
  * - `ending`: cómo cerró el modelo su turno, si llamó una tool terminal — con eso el host decide
  *   qué hace con su worktree.
  */
@@ -70,6 +78,29 @@ export class RunnerLink {
         return text
       },
     }))
+  }
+
+  mcpServers(): McpServerRef[] {
+    return this.options.task.mcpServers.map(({ id, config }) => {
+      let current = typeof config.authorizationToken === 'string' ? config.authorizationToken : ''
+      if (!current) return { id, config }
+      const authorizationToken = async (options?: { force?: boolean }) => {
+        if (options?.force) current = (await this.mcpToken(id)) ?? current
+        return current
+      }
+      return { id, config: { ...config, authorizationToken } }
+    })
+  }
+
+  /** Un token nuevo del runner para un MCP; si no contesta (o es uno anterior, sin la ruta), nada. */
+  private async mcpToken(id: string): Promise<string | undefined> {
+    try {
+      const res = await this.post(mcpTokenPath(this.options.task.endpoints), { id, force: true })
+      return McpTokenResponse.parse(await res.json()).token
+    } catch (error) {
+      this.log.warn(`no pude renovar el token de ${id}: ${(error as Error).message}`)
+      return undefined
+    }
   }
 
   /** Lo que llegó a la ejecución desde la última vez (y el runner lo da por leído). Si el runner no

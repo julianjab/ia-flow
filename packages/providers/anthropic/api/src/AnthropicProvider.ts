@@ -218,7 +218,10 @@ function resolveRunConfig(
  * función es para tokens que vencen (el installation token de una GitHub App dura una hora):
  * resolverlo una sola vez al bootear lo deja vencido en un proceso de larga vida.
  */
-export type McpAuthorizationToken = string | (() => string | Promise<string>)
+export type McpAuthorizationToken =
+  | string
+  /** Con `force`, el servidor rechazó el anterior: descartá la caché y resolvé uno nuevo. */
+  | ((options?: { force?: boolean }) => string | Promise<string>)
 
 /** Los `mcp_servers[]` de UN request para el conector, con el token vigente de cada uno (se
  *  resuelve por request: el de una GitHub App vence a la hora). */

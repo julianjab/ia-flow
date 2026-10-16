@@ -9,7 +9,7 @@ import {
   type ProviderRunOutput,
   type Tool,
 } from '@ia-flow/agent-engine'
-import { runParent } from '@ia-flow/provider-shared'
+import { resolveMcpToken, runParent } from '@ia-flow/provider-shared'
 import { createLogger, exportTraceContext } from '@ia-flow/telemetry'
 import {
   type HostTask,
@@ -97,6 +97,11 @@ export class RemoteProvider implements Provider {
       ...(ctx.inbox ? { inbox: ctx.inbox } : {}),
       ...(ctx.saveConversation ? { saveConversation: ctx.saveConversation } : {}),
       ...(ctx.onText ? { onText: ctx.onText } : {}),
+      mcpToken: (id, force) =>
+        resolveMcpToken(
+          ctx.mcpServers.find((server) => server.id === id)?.config.authorizationToken,
+          force,
+        ),
     })
     const base = `${PROTOCOL_PREFIX}/runs/${run.token}`
     const task: HostTask = {
@@ -187,8 +192,7 @@ function subjectOf(agentId: string, ctx: PipelineExecutionContext): Record<strin
 async function resolveMcpServers(servers: McpServerRef[]): Promise<HostTask['mcpServers']> {
   return Promise.all(
     servers.map(async ({ id, config }) => {
-      const raw = config.authorizationToken
-      const token = typeof raw === 'function' ? await (raw as () => unknown)() : raw
+      const token = await resolveMcpToken(config.authorizationToken)
       const plain = Object.fromEntries(
         Object.entries(config).filter(([, value]) => typeof value !== 'function'),
       )

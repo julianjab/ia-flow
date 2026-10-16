@@ -15,6 +15,8 @@ export interface RemoteRunOptions {
   inbox?: () => string[] | Promise<string[]>
   saveConversation?: (conversation: unknown) => void
   onText?: (delta: string) => void
+  /** El token de un MCP externo de la corrida, resuelto otra vez (`force`: sin caché). */
+  mcpToken?: (id: string, force: boolean) => Promise<string | undefined>
 }
 
 /**
@@ -80,6 +82,11 @@ export class RemoteRun {
   text(deltas: string[]): void {
     const onText = this.options.onText
     if (onText) for (const delta of deltas) onText(delta)
+  }
+
+  /** Un token nuevo para un MCP externo: el que tiene el host lo rechazó el servidor. */
+  async mcpToken(id: string, force: boolean): Promise<string | undefined> {
+    return this.options.mcpToken?.(id, force)
   }
 
   /** El host terminó: lo que devolvió su provider, o que no pudo. Sólo cuenta el primero. */
