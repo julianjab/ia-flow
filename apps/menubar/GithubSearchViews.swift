@@ -49,6 +49,7 @@ struct GithubSearchScreen: View {
             model.appear()
             focused = true
         }
+        .onChange(of: runner.github?.login) { _, _ in model.sessionChanged() }
     }
 
     // MARK: el repo

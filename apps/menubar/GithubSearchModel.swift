@@ -64,6 +64,13 @@ final class GithubSearchModel: ObservableObject {
         if !query.isEmpty, results.isEmpty, note == nil { schedule() }
     }
 
+    /// Al entrar o salir de GitHub: los repos y la búsqueda otra vez, que se habían quedado en «Inicia sesión».
+    func sessionChanged() {
+        reposAt = nil
+        loadRepos()
+        schedule()
+    }
+
     func select(_ name: String?) {
         repo = name
         pickingRepo = false
