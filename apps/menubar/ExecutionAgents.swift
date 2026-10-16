@@ -16,7 +16,8 @@ struct ExecutionAgent: Codable, Hashable {
     var idle_seconds: Double? = nil
     var exit: String? = nil
     var summary: String? = nil
-    var failure: ExecutionFailure? = nil
+    /// Por qué falló: texto (el `failure` de la ejecución, en cambio, es `{by, message}`).
+    var failure: String? = nil
 }
 
 /// `aiflow-reviewer` → `reviewer`: como se nombra un agente en el menú.
@@ -65,7 +66,7 @@ extension ExecutionAgent {
         var lines = ["\(agentName(agent_id)): \(states[state] ?? state)"]
         if let idle { lines[0] += " · último paso \(idle)" }
         if let exit { lines.append("salida: \(exit)") }
-        if let message = failure?.message ?? summary { lines.append(message) }
+        if let message = failure ?? summary { lines.append(message) }
         return lines.joined(separator: "\n")
     }
 }
