@@ -38,7 +38,13 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 (`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
 principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), lo que
-**corre** (con «Detener…») y la **cola**. Cada sección se colapsa con un clic en su título.
+**corre** (con «Detener…»), la **cola** y lo que está **por arrancar**. Cada sección se colapsa con un clic en su título.
+**Por arrancar:** las cards de Todo (`feed` de `/api/inbox`): primero las que pueden arrancar ya, después las que
+esperan a otra («espera #12», y en ⋯ se abre la que bloquea). El título abre el issue; «Mover a ▸» (en ⋯) lleva las
+columnas del board de su proyecto (`projects[].statuses`, sin la actual) y mueve la card con tu login
+(`POST /api/tasks/:owner/:repo/:n/status`): sale directo, sin confirmar; si el runner la rechaza (un agente la está
+trabajando, ya está ahí) el porqué sale en el aviso, y la bandeja se relee. Sin buscar muestra las primeras 8 de
+cada grupo; el buscador y el tag de repo también la filtran.
 **Worktree:** «Abrir worktree del issue/PR en iTerm» (en el ⋯ de cada tarea) abre una pestaña en la ventana de iTerm del frente (una ventana si no hay ninguna) con
 `claude --worktree <owner>/<repo>/pr-N` (o `issue-N` sin PR), desde `~/development`. No va la URL: Claude Code
 rechaza `:` y `#` en el nombre y toma una URL de PR como PR del repo del cwd; el hook global `WorktreeCreate`
@@ -55,8 +61,12 @@ en el board. Un selector de repo propio, filtrable (todos los que ve tu login, `
 del board primero, después por actividad; recuerda el último. Con un repo, un número va directo a ese issue o PR y el
 texto busca en el título; con toda la organización, el texto busca por título (`search/issues`, desde 3 letras) y un
 número pide elegir repo (GitHub no busca por número en toda la org). `repo#n`, `owner/repo#n` y el link van directo.
-Va a api.github.com con tu login, sólo lee y cada resultado sólo se abre en el navegador: no pasa por el runner ni
-toca el board.
+Busca en api.github.com con tu login (no pasa por el runner) y cada resultado se abre en el navegador.
+**Agregar al board:** un issue abierto que no está en el board lleva un botón con «Agregar al board ▸»: «Todo (por
+defecto)» o cualquier otra columna; si el runner tiene más de un proyecto, primero el proyecto. Va por el runner
+(`POST /api/board/items`) con tu login; el aviso dice qué pasó (409 si ya estaba o el repo no es del board) y la
+bandeja se relee. Lo que ya está en el board (según la bandeja y `/api/board`) muestra su columna en vez del botón;
+los PRs no entran al board.
 
 **Mejoras propuestas** («Mejoras · N» al pie de la bandeja, junto a «Logs del server»): lo que dejó la retrospectiva al mergearse
 un PR, para abrirlo como issue o descartarlo. **«¿Por qué?»** abre un chat con el asistente sobre la tarea de la
@@ -106,7 +116,8 @@ sigue llegando aunque se cierre el popover.
 Estructura: `Core.swift` (config, cloudflared y API de Cloudflare), `Service.swift` (proceso, detached o adoptado),
 `Model.swift` (estado y acciones), `Components.swift` y `Views.swift` (SwiftUI), `Icon.swift` (glifo y badge),
 `RunnerAPI.swift` (cliente HTTP del runner y su contrato), `RunnerModel.swift` (estado de la pestaña Runner),
-`RunnerViews.swift` (sus pantallas), `ImprovementsViews.swift` (las mejoras propuestas y su «¿Por qué?»), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
+`RunnerViews.swift` (sus pantallas), `Feed.swift` y `FeedViews.swift` (mover cards de Todo y agregar issues al
+board), `ImprovementsViews.swift` (las mejoras propuestas y su «¿Por qué?»), `RunnerSearch.swift` (qué se busca y qué coincide), `RunnerStream.swift` (el
 stream SSE), `GithubSearch.swift` (la API de GitHub), `GithubSearchModel.swift` y `GithubSearchViews.swift` (la
 pantalla «Buscar en GitHub»), `RunTrace.swift` (la traza de
 una ejecución plegada en pasos), `RunWatch.swift` y `RunTraceViews.swift` (la pantalla «En vivo»), `RunnerHealth.swift` y `RunnerHealthViews.swift`

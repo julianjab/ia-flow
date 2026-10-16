@@ -231,7 +231,7 @@ final class RunnerModel: ObservableObject {
         return names.sorted().map { name in (name, inboxRepos.filter { $0 == name }.count) }
     }
 
-    private func inRepo(_ ref: String) -> Bool { repoFilter.map { repoName(ref) == $0 } ?? true }
+    func inRepo(_ ref: String) -> Bool { repoFilter.map { repoName(ref) == $0 } ?? true }
 
     /// Coincide la tarea, o su épica (buscar una épica trae sus tareas); y está en el repo elegido.
     func keep(_ item: InboxItem) -> Bool {
@@ -257,6 +257,7 @@ final class RunnerModel: ObservableObject {
     }
     var resultCount: Int {
         shownDecisions.count + shownRunning.count + shownQueued.count + shownImprovements.count + shownEpics.count + lookups.count
+            + shownFeed.ready.count + shownFeed.waiting.count
             + boardResults.filter { b in !lookups.contains { $0.ref == b.ref } }.count
     }
 
@@ -302,6 +303,30 @@ final class RunnerModel: ObservableObject {
             lookupMiss = miss
         }
     }
+
+    /// Lo que se sabe que está en el board (la bandeja, Todo y `/api/board`), con su columna si se conoce. En
+    /// minúsculas: GitHub y el runner pueden escribir distinto el owner.
+    var boardStatuses: [String: String] {
+        var known: [String: String] = [:]
+        for item in boardCache?.items ?? [] { known[item.ref.lowercased()] = item.status ?? "" }
+        for item in (inbox?.feed?.ready ?? []) + (inbox?.feed?.waiting ?? []) { known[item.ref.lowercased()] = item.status ?? "" }
+        for item in inbox?.items ?? [] { known[item.ref.lowercased()] = item.status ?? "" }
+        return known
+    }
+
+    /// Trae `/api/board` si no está o tiene más de un minuto (para saber qué ya está en el board).
+    func warmBoard() {
+        guard !isFixture, boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 else { return }
+        let server = selected
+        Task { @MainActor in
+            guard let items = try? await RunnerClient(server: server).board(), server == selected else { return }
+            boardCache = (items, Date())
+            objectWillChange.send()
+        }
+    }
+
+    /// Algo cambió el board desde acá: la próxima consulta lo vuelve a traer.
+    func forgetBoard() { boardCache = nil }
 
     /// La organización del runner: el owner de sus tareas.
     var organization: String? {
@@ -460,6 +485,25 @@ final class RunnerModel: ObservableObject {
             toast?(result.ok ? "\(item.shortRef): \(result.message)" : "No se pudo: \(result.message)")
             refresh()
         }
+    }
+
+    /// Una llamada firmada con tu login de GitHub: sin sesión la pide (`what`: para qué); mientras vuela, `key` queda
+    /// ocupada; el resultado sale en un toast (`okPrefix` delante si salió) y la bandeja se relee.
+    @MainActor @discardableResult
+    func signed<R: RunnerReply>(_ key: String, what: String, okPrefix: String? = nil,
+                                _ call: (RunnerClient, String) async -> R) async -> R? {
+        let server = selected
+        guard let session = await validSession() else {
+            toast?("Inicia sesión con GitHub para \(what)")
+            beginLogin()
+            return nil
+        }
+        busy.insert(key)
+        let result = await call(RunnerClient(server: server), session.token)
+        busy.remove(key)
+        toast?(result.ok ? [okPrefix, result.message].compactMap { $0 }.joined(separator: ": ") : "No se pudo: \(result.message)")
+        refresh()
+        return result
     }
 
     // MARK: mejoras
@@ -708,7 +752,17 @@ extension RunnerModel {
                       execution: agent.map { ExecutionSummary(id: "x", pipeline_id: "build", status: "running", started_at: "", agent_id: $0) },
                       blocked_by: nil, epic: epic, agent_said: said, actions: actions, action_defs: nil, priority: priority, reasons: nil)
         }
-        let inbox = Inbox(generated_at: "", projects: [], items: [
+        func card(_ n: Int, _ title: String, blocked: [String]? = nil, repo: String = "subscriptions") -> FeedItem {
+            FeedItem(ref: "la-haus/\(repo)#\(n)", title: title, url: "https://github.com", blocked_by: blocked, project_id: "p", status: "Todo")
+        }
+        let feed = InboxFeed(ready: [
+            card(4320, "feat(crm): exportar leads del funnel a CSV"),
+            card(4322, "fix(widget): el teléfono no valida el indicativo", repo: "lh-seller-v2-frontend"),
+        ], waiting: [
+            card(4325, "feat(360): timeline usa la etapa del funnel", blocked: ["la-haus/subscriptions#4281"]),
+        ])
+        let project = InboxProject(id: "p", board_url: nil, url: nil, statuses: ["Todo", "Refine", "Refined", "Build", "Review", "Done"])
+        let inbox = Inbox(generated_at: "", projects: [project], items: [
             item(4281, "feat(core): el motor de asignación resuelve assignable_stages y stage_weights", group: "need", kind: "review", why: "Review sin reviewed · PR #912",
                  actions: ["rerun_review", "retry"], epic: epic, priority: 1, pr: 912),
             item(4290, "fix(crm): evento lead.profiled en EventBridge", group: "need", kind: "doubt", why: "El agente se trabó y te pregunta",
@@ -724,7 +778,7 @@ extension RunnerModel {
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
                  actions: ["stop"], epic: epic, agent: "aiflow-implementer", repo: "lh-seller-v2-frontend"),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
-        ], pipeline: InboxPipeline(running: 1, queued: 1, paused: 0, capacity: 3, free: 2), feed: nil)
+        ], pipeline: InboxPipeline(running: 1, queued: 1, paused: 0, capacity: 3, free: 2), feed: feed)
         let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)
         model.improvements = [
             Improvement(id: "1", created_at: "2026-10-15T09:00:00Z", task_ref: "la-haus/subscriptions#4281", pr_url: "https://github.com",

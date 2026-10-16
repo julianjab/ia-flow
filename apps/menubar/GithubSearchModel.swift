@@ -1,8 +1,9 @@
 import Foundation
 
 // El estado de la pantalla «GitHub»: buscar issues y PRs en cualquier repo de la organización, estén o no en el board
-// del runner. Sólo lee, con tu login de GitHub, directo contra api.github.com (GithubSearch); cada resultado sólo se
-// abre en el navegador. Aparte de la bandeja a propósito: el buscador de la pestaña Runner es sólo del runner.
+// del runner. Busca con tu login de GitHub, directo contra api.github.com (GithubSearch); un issue que no está en el
+// board se puede agregar (eso sí pasa por el runner, `POST /api/board/items`). Aparte de la bandeja a propósito: el
+// buscador de la pestaña Runner es sólo del runner.
 
 final class GithubSearchModel: ObservableObject {
     /// Lo que se escribe: texto, un número (con un repo elegido), `repo#n`, `owner/repo#n` o el link de GitHub.
@@ -26,6 +27,8 @@ final class GithubSearchModel: ObservableObject {
     @Published private(set) var needsLogin = false
     @Published private(set) var searching = false
     @Published private(set) var loadingRepos = false
+    /// Los que se agregaron al board desde acá (ref en minúsculas → columna): la fila lo muestra sin esperar al board.
+    @Published private(set) var added: [String: String] = [:]
 
     let org: String
     unowned let runner: RunnerModel
@@ -57,6 +60,7 @@ final class GithubSearchModel: ObservableObject {
 
     func appear() {
         loadRepos()
+        runner.warmBoard()
         if !query.isEmpty, results.isEmpty, note == nil { schedule() }
     }
 
@@ -64,6 +68,27 @@ final class GithubSearchModel: ObservableObject {
         repo = name
         pickingRepo = false
         repoFilter = ""
+    }
+
+    /// La columna si ya está en el board («» si está y no se sabe en cuál); nil si no está (o no se sabe).
+    func boardStatus(_ issue: GithubIssue) -> String? {
+        let key = issue.ref.lowercased()
+        return added[key] ?? runner.boardStatuses[key]
+    }
+
+    /// Lo agrega al board del runner (sin `status`, en Todo). Un 409 (ya está, o el repo no es del board) lo dice el
+    /// runner en el toast.
+    func add(_ issue: GithubIssue, project: String?, status: String?) {
+        guard !isFixture else { return }
+        Task { @MainActor in
+            let result = await runner.signed(issue.ref, what: "agregar al board") { client, token in
+                await client.addToBoard(issue: issue.ref, projectId: project, status: status, github: token)
+            }
+            guard let result, result.ok else { return }
+            added[issue.ref.lowercased()] = result.status ?? status ?? "Todo"
+            runner.forgetBoard()
+            runner.warmBoard()
+        }
     }
 
     /// Los repos, una vez por hora (con tu login).

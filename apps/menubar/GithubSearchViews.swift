@@ -14,7 +14,7 @@ struct GithubSearchScreen: View {
                 IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Buscar en GitHub").font(.lh(17, .bold))
-                    Text("Cualquier repo de \(model.org) · sólo lectura").font(.lh(12)).foregroundStyle(.secondary)
+                    Text("Cualquier repo de \(model.org)").font(.lh(12)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 if model.searching || model.loadingRepos { ProgressView().controlSize(.small).scaleEffect(0.6) }
@@ -122,7 +122,7 @@ struct GithubSearchScreen: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(model.results.enumerated()), id: \.element.ref) { i, issue in
                     if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                    GithubRow(issue: issue)
+                    GithubRow(runner: runner, model: model, issue: issue)
                 }
             }
             .card()
@@ -146,13 +146,26 @@ struct GithubSearchScreen: View {
     }
 }
 
-/// Un issue o PR de GitHub que no es del runner: abierto o cerrado, el título y su repo; clic lo abre en el navegador
-/// (desde acá no se puede mover: no está en el board).
+/// Un issue o PR de GitHub: abierto o cerrado, el título y su repo; clic lo abre en el navegador. Si ya está en el
+/// board, su columna; un issue abierto que no está lleva «Agregar al board ▸» (un PR no entra al board).
 struct GithubRow: View {
+    @ObservedObject var runner: RunnerModel
+    @ObservedObject var model: GithubSearchModel
     let issue: GithubIssue
     @Environment(\.openURL) private var openURL
 
     var body: some View {
+        HStack(spacing: 4) {
+            link
+            if let status = model.boardStatus(issue) {
+                Chip(text: status.isEmpty ? "en el board" : status, tone: .info).fixedSize().help("Ya está en el board del runner")
+            } else if !issue.isPR, issue.open {
+                BoardAddMenu(runner: runner, model: model, issue: issue)
+            }
+        }
+    }
+
+    private var link: some View {
         Button { if let url = URL(string: issue.url) { openURL(url) } } label: {
             HStack(spacing: 6) {
                 Image(systemName: issue.isPR ? "arrow.triangle.pull" : issue.open ? "circle.circle" : "checkmark.circle")

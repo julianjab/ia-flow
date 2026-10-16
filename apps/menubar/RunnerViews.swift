@@ -154,8 +154,38 @@ struct RunnerInboxScreen: View {
                 }
             }
         }
+        feedSection
         if searching, runner.resultCount == 0, !runner.searching { noResults }
         if runner.search != nil { githubHandoff }
+    }
+
+    /// Las cards de Todo: primero las que pueden arrancar, después las que esperan a otra. Sin buscar, las primeras.
+    @ViewBuilder
+    private var feedSection: some View {
+        let feed = runner.shownFeed
+        let limit = runner.filtering ? 50 : 8
+        if !feed.ready.isEmpty || !feed.waiting.isEmpty {
+            section("Por arrancar", count: feed.ready.count + feed.waiting.count) {
+                ForEach(Array(feed.ready.prefix(limit).enumerated()), id: \.element.ref) { i, item in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
+                    FeedRow(runner: runner, item: item)
+                }
+                if feed.ready.count > limit { more(feed.ready.count - limit) }
+                if !feed.waiting.isEmpty {
+                    Text("Esperan a otra").font(.lh(10.5, .semibold)).foregroundStyle(.tertiary)
+                        .padding(.top, feed.ready.isEmpty ? 0 : 10).padding(.bottom, 4)
+                    ForEach(Array(feed.waiting.prefix(limit).enumerated()), id: \.element.ref) { i, item in
+                        if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
+                        FeedRow(runner: runner, item: item)
+                    }
+                    if feed.waiting.count > limit { more(feed.waiting.count - limit) }
+                }
+            }
+        }
+    }
+
+    private func more(_ n: Int) -> some View {
+        Text("y \(n) más: búscalas o ábrelas en el board").font(.lh(11)).foregroundStyle(.tertiary).padding(.top, 6)
     }
 
     /// Lo que coincide fuera de la bandeja: las primeras con sus acciones, el resto como fila corta.

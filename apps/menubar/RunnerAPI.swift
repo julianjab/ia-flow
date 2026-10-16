@@ -130,11 +130,17 @@ struct InboxPipeline: Codable, Hashable {
     let free: Int?
 }
 
+/// Una card de Todo que todavía no arrancó (`feed.ready` y `feed.waiting` de la bandeja).
 struct FeedItem: Codable, Hashable, Identifiable {
     let ref: String
     let title: String
     let url: String
+    /// Los issues abiertos que la bloquean: sólo en `waiting`.
     let blocked_by: [String]?
+    var project_id: String? = nil
+    /// Su columna (la de Todo del board).
+    var status: String? = nil
+    var updated_at: String? = nil
     var id: String { ref }
 }
 
@@ -164,6 +170,8 @@ struct InboxProject: Codable, Hashable {
     let id: String
     let board_url: String?
     let url: String?
+    /// Las columnas del board en su orden: a dónde se mueve o se agrega una card. Un runner viejo no las manda.
+    var statuses: [String]? = nil
 }
 
 struct Inbox: Codable {
@@ -212,9 +220,23 @@ struct Improvement: Codable, Identifiable, Hashable {
 
 private struct ImprovementList: Codable { let items: [Improvement] }
 
-struct TaskActionResult: Codable {
+/// Lo que contesta el runner a algo que se firma con tu login: `ok` y qué pasó (o por qué no).
+protocol RunnerReply {
+    var ok: Bool { get }
+    var message: String { get }
+}
+
+struct TaskActionResult: Codable, RunnerReply {
     let ok: Bool
     let message: String
+}
+
+/// `POST /api/board/items`: la card agregada y en qué columna quedó.
+struct AddToBoardResult: Codable, RunnerReply {
+    let ok: Bool
+    let message: String
+    var ref: String? = nil
+    var status: String? = nil
 }
 
 struct DeviceCode: Codable {
@@ -305,6 +327,36 @@ struct RunnerClient {
             return try JSONDecoder().decode(TaskActionResult.self, from: data)
         } catch let error as RunnerError {
             return TaskActionResult(ok: false, message: error.message)
+        }
+    }
+
+    /// Mueve la card a otra columna del board, con tu login. 409 si un agente la está trabajando o ya está ahí.
+    func move(ref: String, to status: String, github: String) async -> TaskActionResult {
+        struct Body: Encodable { let status: String }
+        guard let parts = RunnerSearch.split(ref) else { return TaskActionResult(ok: false, message: "ref inválida: \(ref)") }
+        do {
+            let data = try await request("/api/tasks/\(parts.owner)/\(parts.repo)/\(parts.number)/status", method: "POST",
+                                         body: Body(status: status), github: github)
+            return try JSONDecoder().decode(TaskActionResult.self, from: data)
+        } catch let error as RunnerError {
+            return TaskActionResult(ok: false, message: error.message)
+        } catch {
+            return TaskActionResult(ok: false, message: error.localizedDescription)
+        }
+    }
+
+    /// Agrega un issue al board (sin `status`, en Todo), con tu login. 409 si ya está o el repo no es del board; 400
+    /// si es un PR; 404 si no existe.
+    func addToBoard(issue: String, projectId: String?, status: String?, github: String) async -> AddToBoardResult {
+        struct Body: Encodable { let issue: String; let project_id: String?; let status: String? }
+        do {
+            let data = try await request("/api/board/items", method: "POST",
+                                         body: Body(issue: issue, project_id: projectId, status: status), github: github)
+            return try JSONDecoder().decode(AddToBoardResult.self, from: data)
+        } catch let error as RunnerError {
+            return AddToBoardResult(ok: false, message: error.message)
+        } catch {
+            return AddToBoardResult(ok: false, message: error.localizedDescription)
         }
     }
 
