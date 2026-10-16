@@ -446,6 +446,9 @@ describe("the claw-agents runner's dashboard", () => {
         ref: 'o/r#1',
         title: 'Una tarea',
         url: expect.any(String),
+        // Su proyecto y su columna: de ahí salen las columnas de «Mover a…».
+        projectId: 'p',
+        status: 'Todo',
         action: { id: 'start_refine', label: 'Mover a Refine' },
       },
     ])

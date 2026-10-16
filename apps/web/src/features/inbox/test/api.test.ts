@@ -4,7 +4,9 @@ import {
   explainTask,
   getInbox,
   getTaskDetail,
+  postBoardItem,
   postTaskAction,
+  postTaskStatus,
   taskPath,
 } from '@/features/inbox/api'
 import { detail, inbox, item } from '@/features/inbox/test/fixtures'
@@ -95,5 +97,54 @@ describe('api de la bandeja', () => {
 
     post.mockResolvedValueOnce({ status: 404, data: '<html>' })
     await expect(postTaskAction('acme/api#7', { action: 'merge' }, 't')).rejects.toThrow(/404/)
+  })
+
+  it('postTaskStatus mueve la card con el token del usuario; un 409 vuelve con su mensaje', async () => {
+    post.mockResolvedValueOnce({ status: 200, data: { ok: true, message: 'Movida a Refine' } })
+    const result = await postTaskStatus('acme/api#7', 'Refine', 'gho_abc')
+    expect(result).toEqual({ ok: true, message: 'Movida a Refine' })
+    const [url, body, config] = post.mock.calls[0] as [
+      string,
+      unknown,
+      { headers: Record<string, string> },
+    ]
+    expect(url).toBe('/api/tasks/acme/api/7/status')
+    expect(body).toEqual({ status: 'Refine' })
+    expect(config.headers).toEqual({ 'x-github-token': 'gho_abc' })
+
+    post.mockResolvedValueOnce({
+      status: 409,
+      data: { ok: false, message: 'Hay un agente corriendo' },
+    })
+    expect(await postTaskStatus('acme/api#7', 'Build', 't')).toMatchObject({ ok: false })
+
+    post.mockResolvedValueOnce({ status: 404, data: '<html>' })
+    await expect(postTaskStatus('acme/api#7', 'Build', 't')).rejects.toThrow(/404/)
+  })
+
+  it('postBoardItem agrega el issue con el token del usuario y valida el resultado', async () => {
+    post.mockResolvedValueOnce({
+      status: 200,
+      data: { ok: true, message: 'Agregada', ref: 'acme/api#9', status: 'Todo' },
+    })
+    const result = await postBoardItem({ issue: 'acme/api#9', project_id: 'core' }, 'gho_abc')
+    expect(result).toEqual({ ok: true, message: 'Agregada', ref: 'acme/api#9', status: 'Todo' })
+    const [url, body, config] = post.mock.calls[0] as [
+      string,
+      unknown,
+      { headers: Record<string, string> },
+    ]
+    expect(url).toBe('/api/board/items')
+    expect(body).toEqual({ issue: 'acme/api#9', project_id: 'core' })
+    expect(config.headers).toEqual({ 'x-github-token': 'gho_abc' })
+
+    post.mockResolvedValueOnce({ status: 409, data: { ok: false, message: 'Ya está en el board' } })
+    expect(await postBoardItem({ issue: 'acme/api#9' }, 't')).toMatchObject({
+      ok: false,
+      message: 'Ya está en el board',
+    })
+
+    post.mockResolvedValueOnce({ status: 400, data: { nope: true } })
+    await expect(postBoardItem({ issue: 'x' }, 't')).rejects.toThrow(/400/)
   })
 })
