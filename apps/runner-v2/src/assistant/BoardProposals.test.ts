@@ -215,3 +215,58 @@ describe('proposing to change labels', () => {
     )
   })
 })
+
+describe('drafting a new issue for the board', () => {
+  const withRepos: InboxProject = { ...p, repos: ['la-haus/subscriptions', 'la-haus/web'] }
+  const draft = {
+    repo: 'la-haus/subscriptions',
+    title: 'Exportar leads a CSV',
+    body: '## Contexto\nlo pidió ventas',
+    reason: 'lo pediste',
+  }
+
+  it('proposes the issue in a catalog repo, headed to the board (Todo unless asked)', async () => {
+    const { board, proposals } = session({ kind: 'general' }, { projects: [withRepos] })
+    await expect(board.draftIssue(draft)).resolves.toContain('NO está hecha')
+    await board.draftIssue({ ...draft, repo: 'La-Haus/Subscriptions', status: 'Refine' })
+    expect(proposals()).toEqual([
+      {
+        id: expect.any(String),
+        kind: 'issue',
+        repo: 'la-haus/subscriptions',
+        title: 'Exportar leads a CSV',
+        body: '## Contexto\nlo pidió ventas',
+        label: 'Crear en la-haus/subscriptions y sumarlo al board',
+        reason: 'lo pediste',
+        board: { project_id: 'p' },
+      },
+      expect.objectContaining({
+        repo: 'la-haus/subscriptions',
+        board: { project_id: 'p', status: 'Refine' },
+      }),
+    ])
+  })
+
+  it('refuses a repo outside the catalog (listing it), a column the board lacks and an empty body', async () => {
+    const { board, proposals } = session({ kind: 'general' }, { projects: [withRepos] })
+    await expect(board.draftIssue({ ...draft, repo: 'otro/repo' })).rejects.toThrow(
+      'la-haus/subscriptions, la-haus/web',
+    )
+    await expect(board.draftIssue({ ...draft, status: 'Done' })).rejects.toThrow(
+      'no es una columna',
+    )
+    await expect(board.draftIssue({ ...draft, body: ' ' })).rejects.toThrow('título y cuerpo')
+    expect(proposals()).toEqual([])
+  })
+
+  it('without a catalog, any owner/repo; never inside a task conversation or a pipeline', async () => {
+    const { board, proposals } = session({ kind: 'general' })
+    await board.draftIssue({ ...draft, repo: 'o/r' })
+    expect(proposals()).toHaveLength(1)
+    await expect(board.draftIssue({ ...draft, repo: 'r' })).rejects.toThrow('owner/repo')
+    const inTask = session({ kind: 'task', ref: 'o/r#1' }, { projects: [withRepos] })
+    await expect(inTask.board.draftIssue(draft)).rejects.toThrow('contexto de una tarea')
+    const unattended = session({ kind: 'general' }, { projects: [withRepos], origin: true })
+    await expect(unattended.board.draftIssue(draft)).rejects.toThrow()
+  })
+})

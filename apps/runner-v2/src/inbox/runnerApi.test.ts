@@ -532,6 +532,28 @@ describe('runner API', () => {
     })
   })
 
+  it('a proposed issue that also goes to the board is opened even if the board refuses it', async () => {
+    const { call, github } = await start()
+    const created = await call('/api/issues', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'julianjab/ia-flow',
+        title: 'Base para refinar',
+        body: 'b',
+        board: { project_id: 'p', status: 'Refine' },
+      }),
+      headers: { 'x-github-token': 'gho_x' },
+    })
+    expect(created.status).toBe(200)
+    expect(await created.json()).toMatchObject({
+      ok: true,
+      number: 77,
+      message: expect.stringContaining('abierto, pero no quedó en el board'),
+      board_error: 'estos tests no mueven cards',
+    })
+    expect(github.calls.filter((request) => request.method === 'POST')).toHaveLength(1)
+  })
+
   it('lists the improvements an agent proposed, open by default', async () => {
     const { call, improvements } = await start()
     const open = improvements.add(improvement())
