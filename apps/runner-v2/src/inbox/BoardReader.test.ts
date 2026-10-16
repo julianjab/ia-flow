@@ -165,6 +165,37 @@ describe('BoardReader', () => {
     expect(queries[2]).not.toContain('parent')
   })
 
+  it('asks GitHub for the open items only (one page instead of the whole history)', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        return page({})
+      },
+    } as unknown as GithubClient
+    await new BoardReader(client).cards(spec)
+    expect(queries[0]).toContain('items(first: 100, after: $after, query: "is:open")')
+  })
+
+  it('if GitHub rejects items(query:), it pages everything and filters the closed ones itself', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        if (query.includes('query: "is:open"')) {
+          throw new Error("Field 'items' doesn't accept argument 'query'")
+        }
+        return page({})
+      },
+    } as unknown as GithubClient
+    const reader = new BoardReader(client)
+    const [card] = await reader.cards(spec)
+    expect(card).toMatchObject({ ref: 'la-haus/subs#7' })
+    expect(queries).toHaveLength(2)
+    expect(queries[1]).not.toContain('is:open')
+    expect(queries[1]).toContain('blockedBy')
+  })
+
   it('an error that is not about an optional field still fails', async () => {
     const client = {
       graphql: async () => {

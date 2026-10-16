@@ -39,11 +39,13 @@ function setup() {
     summarize: (event) => summarizeEvent(event, 140),
   })
   const traces = new SqliteTraceJournal({ database })
+  const reader = new SqliteActivityReader(database)
   return {
     repository,
     events,
     traces,
-    activity: new SqliteActivity(new SqliteActivityReader(database)),
+    reader,
+    activity: new SqliteActivity(reader),
   }
 }
 
@@ -99,6 +101,39 @@ describe('SqliteActivity', () => {
       'chat claude-opus',
       'agent refiner',
     ])
+  })
+
+  it('a settled execution summary is built once; a recently closed one is rebuilt (late host telemetry)', () => {
+    let now = Date.parse('2026-09-29T11:06:00.000Z')
+    const fresh = setup()
+    const activity = new SqliteActivity(fresh.reader, () => now)
+    fresh.repository.save({
+      id: 'e1',
+      key: KEY,
+      pipelineId: 'build',
+      status: 'done',
+      startedAt: '2026-09-29T11:00:00.000Z',
+      waitedMs: 0,
+      closedAt: '2026-09-29T11:05:00.000Z',
+    })
+    const tokens = (n: number) =>
+      span({
+        name: 'chat',
+        attributes: { 'ia.execution.id': 'e1', 'gen_ai.usage.output_tokens': n },
+      })
+    fresh.traces.write(tokens(100))
+    const output = () => activity.executions({ taskRef: 'o/r#1' })[0]?.usage?.output_tokens
+
+    // Cerrada hace un minuto: la telemetría del host todavía puede llegar.
+    expect(output()).toBe(100)
+    fresh.traces.write(tokens(50))
+    expect(output()).toBe(150)
+
+    // Cerrada hace más de cinco minutos: ya no cambia, y no se vuelve a recorrer su traza.
+    now = Date.parse('2026-09-29T11:20:00.000Z')
+    expect(output()).toBe(150)
+    fresh.traces.write(tokens(999))
+    expect(output()).toBe(150)
   })
 
   it('a failed run without an agent failure is a runtime failure with its close reason', () => {
