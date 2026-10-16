@@ -13,6 +13,7 @@ import { createLogger } from '@ia-flow/telemetry'
 import type { Boards } from '../board/Boards.js'
 import type { InboxSettings } from './InboxSection.js'
 import type { InboxService } from './InboxService.js'
+import { assertCanPush, type IssueTarget, parseRef } from './pushAccess.js'
 import type { TaskActionDef, TaskActionDefs } from './TaskActionDef.js'
 import { TaskActionError } from './TaskActionError.js'
 import { runTaskAction, type TaskFacts } from './TaskActionRunner.js'
@@ -40,38 +41,6 @@ export interface TaskActionsOptions {
 }
 
 export { TaskActionError }
-
-interface IssueTarget {
-  owner: string
-  repo: string
-  number: number
-}
-
-function parseRef(ref: string): IssueTarget {
-  const match = ref.match(/^([^/\s]+)\/([^#\s]+)#(\d+)$/)
-  if (!match) throw new TaskActionError(`"${ref}" no es owner/repo#n`, 400)
-  return { owner: match[1] as string, repo: match[2] as string, number: Number(match[3]) }
-}
-
-/**
- * Que quien pide la acción pueda escribir en el repo de la tarea, preguntándole a GitHub con SU
- * token. Sin esto, relanzar o parar (que no tocan GitHub) los podría pedir cualquier cuenta: el
- * runner los hace con su propia identidad.
- */
-async function assertCanPush(
-  client: GithubClient,
-  target: IssueTarget,
-  login: string,
-): Promise<void> {
-  const res = await client.request(`/repos/${target.owner}/${target.repo}`)
-  const repo = res.ok ? ((await res.json()) as { permissions?: { push?: boolean } }) : undefined
-  if (!repo?.permissions?.push) {
-    throw new TaskActionError(
-      `${login} no tiene permiso de escritura en ${target.owner}/${target.repo}`,
-      403,
-    )
-  }
-}
 
 /** Por qué GitHub no deja mergear un PR, según su `mergeable_state`. */
 const UNMERGEABLE: Record<string, string> = {

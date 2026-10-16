@@ -271,6 +271,8 @@ En el mismo puerto que los webhooks, `--serve` expone la API de la web (contrato
 | `GET /api/config` | la config cargada, en corto |
 | `GET /api/stream` | SSE: qué cambió (una tarea, una traza, un evento) |
 | `POST /api/tasks/:owner/:repo/:n/actions` | mergear, aprobar el PRD, devolver, contestar y destrabar, relanzar, reintentar, re-ejecutar el review (simula que la card llegó a Review), pedir que pare — con el token de GitHub de quien lo hace (`x-github-token`): el movimiento queda a su nombre |
+| `POST /api/tasks/:owner/:repo/:n/status` | mover la card a otra columna (`{ status }`) con el token de quien la mueve, como moverla en GitHub: el webhook arranca el pipeline de esa columna. No con un agente corriendo en ella |
+| `POST /api/board/items` | sumar al board un issue abierto que no está (`{ issue, project_id?, status? }`, sin `status` entra en Todo), con el token de quien lo agrega |
 | `POST /api/auth/github/device` (+ `/poll`) | el login de GitHub de la web (device flow de la App); el runner no guarda el token |
 | `POST /api/assistant` | el asistente (SSE): la capacidad `assistant` (ver abajo). Con `x-github-token`, el intercambio se guarda a nombre de ese login |
 | `GET /api/assistant/conversations?scope=` | las conversaciones guardadas de quien pide (`x-github-token`), del contexto `scope` (un `AssistantScope` en JSON) |

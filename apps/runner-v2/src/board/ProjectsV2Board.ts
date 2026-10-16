@@ -1,5 +1,6 @@
 import type { GithubClient } from '@ia-flow/github-api'
 import {
+  type BoardAdder,
   type BoardCard,
   type BoardMeta,
   type BoardWriter,
@@ -68,5 +69,14 @@ export class ProjectsV2Board implements Board {
 
   writerFor(client: GithubClient): BoardWriter {
     return client === this.client ? this.fields : new ProjectsV2Fields(client, this.ref)
+  }
+
+  adderFor(client: GithubClient): BoardAdder {
+    return client === this.client ? this.adder : new ProjectsV2Adder(client, this.ref)
+  }
+
+  /** Un Project v2 acepta issues de cualquier repo. */
+  holds(): boolean {
+    return true
   }
 }

@@ -1,5 +1,6 @@
 import type { GithubClient } from '@ia-flow/github-api'
 import type {
+  BoardAdder,
   BoardCard,
   BoardMeta,
   BoardWriter,
@@ -216,6 +217,16 @@ export class IssuesBoard implements Board {
 
   writerFor(client: GithubClient): BoardWriter {
     return client === this.client ? this.fields : new IssueLabelFields(client, this.scheme)
+  }
+
+  /** Agregar tampoco hace nada con otra identidad: el issue entra al ponerle su columna. */
+  adderFor(): BoardAdder {
+    return this
+  }
+
+  /** Sólo los issues de los repos del catálogo son cards. */
+  holds(repo: { owner: string; repo: string }): boolean {
+    return this.repos.some((own) => sameRepo(own, repo))
   }
 
   /**

@@ -66,4 +66,8 @@ export interface Board extends BoardView, BoardRouting, BoardWriter, BoardAdder 
   describe(): string
   /** Escribir con otra identidad: las acciones de la bandeja actúan con el token de la persona. */
   writerFor(client: GithubClient): BoardWriter
+  /** Agregar con otra identidad: lo que una persona suma al board queda a su nombre. */
+  adderFor(client: GithubClient): BoardAdder
+  /** Si un issue de este repo puede ser una card de este board. */
+  holds(repo: { owner: string; repo: string }): boolean
 }

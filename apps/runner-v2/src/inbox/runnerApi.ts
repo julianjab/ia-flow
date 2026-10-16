@@ -8,6 +8,7 @@
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
 import {
+  AddToBoardRequestSchema,
   type AssistantConversation,
   type AssistantConversationSummary,
   AssistantRequestSchema,
@@ -25,6 +26,7 @@ import {
   type ImprovementList,
   ImprovementStatusSchema,
   type InboxProject,
+  MoveTaskRequestSchema,
   type RunnerInfo,
   type RunnerResources,
   type RunnerStreamEvent,
@@ -38,6 +40,7 @@ import type { ImprovementStore } from '../assistant/ImprovementStore.js'
 import { type DeviceFlow, githubLogin, RefreshRejectedError } from '../github/deviceFlow.js'
 import { ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
+import type { BoardMoves } from './BoardMoves.js'
 import type { InboxService } from './InboxService.js'
 import type { IngressService } from './IngressService.js'
 import type { RunnerLogs } from './RunnerLogs.js'
@@ -50,6 +53,8 @@ export interface RunnerApiOptions {
   projects: InboxProject[]
   inbox: InboxService
   actions: TaskActions
+  /** Sumar un issue al board y mover una card de columna. Sin esto, 501. */
+  moves?: BoardMoves
   assistant: Assistant
   /** Las entradas del runner (webhook de GitHub, Slack) y lo que les llegó. */
   ingress?: IngressService
@@ -185,6 +190,51 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       const request = parseBody(TaskActionRequestSchema, await req.json())
       const login = await loginOf(token)
       return await options.actions.run(refOf(req.params), request, { token, login })
+    } catch (err) {
+      if (err instanceof TaskActionError || err instanceof HttpError) {
+        return reject(err.status, err.message)
+      }
+      throw err
+    }
+  })
+
+  const boardMoves = () => {
+    if (!options.moves) throw new HttpError(501, 'Este runner no mueve cards del board')
+    return options.moves
+  }
+
+  // Mover la card a otra columna, con el login de quien la mueve: como moverla en GitHub.
+  router.post('/api/tasks/:owner/:repo/:number/status', async (req, res) => {
+    const reject = (status: number, message: string) => {
+      sendJson(res, status, { ok: false, message })
+      return undefined
+    }
+    const token = req.header('x-github-token')
+    if (!token) return reject(401, 'Iniciá sesión con GitHub para mover tareas')
+    try {
+      const { status } = parseBody(MoveTaskRequestSchema, await req.json())
+      const login = await loginOf(token)
+      return await boardMoves().move(refOf(req.params), status, { token, login })
+    } catch (err) {
+      if (err instanceof TaskActionError || err instanceof HttpError) {
+        return reject(err.status, err.message)
+      }
+      throw err
+    }
+  })
+
+  // Un issue que no está en el board pasa a estarlo, a nombre de quien lo agrega.
+  router.post('/api/board/items', async (req, res) => {
+    const reject = (status: number, message: string) => {
+      sendJson(res, status, { ok: false, message })
+      return undefined
+    }
+    const token = req.header('x-github-token')
+    if (!token) return reject(401, 'Iniciá sesión con GitHub para agregar al board')
+    try {
+      const request = parseBody(AddToBoardRequestSchema, await req.json())
+      const login = await loginOf(token)
+      return await boardMoves().add(request, { token, login })
     } catch (err) {
       if (err instanceof TaskActionError || err instanceof HttpError) {
         return reject(err.status, err.message)

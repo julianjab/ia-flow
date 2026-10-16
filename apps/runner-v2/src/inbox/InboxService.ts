@@ -136,7 +136,13 @@ export class InboxService {
       this.specs(projectId).map(async (spec) => {
         const meta = await this.options.board.meta?.(spec)
         const url = meta?.url ?? projectUrl(spec.board)
-        return { id: spec.projectId, board: spec.board, url, board_url: meta?.boardUrl ?? url }
+        return {
+          id: spec.projectId,
+          board: spec.board,
+          url,
+          board_url: meta?.boardUrl ?? url,
+          ...(meta?.statuses.length ? { statuses: meta.statuses } : {}),
+        }
       }),
     )
   }

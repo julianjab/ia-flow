@@ -18,6 +18,7 @@ import { dispatchRaw } from '../intake/dispatch.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { taskOfKey } from './ActivityPort.js'
 import { actingAs } from './actingAs.js'
+import { BoardMoves } from './BoardMoves.js'
 import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
@@ -202,6 +203,17 @@ export function mountInbox(
     },
   })
 
+  const moves = new BoardMoves({
+    inbox,
+    board: (projectId) => boards.of(projectId),
+    projects: specs.map((spec) => spec.projectId),
+    todo: cfg.inbox.statuses.todo,
+    changed: (ref) => {
+      boards.markStale()
+      changed(ref)
+    },
+  })
+
   const config = () =>
     configSummary({
       projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
@@ -243,6 +255,7 @@ export function mountInbox(
     projects: specs.map((spec) => ({ id: spec.projectId, board: spec.board })),
     inbox,
     actions,
+    moves,
     assistant,
     conversations: store.conversations,
     improvements: store.improvements,

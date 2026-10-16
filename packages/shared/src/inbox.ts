@@ -165,6 +165,9 @@ export const InboxProjectSchema = z.object({
   url: z.string().optional(),
   /** Su vista de tablero (la primera con layout de board); si no hay, la del Project. */
   board_url: z.string().optional(),
+  /** Las columnas del board, en su orden: a dónde se puede mover o agregar una card. Un runner
+   *  viejo no las manda. */
+  statuses: z.array(z.string()).optional(),
 })
 export type InboxProject = z.infer<typeof InboxProjectSchema>
 
@@ -383,6 +386,29 @@ export const TaskActionResultSchema = z.object({
   github_login: z.string().optional(),
 })
 export type TaskActionResult = z.infer<typeof TaskActionResultSchema>
+
+/** `POST /api/tasks/:owner/:repo/:n/status`: mover la card a otra columna, con el login de quien la
+ *  mueve. Responde un `TaskActionResult`. */
+export const MoveTaskRequestSchema = z.object({ status: z.string().min(1) })
+export type MoveTaskRequest = z.infer<typeof MoveTaskRequestSchema>
+
+/** `POST /api/board/items`: un issue que no está en el board pasa a estarlo, en `status` (sin él,
+ *  la columna de Todo), con el login de quien lo agrega. */
+export const AddToBoardRequestSchema = z.object({
+  /** `owner/repo#n` o el link del issue. */
+  issue: z.string().min(1),
+  /** El proyecto del runner; con uno solo, se puede omitir. */
+  project_id: z.string().optional(),
+  status: z.string().min(1).optional(),
+})
+export type AddToBoardRequest = z.infer<typeof AddToBoardRequestSchema>
+
+export const AddToBoardResultSchema = TaskActionResultSchema.extend({
+  /** La card agregada: `owner/repo#n`. */
+  ref: z.string().optional(),
+  status: z.string().optional(),
+})
+export type AddToBoardResult = z.infer<typeof AddToBoardResultSchema>
 
 export const DeviceCodeSchema = z.object({
   device_code: z.string(),
