@@ -1,6 +1,6 @@
 import type { InboxItem } from '@ia-flow/shared'
-import { createLogger } from '@ia-flow/telemetry'
 import { type ComputedRef, computed, type Ref, ref } from 'vue'
+import { tokenOrLogin } from '@/features/inbox/githubToken'
 import { type ActionFailure, actionFailure } from '@/features/inbox/queue/advice'
 import { type ConfirmCopy, confirmCopy, type QueueAction } from '@/features/inbox/queue/kinds'
 import { useInboxStore } from '@/features/inbox/store'
@@ -10,8 +10,6 @@ import { useGithubSessionStore } from '@/stores/githubSession'
 // pedir el login si falta, confirmar en línea si firma con GitHub o no se deshace, ejecutar con
 // tu token y dejar el error pegado a su botón. Lo comparten «Lo primero», las filas de
 // «Después», las hijas de un grupo, «Detener…» y el feed.
-
-const log = createLogger('inbox:action')
 
 type Target = Pick<InboxItem, 'ref' | 'pr' | 'action_defs'>
 
@@ -58,18 +56,11 @@ async function runWith(
   seriesBusy: Ref<boolean>,
 ): Promise<boolean> {
   const store = useInboxStore()
-  const session = useGithubSessionStore()
   const action = source.action()
   if (!action) return false
   // Renovado si está por vencer; si GitHub ya no lo renueva, se pide el login otra vez.
-  const token = await session.token().catch((err: unknown) => {
-    log.warn('no se pudo renovar el token de GitHub', { error: String(err) })
-    return null
-  })
-  if (!token) {
-    session.requestLogin()
-    return false
-  }
+  const token = await tokenOrLogin()
+  if (!token) return false
   if (refs.length > 1) {
     seriesBusy.value = true
     try {
