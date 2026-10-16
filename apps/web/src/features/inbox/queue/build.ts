@@ -79,6 +79,9 @@ export interface FeedLine {
   short: string
   url: string
   title: string
+  /** Su proyecto y su columna: a dónde se la puede mover («Mover a…»). */
+  projectId?: string
+  status?: string
   action?: { id: string; label: string }
   /** Espera a otra tarea («○ espera subs#1579»): todavía no puede arrancar. */
   waitingOn?: Blocker
@@ -220,6 +223,8 @@ export function feedOf(
       short: shortRef(e.ref),
       url: e.url,
       title: e.title,
+      ...(e.projectId ? { projectId: e.projectId } : {}),
+      ...(e.status ? { status: e.status } : {}),
       ...(e.action ? { action: { ...e.action } } : {}),
       ...(e.waitingOn ? { waitingOn: { ...e.waitingOn } } : {}),
     })),

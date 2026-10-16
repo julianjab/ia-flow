@@ -110,7 +110,14 @@ watch(
 
         <SectionSkeleton v-if="s.feed === 'loading'" shape="feed" :rows="isMobile ? 0 : 3" label="cargando qué le das al pipeline…" />
         <ActionError v-else-if="s.feed === 'error' && feedError" :failure="feedError" :busy="store.loading" @retry="store.refresh()" />
-        <FeedList v-else-if="s.feed === 'ready' && queue.feed" id="pipeline-feed" :class="rv(0)" :feed="queue.feed" />
+        <FeedList
+          v-else-if="s.feed === 'ready' && queue.feed"
+          id="pipeline-feed"
+          :class="rv(0)"
+          :feed="queue.feed"
+          :projects="store.projects"
+          :project="store.project"
+        />
 
         <template v-if="!isSplit && s.decisions === 'ready'">
           <div v-if="queue.epics.length" :class="rv(3)"><EpicsPanel :epics="queue.epics" folded /></div>

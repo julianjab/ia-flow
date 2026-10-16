@@ -26,6 +26,10 @@ export interface RunnerFeedEntry {
   ref: string
   title: string
   url: string
+  /** Su proyecto: de él salen las columnas a las que se puede mover. */
+  projectId?: string
+  /** La columna en la que está (Todo): no se ofrece moverla ahí. */
+  status?: string
   action?: { id: string; label: string }
   waitingOn?: Blocker
 }
@@ -36,10 +40,12 @@ export function runnerFeed(feed: InboxFeed | undefined | null): {
   entries: RunnerFeedEntry[]
 } | null {
   if (!feed) return null
-  const line = (card: InboxFeed['ready'][number]) => ({
+  const line = (card: InboxFeed['ready'][number]): RunnerFeedEntry => ({
     ref: card.ref,
     title: card.title,
     url: card.url,
+    projectId: card.project_id,
+    ...(card.status ? { status: card.status } : {}),
   })
   return {
     title: RUNNER_FEED_TITLE,

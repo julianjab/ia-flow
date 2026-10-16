@@ -151,6 +151,9 @@ export interface FeedEntry {
   ref: string
   title: string
   url: string
+  projectId: string
+  /** Su columna del board. */
+  status?: string
   /** La acción del runner que la pone a correr, si la ofrece para esta tarea. */
   action?: { id: string; label: string }
 }
@@ -188,6 +191,8 @@ export function buildView(tasks: Tasks, dashboard: Dashboard): DashboardView {
             ref: task.ref,
             title: task.title,
             url: task.url,
+            projectId: task.project_id,
+            ...(task.item.status ? { status: task.item.status } : {}),
             ...(def ? { action: { id: def.id, label: def.label } } : {}),
           }
         })

@@ -1,6 +1,7 @@
 import type { InboxItem } from '@ia-flow/shared'
 import { computed, ref } from 'vue'
 import { buildQueue, type InboxQueue } from '@/features/inbox/queue/build'
+import { withColumns } from '@/features/inbox/queue/columns'
 import type { QueueType } from '@/features/inbox/queue/kinds'
 import type { createBoardLoad } from '@/features/inbox/state/load'
 
@@ -10,7 +11,10 @@ import type { createBoardLoad } from '@/features/inbox/state/load'
 type BoardLoad = ReturnType<typeof createBoardLoad>
 
 export function createQueue(load: BoardLoad) {
-  const projects = computed(() => load.inbox.value?.projects ?? [])
+  /** Con sus columnas: si `/api/tasks` no las trae, las de `/api/inbox`. */
+  const projects = computed(() =>
+    withColumns(load.inbox.value?.projects ?? [], load.runner.value?.projects ?? []),
+  )
   /** Lo que se ve tras el filtro de proyecto: la base de la cola. */
   const scoped = computed<InboxItem[]>(() => {
     const items = load.inbox.value?.items ?? []

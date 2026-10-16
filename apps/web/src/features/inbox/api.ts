@@ -1,10 +1,14 @@
 import {
+  type AddToBoardRequest,
+  type AddToBoardResult,
+  AddToBoardResultSchema,
   type BoardRest,
   BoardRestSchema,
   type ExplainResult,
   ExplainResultSchema,
   type Inbox,
   InboxSchema,
+  type MoveTaskRequest,
   type TaskActionRequest,
   type TaskActionResult,
   TaskActionResultSchema,
@@ -61,9 +65,26 @@ export async function getTaskDetail(ref: string, executionId?: string): Promise<
   return TaskDetailSchema.parse(data)
 }
 
+/** Un pedido firmado con el token de GitHub del usuario: un 4xx vuelve como respuesta, no se lanza. */
+const signedBy = (githubToken: string) => ({
+  headers: { 'x-github-token': githubToken },
+  validateStatus: (status: number) => status < 500,
+})
+
+interface ResultSchema<T> {
+  safeParse(data: unknown): { success: true; data: T } | { success: false }
+}
+
+/** El resultado de un pedido firmado: el rechazo del runner (`ok: false`) también tiene esta forma. */
+function signedResult<T>(schema: ResultSchema<T>, res: { status: number; data: unknown }): T {
+  const parsed = schema.safeParse(res.data)
+  if (parsed.success) return parsed.data
+  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+}
+
 /**
  * Ejecuta una acción sobre una tarea, firmada con el token de GitHub del
- * USUARIO (`x-github-token`): es el único endpoint que lo lleva.
+ * USUARIO (`x-github-token`), como mover o agregar una card al board.
  *
  * Un rechazo del runner (403 sin permisos, 409 la tarea cambió…) llega con el
  * mismo cuerpo `TaskActionResult` y `ok: false`: se devuelve para mostrar su
@@ -74,13 +95,34 @@ export async function postTaskAction(
   request: TaskActionRequest,
   githubToken: string,
 ): Promise<TaskActionResult> {
-  const res = await axios.post<unknown>(`${taskPath(ref)}/actions`, request, {
-    headers: { 'x-github-token': githubToken },
-    validateStatus: (status) => status < 500,
-  })
-  const parsed = TaskActionResultSchema.safeParse(res.data)
-  if (parsed.success) return parsed.data
-  throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
+  const res = await axios.post<unknown>(`${taskPath(ref)}/actions`, request, signedBy(githubToken))
+  return signedResult(TaskActionResultSchema, res)
+}
+
+/**
+ * Mueve la card a otra columna del board, firmado con el token del usuario. Como una acción: un
+ * rechazo (409 si un agente la está corriendo o ya está ahí) vuelve con `ok: false` y su mensaje.
+ */
+export async function postTaskStatus(
+  ref: string,
+  status: string,
+  githubToken: string,
+): Promise<TaskActionResult> {
+  const body: MoveTaskRequest = { status }
+  const res = await axios.post<unknown>(`${taskPath(ref)}/status`, body, signedBy(githubToken))
+  return signedResult(TaskActionResultSchema, res)
+}
+
+/**
+ * Agrega al board un issue que no está (`owner/repo#n` o su link), en `status` o —sin él— en Todo.
+ * Un rechazo (409 si ya está, 400 si es un PR…) vuelve con `ok: false` y su mensaje.
+ */
+export async function postBoardItem(
+  request: AddToBoardRequest,
+  githubToken: string,
+): Promise<AddToBoardResult> {
+  const res = await axios.post<unknown>('/api/board/items', request, signedBy(githubToken))
+  return signedResult(AddToBoardResultSchema, res)
 }
 
 /** "¿Por qué no corrió?": las decisiones del engine para un evento contra la card. */
