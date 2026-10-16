@@ -264,7 +264,14 @@ export function mountInbox(
         },
       ],
     }),
-    ...(clientId ? { deviceFlow: new DeviceFlow({ clientId }) } : {}),
+    ...(clientId
+      ? {
+          deviceFlow: new DeviceFlow({
+            clientId,
+            scopes: process.env.IA_FLOW_GITHUB_SCOPES?.trim() || undefined,
+          }),
+        }
+      : {}),
     config,
     hub,
     log: options.log,
