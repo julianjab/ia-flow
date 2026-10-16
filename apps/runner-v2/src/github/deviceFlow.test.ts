@@ -21,6 +21,29 @@ const ROTATING = {
 }
 
 describe('DeviceFlow', () => {
+  it('an OAuth App asks for its scopes; without scopes, none are sent (a GitHub App ignores them)', async () => {
+    const bodies: Record<string, unknown>[] = []
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return Response.json({
+        device_code: 'dc',
+        user_code: 'AB-CD',
+        verification_uri: 'https://github.com/login/device',
+        expires_in: 900,
+      })
+    }) as typeof fetch
+    await new DeviceFlow({
+      clientId: 'Ov23x',
+      scopes: ' repo project read:org ',
+      fetchImpl,
+    }).start()
+    await new DeviceFlow({ clientId: 'Iv1.x', fetchImpl }).start()
+    expect(bodies).toEqual([
+      { client_id: 'Ov23x', scope: 'repo project read:org' },
+      { client_id: 'Iv1.x' },
+    ])
+  })
+
   it('the login brings what it takes to renew it', async () => {
     const { flow } = github(ROTATING)
     expect(await flow.poll('dc')).toEqual({ status: 'ok', login: 'julian', ...ROTATING })
