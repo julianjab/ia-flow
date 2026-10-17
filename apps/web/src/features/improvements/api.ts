@@ -3,6 +3,7 @@ import {
   ImprovementDecisionResultSchema,
   type ImprovementList,
   ImprovementListSchema,
+  type ImprovementOpenRequest,
   type ImprovementStatus,
 } from '@ia-flow/shared'
 import axios from 'axios'
@@ -32,10 +33,11 @@ async function decide(
   id: string,
   verb: 'open' | 'dismiss',
   githubToken: string,
+  body?: ImprovementOpenRequest,
 ): Promise<ImprovementDecisionResult> {
   const res = await axios.post<unknown>(
     `/api/improvements/${encodeURIComponent(id)}/${verb}`,
-    undefined,
+    body,
     { headers: { 'x-github-token': githubToken }, validateStatus: (code) => code < 500 },
   )
   const parsed = ImprovementDecisionResultSchema.safeParse(res.data)
@@ -43,6 +45,8 @@ async function decide(
   throw new Error(`El runner respondió ${res.status} sin un resultado legible`)
 }
 
-export const openImprovement = (id: string, githubToken: string) => decide(id, 'open', githubToken)
+/** Abrirla como issue; con `status`, en esa columna de su board (una de `columns`). */
+export const openImprovement = (id: string, githubToken: string, status?: string) =>
+  decide(id, 'open', githubToken, status ? { status } : undefined)
 export const dismissImprovement = (id: string, githubToken: string) =>
   decide(id, 'dismiss', githubToken)

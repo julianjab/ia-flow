@@ -29,7 +29,7 @@ onMounted(() => void store.load());
         :key="p.id"
         :proposal="p"
         :state="store.states[p.id]"
-        @run="store.open(p)"
+        @run="store.open(p, $event)"
         @dismiss="store.dismiss(p)"
         @open="$emit('open', $event)"
       />
