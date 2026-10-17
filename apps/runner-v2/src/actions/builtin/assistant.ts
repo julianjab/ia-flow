@@ -249,7 +249,7 @@ function tools(
     ),
     new AssistantTool(
       'assistant_add_improvement',
-      'Guarda una mejora como card nueva en la bandeja: una persona la abre como issue o la descarta. Con `based_on` (el id de una mejora existente) hereda su destino, su tarea y su evidencia: para proponer OTRA cosa que esa (otro problema, o la mitad que conviene separar). Sin mejoras en la bandeja, o sin relación con una, pasá `repo` (owner/repo donde se abriría), `target` y, si sale de una tarea, `task_ref` (en el contexto de una tarea, es esa). Una mejora de config o del engine que no nace de una tarea (en el chat general o de un proyecto) se guarda sin `task_ref`. Si es la misma mejora corregida, usá assistant_revise_improvement.',
+      'Propone una mejora. En una conversación y sin `based_on`, sale como la card de un issue en el chat: la persona lo abre con su login o lo ignora, y NO queda en la bandeja. Con `based_on` (el id de una mejora existente) hereda su destino, su tarea y su evidencia y queda como card nueva en la bandeja, al lado de esa: para proponer OTRA cosa que esa (otro problema, o la mitad que conviene separar). Sin mejoras en la bandeja, o sin relación con una, pasá `repo` (owner/repo donde se abriría), `target` y, si sale de una tarea, `task_ref` (en el contexto de una tarea, es esa). Una mejora de config o del engine que no nace de una tarea (en el chat general o de un proyecto) se guarda sin `task_ref`. Si es la misma mejora corregida, usá assistant_revise_improvement.',
       z.strictObject({
         based_on: z
           .string()

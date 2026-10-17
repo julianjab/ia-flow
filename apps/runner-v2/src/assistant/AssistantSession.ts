@@ -363,20 +363,32 @@ export class AssistantSession {
       : []
     const reason = String(input.reason ?? '')
     if (this.origin) return this.storeIssue({ repo, title, body, labels, reason }, input.target)
+    this.emitIssue({ repo, title, body, labels, reason })
+    return 'Propuesta mostrada. El issue NO está creado: la persona decide.'
+  }
+
+  /** La card de un issue propuesto, en el chat: la persona lo abre con su login o la ignora. */
+  private emitIssue(issue: {
+    repo: string
+    title: string
+    body: string
+    labels: string[]
+    reason: string
+  }) {
+    const { repo, labels } = issue
     this.emit({
       type: 'proposal',
       proposal: {
         id: globalThis.crypto.randomUUID(),
         kind: 'issue',
         repo,
-        title,
-        body,
+        title: issue.title,
+        body: issue.body,
         ...(labels.length ? { labels } : {}),
         label: `Abrir un issue en ${repo}`,
-        reason: String(input.reason ?? ''),
+        reason: issue.reason,
       },
     })
-    return 'Propuesta mostrada. El issue NO está creado: la persona decide.'
   }
 
   /** La propuesta de una pipeline, a la bandeja: una igual pendiente en el mismo repo no se repite. */
@@ -444,10 +456,14 @@ export class AssistantSession {
   }
 
   /**
-   * Una mejora nueva como card de la bandeja, que una persona abre o descarta como las demás. Con
-   * `based_on`, hereda el destino, la tarea y la evidencia de una que ya existe; sin ella, va a
-   * `repo` y sale de la tarea del contexto (la de la conversación, o `task_ref`) o, en el chat
-   * general o de un proyecto sin `task_ref`, de ninguna (una de config o del engine).
+   * Una mejora nueva. Con `based_on`, hereda el destino, la tarea y la evidencia de una que ya
+   * existe y queda como card de la bandeja, al lado de su base; sin ella, va a `repo` y sale de la
+   * tarea del contexto (la de la conversación, o `task_ref`) o, en el chat general o de un
+   * proyecto sin `task_ref`, de ninguna (una de config o del engine).
+   *
+   * En una conversación, la que pide la persona sin base no se guarda: sale como la card de un
+   * issue propuesto en el chat, y si la confirma lo abre con su login. En la sesión de una
+   * pipeline (nadie mira el chat), se guarda en la bandeja.
    */
   async addImprovement(input: {
     based_on?: string
@@ -467,6 +483,11 @@ export class AssistantSession {
       throw new Error(
         `Ya hay una mejora pendiente igual (${pending.id}): ajustala en vez de repetirla`,
       )
+    }
+    if (!this.origin && !input.based_on) {
+      this.activity('add_improvement', `proponiendo una mejora en ${base.repo}`)
+      this.emitIssue({ ...input, repo: base.repo, labels: input.labels ?? [] })
+      return `Mejora propuesta como card en el chat (se abriría en ${base.repo}): NO quedó en la bandeja ni está creada, la persona la abre con el botón. En tu respuesta no repitas el título ni el cuerpo; decí en dos o tres líneas qué es.`
     }
     this.activity('add_improvement', `guardando una mejora nueva en ${base.repo}`)
     const stored = this.backend.improvements.add({
