@@ -534,6 +534,32 @@ describe('runner API', () => {
     })
   })
 
+  it('a proposed issue in a repo with a board by labels enters with the label of its entry column', async () => {
+    const { call, github } = await start(TOKEN, true, 'clean', undefined, async (repo) =>
+      repo === 'julianjab/ia-flow'
+        ? {
+            kind: 'labels',
+            columns: ['Todo', 'Refine'],
+            labels: { Todo: 'status:todo', Refine: 'status:refine' },
+          }
+        : undefined,
+    )
+    const post = (body: unknown) =>
+      call('/api/issues', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'x-github-token': 'gho_x' },
+      })
+    await post({ repo: 'julianjab/ia-flow', title: 'Mejora', body: 'b', labels: ['runner'] })
+    await post({ repo: 'julianjab/ia-flow', title: 'Ya tiene', body: 'b', labels: ['status:todo'] })
+    await post({ repo: 'otra/cosa', title: 'Sin board', body: 'b' })
+    expect(
+      github.calls
+        .filter((request) => request.method === 'POST')
+        .map((request) => (request.body as { labels?: string[] }).labels),
+    ).toEqual([['runner', 'status:todo'], ['status:todo'], undefined])
+  })
+
   it('a proposed issue that also goes to the board is opened even if the board refuses it', async () => {
     const { call, github } = await start()
     const created = await call('/api/issues', {
