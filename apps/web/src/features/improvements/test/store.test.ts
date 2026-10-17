@@ -61,6 +61,13 @@ describe('store de mejoras', () => {
     expect(store.states['imp-1']).toMatchObject({ status: 'done', url: opened.issue_url })
   })
 
+  it('abrirla en una columna se la pasa al runner', async () => {
+    const store = setup()
+    openImprovement.mockResolvedValueOnce({ ok: true, message: 'acme/api#1 abierto y en Refine' })
+    await store.open(proposal(), 'Refine')
+    expect(openImprovement).toHaveBeenCalledWith('imp-1', 'gho_1', 'Refine')
+  })
+
   it('un rechazo deja el mensaje como error y recarga', async () => {
     const store = setup()
     const p = proposal()
