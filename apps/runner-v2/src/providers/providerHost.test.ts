@@ -80,13 +80,23 @@ function fakeProvider(workspace: Provider['workspace']) {
   return { provider, runs }
 }
 
+/** Un workspace de mentira: el worktree de la task, o el de su carril (`<worktree>--<lane>`). */
 function fakeSession() {
   const asked: PipelineExecutionContext[] = []
+  const pathOf = (ctx: PipelineExecutionContext) =>
+    ctx.lane ? `/wt/eks-7--${ctx.lane}` : '/wt/eks-7'
   const session = {
     dirFor: async (ctx: PipelineExecutionContext) => {
       asked.push(ctx)
-      return '/wt/eks-7'
+      return pathOf(ctx)
     },
+    prepare: async (ctx: PipelineExecutionContext) => ({
+      target: { task: { id: 'la-haus/eks#7' } },
+      repoBasePath: '/repos/la-haus/eks',
+      path: pathOf(ctx),
+      branch: 'feat/x',
+    }),
+    manager: { worktreePath: () => '/wt/eks-7' },
   } as unknown as WorkspaceSession
   return { session, asked }
 }
@@ -151,6 +161,7 @@ describe('providerTaskRunner', () => {
           ended.push([path, ending])
           return 'removed'
         },
+        adopt: () => {},
       },
     })
 
@@ -225,6 +236,42 @@ describe('providerTaskRunner', () => {
     expect(asked[0]?.lane).toBe('e2e-visual-qa')
   })
 
+  it('a lane run hands the host the task worktree it hangs from too: the sweeps can release it', async () => {
+    const adopted: string[] = []
+    const ended: unknown[] = []
+    const worktrees = {
+      begin: async (prepare: () => Promise<string>) => prepare(),
+      end: async (path: string, ending: unknown) => {
+        ended.push([path, ending])
+        return 'removed' as const
+      },
+      adopt: (path: string) => {
+        adopted.push(path)
+      },
+    }
+    const run = providerTaskRunner({
+      provider: fakeProvider('native').provider,
+      session: fakeSession().session,
+      gitCredential: async () => undefined,
+      log: () => {},
+      fetchImpl: fakeRunner().fetchImpl,
+      worktrees,
+    })
+    await run(
+      task({ lane: 'e2e-visual-qa' }),
+      { base: 'http://runner' },
+      new AbortController().signal,
+    )
+    expect(adopted).toEqual(['/wt/eks-7'])
+    // El que termina es el del carril.
+    expect(ended).toEqual([['/wt/eks-7--e2e-visual-qa', 'done']])
+
+    // Sin carril, no hay otro worktree que anotar.
+    adopted.length = 0
+    await run(task(), { base: 'http://runner' }, new AbortController().signal)
+    expect(adopted).toEqual([])
+  })
+
   it('a run the runner closes hands the provider the signal, and the worktree is not told how it ended', async () => {
     const seen: Array<AbortSignal | undefined> = []
     const provider: Provider = {
@@ -250,6 +297,7 @@ describe('providerTaskRunner', () => {
           ended.push([path, ending])
           return 'removed'
         },
+        adopt: () => {},
       },
     })
     const controller = new AbortController()

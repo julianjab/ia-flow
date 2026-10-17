@@ -566,7 +566,21 @@ worktree en uso — no le des a los dos el mismo `WORKSPACE_DIR`.
 **El respaldo:** al arrancar y cada 6 h el host barre lo que anotó. Borra todo lo que nadie usa y
 está limpio y pusheado: una pausa que nunca se retomó (al retomarse se vuelve a armar en el mismo
 path) o lo de un host que se cayó a mitad de una corrida. Lo que tiene trabajo sin pushear nunca se
-borra solo: queda en el log para rescatarlo.
+borra solo: queda en el log para rescatarlo. Una corrida en un carril arma también el worktree de
+la task del que cuelga: el host lo anota igual, y lo barre cuando nadie lo usa.
+
+**Lo de un PR que ya se cerró (`ClosedPrWorktrees`).** El runner y cada host, al arrancar y cada
+10 min, recorren los worktrees de sus clones y le preguntan a GitHub por los PRs de cada branch:
+
+| Los PRs de la branch | El worktree, sus carriles y la branch local |
+| --- | --- |
+| alguno abierto, o ninguno | quedan |
+| el último, mergeado hace más de 15 min | se borran con `--force`: lo que tenía ya está en la base (tras un squash, sus commits no están en ninguna branch remota y el chequeo de "sin pushear" nunca daría el visto bueno) |
+| el último, cerrado sin merge hace más de 15 min | se borran sólo si no tienen trabajo afuera del remoto: un PR cerrado se puede reabrir |
+
+Los 15 min cubren lo que corre por el merge mismo; en el host, además, nunca toca un worktree (ni
+uno de sus carriles) que una corrida está usando. Si GitHub no contesta, queda para el próximo
+barrido. Lo que borra o deja, el runner y el host lo dicen en su log (`[workspace] …`).
 
 **La telemetría del host es la del runner.** Sin `OTEL_EXPORTER_OTLP_ENDPOINT`, el host exporta
 sus trazas y logs en OTLP/HTTP JSON estándar al runner (`/v1/hosts/telemetry/*`, con el token de

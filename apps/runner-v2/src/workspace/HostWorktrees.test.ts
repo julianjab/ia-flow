@@ -261,5 +261,24 @@ describe('HostWorktrees', () => {
       release()
       await begun
     })
+
+    it('el worktree de la task de un carril, anotado con adopt: no queda en uso y lo barre', async () => {
+      const git = fakeGit({
+        '/wt/task-7': { branch: 'task/7' },
+        '/wt/task-7--e2e': { branch: 'HEAD' },
+      })
+      const first = worktrees(git)
+      const lane = await first.w.begin(async () => '/wt/task-7--e2e')
+      first.w.adopt('/wt/task-7')
+      first.w.adopt('/wt/task-7')
+      expect(first.w.isBusy('/wt/task-7')).toBe(false)
+      expect(first.w.isBusy(lane)).toBe(true)
+      expect(await first.w.end(lane, 'done')).toBe('removed')
+
+      // Sobrevive a un reinicio, como lo que entrega `begin`.
+      const second = worktrees(git)
+      expect(await second.w.sweep()).toEqual(['/wt/task-7'])
+      expect(git.removed).toEqual(['/wt/task-7--e2e', '/wt/task-7'])
+    })
   })
 })
