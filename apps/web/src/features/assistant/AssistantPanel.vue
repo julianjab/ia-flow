@@ -7,6 +7,7 @@ import AssistantStart from '@/features/assistant/AssistantStart.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
 import { parseInline } from '@/features/assistant/format';
 import { type ProposalChoice, useAssistantChatStore } from '@/features/assistant/store';
+import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
 import { useAssistantStore } from '@/stores/assistant';
 import { useGithubSessionStore } from '@/stores/githubSession';
 import { useTaskFocusStore } from '@/stores/taskFocus';
@@ -19,6 +20,14 @@ const chat = useAssistantChatStore();
 const ui = useAssistantStore();
 const session = useGithubSessionStore();
 const taskFocus = useTaskFocusStore();
+const voice = useVoiceStore();
+
+/** «Escuchar» una respuesta (el resumen para el oído si vino); otra vez, la calla. */
+function listen(turn: { id: number; text: string; spoken?: string }) {
+  const key = `reply:${turn.id}`;
+  if (voice.speaking === key) voice.cancel();
+  else voice.say(turn.spoken ?? turn.text, key);
+}
 
 const end = ref<HTMLElement | null>(null);
 
@@ -91,7 +100,19 @@ async function run(id: number, choice?: ProposalChoice) {
               <template v-else>{{ seg.text }}</template>
             </template>
           </p>
-          <p v-else-if="turn.streaming" class="ap__bubble ap__typing" aria-label="Pensando…">
+          <button
+            v-if="turn.text && !turn.streaming && voice.supported"
+            type="button"
+            class="btn btn--ghost ap__listen"
+            data-test="listen"
+            :aria-pressed="voice.speaking === `reply:${turn.id}`"
+            :aria-label="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
+            :title="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
+            @click="listen(turn)"
+          >
+            <span aria-hidden="true">{{ voice.speaking === `reply:${turn.id}` ? '■' : '🔊' }}</span>
+          </button>
+          <p v-if="!turn.text && turn.streaming" class="ap__bubble ap__typing" aria-label="Pensando…">
             <span /><span /><span />
           </p>
         </div>
@@ -148,6 +169,10 @@ async function run(id: number, choice?: ProposalChoice) {
 }
 .ap__text { color: var(--fg); white-space: pre-wrap; }
 .ap__code { padding: 0 0.25rem; border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg); font-family: var(--font-mono); font-size: 0.92em; }
+/* El 🔊 de cada respuesta: leerla (otra vez), o callarla mientras se lee. */
+.ap__listen { align-self: flex-start; min-width: var(--tap-h); min-height: var(--tap-h-sm); padding: 0; font-size: var(--fs-body-sm); opacity: 0.6; }
+.ap__listen:hover,
+.ap__listen[aria-pressed='true'] { opacity: 1; }
 .ap__activity { padding-left: 0.25rem; color: var(--fg-dim); font-size: var(--fs-micro); }
 /* «Escribiendo…»: tres puntos, en lugar de un texto que parpadea. */
 .ap__typing { display: inline-flex; gap: 0.3rem; align-self: flex-start; padding: 0.7rem 0.85rem; }

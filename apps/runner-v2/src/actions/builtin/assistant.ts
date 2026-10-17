@@ -27,6 +27,20 @@ import {
   TRACE_SEARCH_SAMPLES,
 } from '../defineAction.js'
 
+/** Los repos de cada destino que no son el de la tarea: los fija el YAML del agente (`options`). */
+const ImprovementRepos = z.object({
+  engine: z.string().optional(),
+  config: z.string().optional(),
+})
+
+/** El repo de una mejora sin `repo`: el de su destino, si el runner lo declaró. */
+function defaultRepo(
+  repos: z.infer<typeof ImprovementRepos>,
+  target: z.infer<typeof ImprovementTarget>,
+): string | undefined {
+  return target === 'docs' ? undefined : repos[target]
+}
+
 const ref = z.string().describe('owner/repo#numero, p.ej. la-haus/subscriptions#420')
 
 /** `@ia-flow/shared` resuelve zod 3 y el runner zod 4: un schema de shared dentro de un input
@@ -57,7 +71,12 @@ class AssistantTool<S extends ToolInputSchema> extends Action<S, string> {
   }
 }
 
-function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
+function tools(
+  desk: AssistantDesk,
+  agent: string | undefined,
+  options: Record<string, unknown> = {},
+): Action[] {
+  const repos = ImprovementRepos.parse(options)
   return [
     new AssistantTool(
       'assistant_list_tasks',
@@ -241,7 +260,12 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
           .describe(
             'Sin based_on: la tarea de la que sale, si sale de una (en el contexto de una tarea, esa)',
           ),
-        repo: z.string().optional().describe('Sin based_on: owner/repo donde se abriría el issue'),
+        repo: z
+          .string()
+          .optional()
+          .describe(
+            `Sin based_on: owner/repo donde se abriría el issue${repos.engine ? `. Sin repo, una de engine va a ${repos.engine}` : ''}${repos.config ? ` y una de config a ${repos.config}` : ''}`,
+          ),
         target: ImprovementTarget.optional().describe(
           'Sin based_on: dónde se arregla — docs (la documentación de un repo), config (agentes, prompts, pipelines) o engine (el runner). Default engine',
         ),
@@ -256,7 +280,12 @@ function tools(desk: AssistantDesk, agent: string | undefined): Action[] {
       }),
       desk,
       agent,
-      (session, input) => session.addImprovement(input),
+      (session, input) =>
+        session.addImprovement(
+          input.based_on || input.repo
+            ? input
+            : { ...input, repo: defaultRepo(repos, input.target ?? 'engine') },
+        ),
     ),
   ]
 }
@@ -342,8 +371,8 @@ function boardTools(desk: AssistantDesk, agent: string | undefined): Action[] {
   ]
 }
 
-/** Abrir un issue, aparte de las otras: sólo la tiene el agente que la lista (y el repo lo fija
- *  su YAML con `with: { repo }`, así el modelo no elige dónde). */
+/** Abrir un issue, aparte de las otras: sólo la tiene el agente de un deploy que la lista (y el
+ *  repo lo fija su YAML con `with: { repo }`, así el modelo no elige dónde). */
 function proposeIssue(desk: AssistantDesk, agent: string | undefined): Action {
   return new AssistantTool(
     'assistant_propose_issue',
@@ -362,12 +391,6 @@ function proposeIssue(desk: AssistantDesk, agent: string | undefined): Action {
     (session, input) => session.proposeIssue(input),
   )
 }
-
-/** Los repos de cada destino que no son el de la tarea: los fija el YAML del agente (`options`). */
-const ImprovementRepos = z.object({
-  engine: z.string().optional(),
-  config: z.string().optional(),
-})
 
 /**
  * Proponer una mejora por DÓNDE se arregla, no por repo: `docs` va al repo de la tarea, `config`
@@ -423,7 +446,7 @@ function proposeImprovement(
 export default [
   defineAction({
     id: 'assistant',
-    create: (ctx) => tools(ctx.services.assistant, ctx.agentId),
+    create: (ctx) => tools(ctx.services.assistant, ctx.agentId, ctx.options),
   }),
   defineAction({
     id: 'assistant_propose_issue',

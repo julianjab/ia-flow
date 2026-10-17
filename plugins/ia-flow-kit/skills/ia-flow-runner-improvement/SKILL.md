@@ -44,7 +44,7 @@ Una action es un `.ts` con `export default defineAction({ id, create })`:
 
 ## Capabilities
 
-`assistant`, `assistant.runner-improvements`, `text-classifier`, `file-focus`, `branch-namer` vienen
+`assistant`, `text-classifier`, `file-focus`, `branch-namer` vienen
 con el runner. El deploy sólo las pisa declarando un agente propio (otro id) y apuntando
 `sources.capabilities.<cap>` a él. El asistente lee con tools `assistant_*` y PROPONE; nunca ejecuta.
 

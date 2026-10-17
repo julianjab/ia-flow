@@ -16,6 +16,8 @@ struct ChatTurn: Identifiable {
     var streaming = false
     var proposals: [AssistantProposal] = []
     var tasks: [InboxItem] = []
+    /// Lo que se dice en voz alta en vez de `text` (el resumen para el oído), si llegó.
+    var spoken: String?
 }
 
 final class AssistantModel: ObservableObject {
@@ -119,6 +121,7 @@ final class AssistantModel: ObservableObject {
 
     /// Conversación nueva en el mismo scope.
     func reset() {
+        ReadAloud.shared.cancel()
         stream?.cancel()
         stream = nil
         streaming = false
@@ -164,6 +167,8 @@ final class AssistantModel: ObservableObject {
     func send() {
         let question = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !streaming else { return }
+        Dictation.shared.stop()
+        ReadAloud.shared.cancel()
         input = ""
         // El hilo que se manda: las preguntas y las respuestas con texto (una nota o un turno vacío no van).
         var thread = turns.filter { $0.role != .note && !$0.text.isEmpty }
@@ -180,7 +185,7 @@ final class AssistantModel: ObservableObject {
             let session = await runner.validSession()
             do {
                 try await RunnerClient(server: server).ask(scope: scope, messages: thread, conversationId: conversation,
-                                                           github: session?.token) { event in
+                                                           github: session?.token, voice: ReadAloud.shared.wantsSpeech) { event in
                     DispatchQueue.main.async { self.apply(event, to: replyId) }
                 }
             } catch is CancellationError {
@@ -188,15 +193,46 @@ final class AssistantModel: ObservableObject {
                 if !Task.isCancelled { apply(AssistantEvent(type: "error", delta: nil, name: nil, summary: nil, proposal: nil, items: nil,
                                                             id: nil, text: nil, message: error.localizedDescription), to: replyId) }
             }
-            finish(replyId)
+            finish(replyId, read: !Task.isCancelled)
             if session == nil, turns.count <= 2 {
                 turns.append(ChatTurn(role: .note, text: "Sin login de GitHub la conversación no se guarda."))
             }
         }
     }
 
+    // MARK: voz
+
+    /// Abre el micrófono para este chat: lo dictado se suma a la caja; «enviar» o el silencio la mandan (con una
+    /// respuesta en curso, queda escrita).
+    func listen() {
+        ReadAloud.shared.cancel()
+        Dictation.shared.start(for: self, base: input, write: { [weak self] in self?.input = $0 }, send: { [weak self] text in
+            guard let self else { return }
+            input = text
+            if !streaming { send() }
+        })
+    }
+
+    func toggleListening() {
+        if Dictation.shared.isListening(self) { Dictation.shared.stop() } else { listen() }
+    }
+
+    /// Charla: escucha ya y, después de cada respuesta, la lee y vuelve a escuchar.
+    func toggleTalk() {
+        let voice = ReadAloud.shared
+        voice.talk.toggle()
+        if voice.talk { listen() } else { Dictation.shared.stop() }
+    }
+
+    /// El 🔊 de una respuesta: la lee (el resumen para el oído si vino); si ya la estaba leyendo, la calla.
+    func readAloud(_ turn: ChatTurn) {
+        let voice = ReadAloud.shared
+        if voice.speaking == turn.id { voice.cancel() } else { voice.say(turn.spoken ?? turn.text, key: turn.id) }
+    }
+
     /// Corta la respuesta: lo que ya llegó se queda.
     func stop() {
+        ReadAloud.shared.cancel()
         stream?.cancel()
         if let last = turns.last, last.streaming { finish(last.id) }
     }
@@ -205,6 +241,7 @@ final class AssistantModel: ObservableObject {
         guard let i = turns.firstIndex(where: { $0.id == id }) else { return }
         switch event.type {
         case "text": turns[i].text += event.delta ?? ""; turns[i].activity = nil
+        case "speech": turns[i].spoken = event.text
         case "tool": turns[i].activity = event.summary ?? event.name
         case "proposal": if let p = event.proposal { turns[i].proposals.append(p) }
         case "tasks": turns[i].tasks = event.items ?? []
@@ -215,12 +252,17 @@ final class AssistantModel: ObservableObject {
         }
     }
 
-    private func finish(_ id: UUID) {
+    /// Cierra la respuesta; con `read` (terminó sola, no se cortó) la lee en voz alta si la voz está prendida.
+    private func finish(_ id: UUID, read: Bool = false) {
         streaming = false
         stream = nil
         guard let i = turns.firstIndex(where: { $0.id == id }) else { return }
+        let arrived = turns[i].streaming
         turns[i].streaming = false
         turns[i].activity = nil
+        if read, arrived, !turns[i].text.isEmpty {
+            ReadAloud.shared.replied(turns[i].spoken ?? turns[i].text, key: id) { [weak self] in self?.listen() }
+        }
         // Un turno sin nada (cortado antes de tiempo o fallido) no queda.
         if turns[i].text.isEmpty, turns[i].proposals.isEmpty, turns[i].tasks.isEmpty { turns.remove(at: i) }
         // En «¿Por qué?» el asistente puede haber ajustado la mejora o agregado otra: la bandeja se relee.

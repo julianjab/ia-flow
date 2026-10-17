@@ -7,6 +7,8 @@ import AssistantPanel from '@/features/assistant/AssistantPanel.vue';
 import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import { scopeSentence } from '@/features/assistant/scope';
 import { useAssistantChatStore } from '@/features/assistant/store';
+import { useReadAloud } from '@/features/assistant/voice/useReadAloud';
+import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
 import { useAssistantStore } from '@/stores/assistant';
 
 // El ÚNICO punto de entrada al asistente: una burbuja flotante que abre y
@@ -18,10 +20,19 @@ import { useAssistantStore } from '@/stores/assistant';
 // ocupa la pantalla (R6: en táctil nada flota anclado) y bloquea el scroll de
 // atrás; ahí las conversaciones son un cajón detrás de ☰. Cerrar no corta una
 // respuesta en curso: sigue llegando, y si termina con el chat cerrado la
-// burbuja lo marca como no leído.
+// burbuja lo marca como no leído. En la cabecera: 🔊 lee cada respuesta al terminar
+// (el resumen para el oído, si el asistente lo da) y 💬 «Charla» además vuelve a
+// escuchar después de leer. «Detener» también calla la voz.
 
 const ui = useAssistantStore();
 const chat = useAssistantChatStore();
+const voice = useVoiceStore();
+useReadAloud(() => chat.turns);
+
+function stop() {
+  chat.stop();
+  voice.cancel();
+}
 const { isMobile } = useIsMobile();
 
 const unread = ref(false);
@@ -98,6 +109,30 @@ onUnmounted(() => setLock(false));
             <span class="cw__title" data-test="title">{{ title }}</span>
             <span class="cw__sub"><template v-if="agentLabel">{{ agentLabel }} · </template>{{ scopeSentence(chat.scope) }} · propone, vos confirmás</span>
           </span>
+          <button
+            v-if="voice.supported"
+            type="button"
+            class="cw__voice"
+            data-test="voice"
+            :aria-pressed="voice.read"
+            :aria-label="voice.read ? 'Dejar de leer en voz alta' : 'Leer las respuestas en voz alta'"
+            :title="voice.read ? 'Dejar de leer en voz alta' : 'Leer las respuestas en voz alta'"
+            @click="voice.toggleRead()"
+          >
+            <span aria-hidden="true">{{ voice.read ? '🔊' : '🔈' }}</span>
+          </button>
+          <button
+            v-if="voice.talkSupported"
+            type="button"
+            class="cw__voice"
+            data-test="talk"
+            :aria-pressed="voice.talk"
+            :aria-label="voice.talk ? 'Terminar la charla' : 'Charla: hablar y escuchar, sin tocar nada'"
+            :title="voice.talk ? 'Terminar la charla' : 'Charla: hablar y escuchar, sin tocar nada'"
+            @click="voice.toggleTalk()"
+          >
+            <span aria-hidden="true">💬</span>
+          </button>
           <button type="button" class="cw__close" aria-label="Cerrar el asistente" @click="ui.close()">✕</button>
         </header>
         <div class="cw__body">
@@ -110,8 +145,8 @@ onUnmounted(() => setLock(false));
             :scope="chat.scope"
             :tasks="chat.tasks"
             :projects="chat.projects"
-            @send="chat.send($event)"
-            @stop="chat.stop()"
+            @send="chat.send($event, { voice: voice.wantsSpeech })"
+            @stop="stop"
             @scope="chat.setScope($event)"
           />
         </footer>
@@ -212,6 +247,7 @@ onUnmounted(() => setLock(false));
   border-bottom: 1px solid var(--border);
 }
 .cw__menu,
+.cw__voice,
 .cw__close {
   flex: none;
   width: var(--tap-h);
@@ -224,7 +260,10 @@ onUnmounted(() => setLock(false));
 }
 .cw__close { font-family: var(--font-mono); font-size: var(--fs-body-sm); }
 .cw__menu:hover,
+.cw__voice:hover,
 .cw__close:hover { color: var(--fg); }
+.cw__voice { opacity: 0.55; }
+.cw__voice[aria-pressed='true'] { opacity: 1; }
 .cw__ai { flex: none; color: var(--ai); }
 .cw__heading { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .cw__title { overflow: hidden; color: var(--fg); font-size: var(--fs-body-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }

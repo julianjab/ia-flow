@@ -36,5 +36,15 @@ export const InboxSection = z.strictObject({
   commentExcerpt: z.number().int().min(0).default(140),
   /** Cómo se mergea un PR desde la bandeja. */
   mergeMethod: z.enum(['merge', 'squash', 'rebase']).default('squash'),
+  /** Los repos cuyo board lleva OTRO runner por labels (`board: { kind: issues }`): en qué
+   *  columnas puede entrar el issue de una mejora, cada una con su label, en el orden en que se
+   *  ofrecen (`{ 'julianjab/ia-flow': { Todo: 'status:todo', Refine: 'status:refine' } }`). Un repo
+   *  de un proyecto de este runner no va acá: entra a su board. */
+  issueBoards: z
+    .record(
+      z.string().regex(/^[\w.-]+\/[\w.-]+$/, 'owner/repo'),
+      z.record(z.string().min(1), z.string().min(1)),
+    )
+    .default({}),
 })
 export type InboxSettings = z.infer<typeof InboxSection>

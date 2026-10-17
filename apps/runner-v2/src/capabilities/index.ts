@@ -3,10 +3,8 @@
  * Son agentes chicos de la fuente global, embebidos en el runner (y en el bundle):
  *
  *   assistant   el asistente de la web (`POST /api/assistant`): sus tools son las `assistant_*`
- *               del runner y su respuesta la pinta la web — cambia con ellas, en este repo
- *   assistant.runner-improvements
- *               `runner-improvements`: otro agente del mismo asistente (la web deja elegirlo),
- *               que lee las trazas buscando fallas del proceso y propone issues en ia-flow
+ *               del runner y su respuesta la pinta la web — cambia con ellas, en este repo. Una
+ *               mejora del engine o de la config va al repo de `retrospective.repos`
  *   whenText    `text-classifier`: si un evento cumple un criterio en lenguaje natural
  *   fileFocus   `file-focus`: las partes de un archivo grande que pide `fs_read` + `focus`
  *   branchName  `branch-namer`: el nombre de la rama de una task sin `branchPrefix`
@@ -27,17 +25,20 @@ import { type AssistantAgent, DEFAULT_ASSISTANT_AGENT } from '@ia-flow/shared'
 import assistant from './assistant.yaml'
 import branchNamer from './branch-namer.yaml'
 import fileFocus from './file-focus.yaml'
-import runnerImprovements from './runner-improvements.yaml'
+import type { RetrospectiveSettings } from './retrospective.js'
 import textClassifier from './text-classifier.yaml'
 
-/** Los agentes de las capacidades, como documentos inline de la fuente global. */
-export const BUILTIN_CAPABILITY_AGENTS: Record<string, unknown>[] = [
-  assistant,
-  runnerImprovements,
-  textClassifier,
-  fileFocus,
-  branchNamer,
-]
+/** Los agentes de las capacidades, como documentos inline de la fuente global. El asistente
+ *  recibe los repos de `engine` y `config` como `options` de sus tools: ahí se abre una mejora
+ *  que no dice `repo`. */
+export function builtinCapabilityAgents(
+  repos: RetrospectiveSettings['repos'] = {},
+): Record<string, unknown>[] {
+  const actions = (assistant.actions as unknown[]).map((entry) =>
+    entry === 'assistant' ? { action: entry, options: { ...repos } } : entry,
+  )
+  return [{ ...assistant, actions }, textClassifier, fileFocus, branchNamer]
+}
 
 /** Quién cumple cada capacidad por default: lo que `sources.capabilities` no declara. */
 export const BUILTIN_CAPABILITIES: Record<string, Record<string, unknown>> = {
@@ -45,11 +46,6 @@ export const BUILTIN_CAPABILITIES: Record<string, Record<string, unknown>> = {
     agent: 'assistant',
     label: 'Operación',
     description: 'Qué pasó, por qué y qué hacer',
-  },
-  'assistant.runner-improvements': {
-    agent: 'runner-improvements',
-    label: 'Mejoras del runner',
-    description: 'Fallas del proceso → issues en ia-flow',
   },
   whenText: { agent: 'text-classifier' },
   fileFocus: { agent: 'file-focus' },

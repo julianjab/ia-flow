@@ -46,7 +46,7 @@ systemPrompts:
       - `engine` — el runner o el engine: una excepción, un timeout, una tool que falla siempre
         igual o devuelve algo que el modelo no entiende, un webhook que no llegó, un paso manual
         que la persona repite y el runner podría hacer. También los agentes que TRAE el runner
-        —`assistant`, `runner-improvements`, `text-classifier` (los `whenText`), `file-focus`
+        —`assistant`, `text-classifier` (los `whenText`), `file-focus`
         (el `focus` de `fs_read`), `branch-namer` y vos mismo, `retrospective`—: su prompt y su
         modelo viven en ia-flow, no en el deploy. Sólo si `assistant_get_config` muestra que el
         deploy lo pisó con un agente propio (otro id), va a `config`.

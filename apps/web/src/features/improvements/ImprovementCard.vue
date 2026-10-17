@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ImprovementProposal, ImprovementTarget } from '@ia-flow/shared';
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useGithubSessionStore } from '@/stores/githubSession';
 import type { DecisionState } from './store';
 
@@ -12,7 +12,11 @@ const props = defineProps<{
   state?: DecisionState;
 }>();
 
-const emit = defineEmits<{ (e: 'run'): void; (e: 'dismiss'): void; (e: 'open', ref: string): void }>();
+const emit = defineEmits<{
+  (e: 'run', status?: string): void;
+  (e: 'dismiss'): void;
+  (e: 'open', ref: string): void;
+}>();
 
 const session = useGithubSessionStore();
 
@@ -25,6 +29,11 @@ const TARGETS: Record<ImprovementTarget, string> = {
 const running = computed(() => props.state?.status === 'running');
 const issueUrl = computed(() => props.state?.url ?? props.proposal.issue_url);
 const done = computed(() => props.proposal.status === 'opened' || props.state?.status === 'done');
+
+/** La columna de entrada: «Todo» (o «To do») si el board la tiene; si no, la primera. */
+const isTodo = (column: string) => column.toLowerCase().replace(/\s+/g, '') === 'todo';
+const columns = computed(() => props.proposal.columns ?? []);
+const column = ref(columns.value.find(isTodo) ?? columns.value[0]);
 </script>
 
 <template>
@@ -56,6 +65,13 @@ const done = computed(() => props.proposal.status === 'opened' || props.state?.s
       <p v-if="proposal.labels?.length" class="ic__labels mono">{{ proposal.labels.join(' · ') }}</p>
     </details>
 
+    <!-- Su repo tiene un board: el issue entra en la columna que elija la persona. -->
+    <label v-if="!done && columns.length" class="ic__col">
+      <span class="uc-label">Columna</span>
+      <select v-model="column" class="mono" data-test="column" :disabled="running">
+        <option v-for="c in columns" :key="c" :value="c">{{ c }}</option>
+      </select>
+    </label>
     <div v-if="!done" class="ic__row">
       <button
         v-if="session.github"
@@ -63,7 +79,7 @@ const done = computed(() => props.proposal.status === 'opened' || props.state?.s
         class="btn"
         data-test="run"
         :disabled="running"
-        @click="emit('run')"
+        @click="emit('run', column)"
       >
         {{ running ? 'Abriendo…' : 'Abrir issue' }}
       </button>
@@ -105,6 +121,8 @@ const done = computed(() => props.proposal.status === 'opened' || props.state?.s
 .ic__body summary { display: list-item; line-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); cursor: pointer; }
 .ic__quote { margin: 0; padding: 0.4rem 0.6rem; border-left: 2px solid var(--ai); background: var(--panel); color: var(--fg-mute); font-size: var(--fs-body-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ic__labels { margin: 0.35rem 0 0; color: var(--fg-dim); font-size: var(--fs-micro); }
+.ic__col { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; }
+.ic__col select { min-height: var(--tap-h); max-width: 100%; }
 .ic__row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.15rem; }
 .ic__hint { color: var(--info); font-size: var(--fs-body-sm); }
 .ic__done { color: var(--accent); font-size: var(--fs-body-sm); font-weight: 600; }

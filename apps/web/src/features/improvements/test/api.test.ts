@@ -44,6 +44,14 @@ describe('api de mejoras', () => {
     expect(post.mock.calls[0]?.[2]).toMatchObject({ headers: { 'x-github-token': 'gho_1' } })
   })
 
+  it('open manda la columna elegida; sin ella, ningún body', async () => {
+    post.mockResolvedValue({ status: 200, data: { ok: true, message: 'abierto' } })
+    await openImprovement('imp-1', 'gho_1', 'Refine')
+    await openImprovement('imp-1', 'gho_1')
+    expect(post.mock.calls[0]?.[1]).toEqual({ status: 'Refine' })
+    expect(post.mock.calls[1]?.[1]).toBeUndefined()
+  })
+
   it('un rechazo con cuerpo ok:false se devuelve con su mensaje, no se lanza', async () => {
     post.mockResolvedValueOnce({ status: 409, data: { ok: false, message: 'ya estaba decidida' } })
     expect(await dismissImprovement('imp-1', 'gho_1')).toEqual({

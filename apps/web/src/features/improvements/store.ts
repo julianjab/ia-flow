@@ -1,4 +1,4 @@
-import type { ImprovementProposal } from '@ia-flow/shared'
+import type { ImprovementDecisionResult, ImprovementProposal } from '@ia-flow/shared'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { extractErrorMessage } from '@/composables/extractErrorMessage'
@@ -51,7 +51,7 @@ export const useImprovementsStore = defineStore('improvements', () => {
 
   async function decide(
     proposal: ImprovementProposal,
-    call: typeof openImprovement,
+    call: (id: string, token: string) => Promise<ImprovementDecisionResult>,
     ok: (result: ImprovementProposal | undefined) => void,
   ): Promise<void> {
     const id = proposal.id
@@ -77,8 +77,11 @@ export const useImprovementsStore = defineStore('improvements', () => {
     }
   }
 
-  function open(proposal: ImprovementProposal): Promise<void> {
-    return decide(proposal, openImprovement, (result) => {
+  /** Abrirla como issue; con `status`, en esa columna de su board. */
+  function open(proposal: ImprovementProposal, status?: string): Promise<void> {
+    const call = (id: string, token: string) =>
+      status ? openImprovement(id, token, status) : openImprovement(id, token)
+    return decide(proposal, call, (result) => {
       pending.value = pending.value.filter((p) => p.id !== proposal.id)
       opened.value = [...opened.value, result ?? { ...proposal, status: 'opened' }]
     })

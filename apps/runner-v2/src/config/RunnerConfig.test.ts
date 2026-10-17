@@ -98,7 +98,6 @@ describe('capabilities', () => {
     expect(spec.source).toMatchObject({
       capabilities: {
         assistant: { agent: 'assistant' },
-        'assistant.runner-improvements': { agent: 'runner-improvements' },
         whenText: { agent: 'text-classifier' },
         fileFocus: { agent: 'file-focus' },
         branchName: { agent: 'branch-namer' },
@@ -107,7 +106,6 @@ describe('capabilities', () => {
     const ids = [spec.agents].flat().map((doc) => (doc as { id?: string }).id)
     expect(ids).toEqual([
       'assistant',
-      'runner-improvements',
       'text-classifier',
       'file-focus',
       'branch-namer',
@@ -136,11 +134,6 @@ describe('capabilities', () => {
     // El de siempre primero; uno que se pisa sin `label` conserva el del runner.
     expect(cfg.assistantAgents()).toEqual([
       { id: 'assistant', label: 'Operación', description: 'Qué pasó, por qué y qué hacer' },
-      {
-        id: 'assistant.runner-improvements',
-        label: 'Mejoras del runner',
-        description: 'Fallas del proceso → issues en ia-flow',
-      },
       { id: 'assistant.costs', label: 'Costos' },
     ])
   })

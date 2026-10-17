@@ -337,10 +337,16 @@ si no, corre sin él.
 contrato, y la web deja elegir con cuál hablar (`GET /api/runner` → `assistant_agents`; el pedido
 lleva `agent`). Su entrada en `sources.capabilities` lleva además `label` y `description` para el
 selector, que el runner saca antes de dársela al engine. Una conversación es de un contexto y de un
-agente. El runner trae `assistant.runner-improvements` (`src/capabilities/runner-improvements.yaml`):
-lee ejecuciones y trazas buscando fallas del proceso y, con `assistant_propose_issue` (el repo lo
-fija su YAML con `with: { repo: julianjab/ia-flow }`), propone abrir un issue en ia-flow; la persona
-lo confirma en la web y `POST /api/issues` lo abre con SU token de GitHub.
+agente. El runner trae uno solo, `assistant`: un deploy suma otros con sus propios agentes.
+
+**Las mejoras del proceso las propone el mismo asistente**: busca la causa en ejecuciones, trazas y
+config y guarda una card de mejora (`assistant_add_improvement`). Una de `engine` o `config` sin
+`repo` va al de `retrospective.repos`. Al abrirla, la persona crea el issue con SU token y elige en
+la card la columna en que entra, si su repo tiene board: el de un proyecto del runner, o uno que lleva
+OTRO runner por labels, declarado en `inbox.issueBoards`
+(`{ julianjab/ia-flow: { Todo: status:todo, Refine: status:refine } }`: el issue se abre con el label
+de la columna). Desde ahí, el refiner y el implementer de ese board lo leen contra el código y abren
+el PR.
 
 **Crear la base de una tarea desde un texto**: al asistente de siempre se le pasa una idea, un pedido
 o un bug y, con `assistant_draft_issue`, propone el issue ordenado (contexto, qué se necesita, lo que
@@ -382,8 +388,7 @@ sources:
     assistant.costos: { agent: costos, label: Costos, description: Qué gastó cada agente }
 ```
 
-**Las capacidades vienen con el runner** (`src/capabilities/`): `assistant`,
-`assistant.runner-improvements`, `whenText`
+**Las capacidades vienen con el runner** (`src/capabilities/`): `assistant`, `whenText`
 (`text-classifier`), `fileFocus` (`file-focus`) y `branchName` (`branch-namer`), cada una con su
 agente embebido en el runner (y en el bundle). Un deploy no declara nada para tenerlas; para cambiar
 una, la pisa en `sources.capabilities` con un agente propio en `sources.agents` —con otro id: un

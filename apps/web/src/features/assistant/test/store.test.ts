@@ -452,7 +452,7 @@ describe('useAssistantChatStore', () => {
       projects: [],
       agents: [
         { id: 'assistant', label: 'Operación' },
-        { id: 'assistant.runner-improvements', label: 'Mejoras del runner' },
+        { id: 'assistant.costs', label: 'Costos' },
       ],
     })
     const chat = useAssistantChatStore()
@@ -460,11 +460,11 @@ describe('useAssistantChatStore', () => {
     await chat.send('hola')
     expect(requests.at(-1)).not.toHaveProperty('agent')
 
-    chat.setAgent('assistant.runner-improvements')
+    chat.setAgent('assistant.costs')
     expect(chat.turns).toHaveLength(0)
-    expect(chat.suggestions[0]).toBe('¿Qué falló en el proceso y cómo se evita?')
-    await chat.send('¿qué mejorarías?')
-    expect(requests.at(-1)).toMatchObject({ agent: 'assistant.runner-improvements' })
+    expect(chat.suggestions).toEqual([])
+    await chat.send('¿cuánto gastamos?')
+    expect(requests.at(-1)).toMatchObject({ agent: 'assistant.costs' })
 
     chat.setAgent('assistant')
     expect(chat.turns.map((t) => (t.kind === 'user' ? t.text : t.kind))).toEqual([
@@ -475,7 +475,7 @@ describe('useAssistantChatStore', () => {
 
   it('un agente que el runner ya no ofrece vuelve al de siempre', async () => {
     const chat = useAssistantChatStore()
-    chat.setAgent('assistant.runner-improvements')
+    chat.setAgent('assistant.costs')
     await chat.loadProjects()
     expect(chat.agent).toBe('assistant')
   })

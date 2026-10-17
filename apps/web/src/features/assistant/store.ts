@@ -3,6 +3,7 @@ import {
   type AssistantConversation,
   type AssistantMessage,
   type AssistantProposal,
+  type AssistantRequest,
   type AssistantScope,
   type AssistantStreamEvent,
   DEFAULT_ASSISTANT_AGENT,
@@ -33,7 +34,15 @@ import { useGithubSessionStore } from '@/stores/githubSession'
 
 export type Turn =
   | { id: number; kind: 'user'; text: string }
-  | { id: number; kind: 'assistant'; text: string; activity: string | null; streaming: boolean }
+  | {
+      id: number
+      kind: 'assistant'
+      text: string
+      activity: string | null
+      streaming: boolean
+      /** Lo que se dice en voz alta en vez de `text` (el resumen para el oído), si llegó. */
+      spoken?: string
+    }
   | {
       id: number
       kind: 'proposal'
@@ -66,15 +75,6 @@ export const SUGGESTIONS: Record<AssistantScope['kind'], string[]> = {
     'Reintentá lo que falló por presupuesto',
   ],
   task: ['¿Qué pasó con esta tarea?', '¿Por qué no corrió nada?', '¿Qué hago ahora?'],
-}
-
-/** Las preguntas típicas de los otros agentes del asistente; uno que no está acá no trae. */
-export const AGENT_SUGGESTIONS: Record<string, string[]> = {
-  'assistant.runner-improvements': [
-    '¿Qué falló en el proceso y cómo se evita?',
-    '¿Qué agente se está trabando más?',
-    '¿Qué issue abrirías para que esto no pase?',
-  ],
 }
 
 /** Lo que la persona eligió en la card antes de confirmar: la columna del board de un issue. */
@@ -165,10 +165,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   /** Sube al cambiar de contexto: un stream viejo no puede escribir en la conversación nueva. */
   let generation = 0
 
+  /** Las preguntas típicas son del asistente de siempre: otro agente (el de un deploy) no trae. */
   const suggestions = computed(() =>
-    agent.value === DEFAULT_ASSISTANT_AGENT
-      ? SUGGESTIONS[scope.value.kind]
-      : (AGENT_SUGGESTIONS[agent.value] ?? []),
+    agent.value === DEFAULT_ASSISTANT_AGENT ? SUGGESTIONS[scope.value.kind] : [],
   )
 
   const placeholder = computed(() => {
@@ -332,6 +331,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
       case 'tool':
         patch(reply.id, { activity: event.summary })
         break
+      case 'speech':
+        patch(reply.id, { spoken: event.text })
+        break
       case 'proposal':
         push({ kind: 'proposal', proposal: event.proposal, status: 'open' })
         break
@@ -361,8 +363,21 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     if (reply.failed) push({ kind: 'note', text: reply.failed })
   }
 
-  /** Manda una pregunta y consume el stream de la respuesta. */
-  async function send(text: string): Promise<void> {
+  /** El pedido de la pregunta que sigue, con la conversación hasta acá. */
+  function request(voice: boolean, githubToken: string | null): AssistantRequest {
+    return {
+      scope: scope.value,
+      messages: messages(),
+      ...(agent.value !== DEFAULT_ASSISTANT_AGENT ? { agent: agent.value } : {}),
+      ...(voice ? { voice: true } : {}),
+      // Sin login no se guarda: una conversación guardada no se sigue sin su dueño.
+      ...(conversationId.value && githubToken ? { conversation_id: conversationId.value } : {}),
+    }
+  }
+
+  /** Manda una pregunta y consume el stream de la respuesta. Con `voice`, el asistente suma el
+   *  resumen para leer en voz alta. */
+  async function send(text: string, options: { voice?: boolean } = {}): Promise<void> {
     const question = text.trim()
     if (!question || streaming.value) return
 
@@ -379,16 +394,10 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     try {
       // Renovado si está por vencer: con un token vencido el runner contesta igual, pero no guarda.
       const githubToken = await session.token()
-      const events = streamAssistant(
-        {
-          scope: scope.value,
-          messages: messages(),
-          ...(agent.value !== DEFAULT_ASSISTANT_AGENT ? { agent: agent.value } : {}),
-          // Sin login no se guarda: una conversación guardada no se sigue sin su dueño.
-          ...(conversationId.value && githubToken ? { conversation_id: conversationId.value } : {}),
-        },
-        { signal: controller.signal, ...(githubToken ? { githubToken } : {}) },
-      )
+      const events = streamAssistant(request(options.voice === true, githubToken), {
+        signal: controller.signal,
+        ...(githubToken ? { githubToken } : {}),
+      })
       for await (const event of events) applyEvent(event, reply, gen)
     } finally {
       streaming.value = false

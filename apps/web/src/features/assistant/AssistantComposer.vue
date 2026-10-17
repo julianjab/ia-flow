@@ -1,13 +1,20 @@
 <script setup lang="ts">
 import type { AssistantScope, InboxItem, InboxProject } from '@ia-flow/shared';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { dropScopeQuery, scopeQuery, typedRef } from '@/features/assistant/scope';
 import ScopeTag from '@/features/assistant/ScopeTag.vue';
+import { browserDictation } from '@/features/assistant/voice/speech';
+import { useDictation } from '@/features/assistant/voice/useDictation';
+import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
 
 // La caja de pregunta, con el contexto de la conversación encima: una chip que se
 // cambia tocándola o escribiendo `#` (una tarea) o `@` (un proyecto, o `general`).
 // Enter envía, Shift+Enter baja de línea; con la lista de contextos abierta, las
-// flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener».
+// flechas y Enter eligen. Mientras responde, «Enviar» pasa a «Detener». 🎤 dicta
+// (si el navegador sabe): lo dicho se suma a la caja; terminar con «enviar» o
+// quedarse 4 s callado la manda (mientras responde, sólo queda escrita). En
+// charla, el micrófono se abre solo cuando la voz termina de leer. Con la voz
+// prendida, abajo se elige con qué voz se lee.
 
 const props = defineProps<{
   placeholder: string;
@@ -21,6 +28,42 @@ const emit = defineEmits<{
   (e: 'stop'): void;
   (e: 'scope', scope: AssistantScope): void;
 }>();
+
+const dictation = useDictation(browserDictation());
+const voice = useVoiceStore();
+
+function listen() {
+  // Lo que se esté leyendo se calla: el micrófono no tiene que escuchar a la voz.
+  voice.cancel();
+  dictation.start(text.value, {
+      write: (value) => (text.value = value),
+      send: (value) => {
+        text.value = value;
+        // Con una respuesta en curso no se puede preguntar: queda en la caja para mandarla después.
+        if (!props.streaming) submit();
+      },
+    });
+}
+
+function toggleDictation() {
+  if (dictation.listening.value) dictation.stop();
+  else listen();
+}
+
+// La charla pide escuchar (al prenderla, o cuando la voz termina de leer una respuesta).
+watch(
+  () => voice.listenTick,
+  () => {
+    if (dictation.supported && !dictation.listening.value && !props.streaming) listen();
+  },
+);
+// Apagar la charla corta lo que se estaba dictando por ella.
+watch(
+  () => voice.talk,
+  (on) => {
+    if (!on && dictation.listening.value) dictation.stop();
+  },
+);
 
 const text = ref('');
 const input = ref<HTMLTextAreaElement | null>(null);
@@ -76,6 +119,7 @@ function onInput() {
 function submit() {
   const value = text.value.trim();
   if (!value || scopeQuery(value)?.query === '') return;
+  dictation.stop();
   emit('send', value);
   text.value = '';
 }
@@ -138,9 +182,53 @@ function onKeydown(e: KeyboardEvent) {
         @input="onInput"
         @keydown="onKeydown"
       />
+      <button
+        v-if="dictation.supported"
+        type="button"
+        class="btn co__btn co__mic"
+        data-test="mic"
+        :aria-pressed="dictation.listening.value"
+        :aria-label="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta'"
+        :title="dictation.listening.value ? 'Dejar de dictar' : 'Dictar la pregunta (terminá con «enviar» o quedate callado 4 s)'"
+        @click="toggleDictation"
+      >
+        <span aria-hidden="true">{{ dictation.listening.value ? '●' : '🎤' }}</span>
+      </button>
       <button v-if="streaming" type="button" class="btn co__btn" data-test="stop" @click="emit('stop')">Detener</button>
       <button v-else type="submit" class="btn btn--primary co__btn" :disabled="!text.trim()">Enviar</button>
     </div>
+    <p v-if="dictation.listening.value" class="co__lbl" data-test="mic-hint">
+      ● Escuchando · terminá con «enviar» o quedate callado 4 s para mandarla
+    </p>
+    <p v-else-if="dictation.error.value" class="co__err" role="alert" data-test="mic-error">✕ {{ dictation.error.value }}</p>
+    <p v-if="voice.wantsSpeech" class="co__ctx">
+      <template v-if="voice.voices.length > 1">
+        <label class="co__lbl" for="assistant-voice">Voz</label>
+        <span class="co__chip co__pick">
+          <select
+            id="assistant-voice"
+            class="co__voice"
+            data-test="voice-pick"
+            :value="voice.voice?.id"
+            @change="voice.chooseVoice(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="v in voice.voices" :key="v.id" :value="v.id">{{ v.name }} · {{ v.lang }}</option>
+          </select>
+          <span class="co__picked" aria-hidden="true">{{ voice.voice?.name }}</span>
+          <span class="co__caret" aria-hidden="true">▾</span>
+        </span>
+      </template>
+      <button
+        type="button"
+        class="co__chip co__rate"
+        data-test="rate"
+        title="Velocidad de lectura: cada clic pasa a la siguiente"
+        :aria-label="`Velocidad de lectura ${voice.rate}×, cambiar`"
+        @click="voice.nextRate()"
+      >
+        {{ voice.rate }}×
+      </button>
+    </p>
   </form>
 </template>
 
@@ -161,4 +249,14 @@ function onKeydown(e: KeyboardEvent) {
 .co__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .co__input { flex: 1; min-width: 0; resize: none; font-family: var(--font-body); line-height: 1.4; }
 .co__btn { flex: none; }
+.co__mic { min-width: var(--tap-h); padding-inline: 0; }
+.co__mic[aria-pressed='true'] { border-color: var(--danger); color: var(--danger); }
+.co__pick { position: relative; min-width: 0; }
+.co__picked { min-width: 0; overflow: hidden; color: var(--fg-mute); font-size: var(--fs-chrome); text-overflow: ellipsis; white-space: nowrap; }
+/* El select va encima, invisible: se ve el nombre como en «Contexto» y se abre la lista nativa. */
+.co__voice { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
+.co__pick:has(.co__voice:focus-visible) { border-color: var(--accent); }
+.co__rate { padding-inline: 0.45rem; background: var(--panel-hi); color: var(--fg-mute); font-family: var(--font-mono); font-size: var(--fs-chrome); font-variant-numeric: tabular-nums; }
+.co__rate:hover { color: var(--fg); }
+.co__err { margin: 0; color: var(--danger); font-size: var(--fs-chrome); }
 </style>

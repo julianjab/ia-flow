@@ -35,7 +35,7 @@ import { z } from 'zod'
 import {
   assistantAgents,
   BUILTIN_CAPABILITIES,
-  BUILTIN_CAPABILITY_AGENTS,
+  builtinCapabilityAgents,
   isAssistantCapability,
 } from '../capabilities/index.js'
 import { type RetrospectiveSettings, retrospectiveSource } from '../capabilities/retrospective.js'
@@ -243,8 +243,9 @@ export const RunnerFileSchema = z.strictObject({
   retrospective: z
     .strictObject({
       enabled: z.boolean().default(true),
-      /** Dónde se abre cada destino que no es el repo de la tarea (`docs`). Sin `config`, el
-       *  agente no propone cambios a la config del deploy. */
+      /** Dónde se abre cada destino que no es el repo de la tarea (`docs`): para la retrospectiva
+       *  y para una mejora del asistente que no dice `repo`. Sin `config`, la retrospectiva no
+       *  propone cambios a la config del deploy. */
       repos: z
         .strictObject({
           engine: z.string().regex(OWNER_REPO, 'owner/repo').default('julianjab/ia-flow'),
@@ -515,11 +516,16 @@ export function loadRunnerConfig(path: string): RunnerConfig {
         // Lo que trae el runner (`capabilities/`) va con la fuente global: los agentes de sus
         // capacidades como documentos inline (y lo que `sources.capabilities` no declara, cumplido
         // por ellos), y la retrospectiva con su pipeline.
-        const retrospective = retrospectiveSource(reread.retrospective as RetrospectiveSettings)
+        const settings = reread.retrospective as RetrospectiveSettings
+        const retrospective = retrospectiveSource(settings)
         const ownPipelines = list(pipelines)
         return sourceSpec(
           {
-            agents: [...list(agents), ...BUILTIN_CAPABILITY_AGENTS, ...retrospective.agents],
+            agents: [
+              ...list(agents),
+              ...builtinCapabilityAgents(settings.repos),
+              ...retrospective.agents,
+            ],
             ...(ownPipelines.length || retrospective.pipelines.length
               ? { pipelines: [...ownPipelines, ...retrospective.pipelines] }
               : {}),

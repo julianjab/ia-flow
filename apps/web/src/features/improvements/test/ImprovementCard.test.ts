@@ -62,6 +62,19 @@ describe('ImprovementCard', () => {
     expect(wrapper.emitted('dismiss')).toHaveLength(1)
   })
 
+  it('con board, elige la columna (de entrada: Todo) y la emite con run', async () => {
+    const { wrapper } = card({ proposal: proposal({ columns: ['Refine', 'Todo'] }) })
+    const select = wrapper.get<HTMLSelectElement>('[data-test="column"]')
+    expect(select.element.value).toBe('Todo')
+    await select.setValue('Refine')
+    await wrapper.get('[data-test="run"]').trigger('click')
+    expect(wrapper.emitted('run')?.[0]).toEqual(['Refine'])
+  })
+
+  it('sin board no hay columna que elegir', () => {
+    expect(card({ proposal: proposal() }).wrapper.find('[data-test="column"]').exists()).toBe(false)
+  })
+
   it('sin login el botón pide el login y no emite run', async () => {
     const { wrapper, session } = card({ proposal: proposal() }, false)
     expect(wrapper.find('[data-test="run"]').exists()).toBe(false)

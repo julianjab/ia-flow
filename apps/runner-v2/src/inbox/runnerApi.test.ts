@@ -30,7 +30,7 @@ import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
 import { RunnerLogs } from './RunnerLogs.js'
-import { runnerApi } from './runnerApi.js'
+import { type RunnerApiOptions, runnerApi } from './runnerApi.js'
 import { TaskActions } from './TaskActions.js'
 
 const TOKEN = 'runner-secret'
@@ -227,6 +227,7 @@ async function start(
   push = true,
   mergeableState = 'clean',
   deviceFlow?: DeviceFlow,
+  issueBoard?: RunnerApiOptions['issueBoard'],
 ) {
   const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
@@ -278,6 +279,7 @@ async function start(
     assistant: assistantFor(inbox, conversations, improvements),
     conversations,
     improvements,
+    ...(issueBoard ? { issueBoard } : {}),
     logs,
     resources: () => RESOURCES,
     ...(deviceFlow ? { deviceFlow } : {}),
@@ -600,6 +602,66 @@ describe('runner API', () => {
     expect(await again.json()).toMatchObject({ ok: false })
   })
 
+  it('an improvement opened in a repo of a project goes to its board', async () => {
+    const { call, improvements } = await start(TOKEN, true, 'clean', undefined, async () => ({
+      kind: 'project',
+      project_id: 'p',
+      columns: ['Todo', 'Refine'],
+    }))
+    const proposal = improvements.add(improvement())
+    expect((await (await call('/api/improvements')).json()).items).toEqual([
+      expect.objectContaining({ id: proposal.id, columns: ['Todo', 'Refine'] }),
+    ])
+    const opened = await call(`/api/improvements/${proposal.id}/open`, {
+      method: 'POST',
+      headers: { 'x-github-token': 'gho_x' },
+      body: JSON.stringify({ status: 'Refine' }),
+    })
+    // El board de estos tests no acepta cards: el issue queda abierto y se dice por qué.
+    expect(await opened.json()).toMatchObject({
+      ok: true,
+      message: expect.stringContaining('julianjab/ia-flow#77 abierto, pero no quedó en el board'),
+      proposal: { status: 'opened' },
+    })
+  })
+
+  it('an improvement opened in a repo read by labels carries the label of its column', async () => {
+    const { call, improvements, github } = await start(
+      TOKEN,
+      true,
+      'clean',
+      undefined,
+      async () => ({
+        kind: 'labels',
+        columns: ['Todo', 'Refine'],
+        labels: { Todo: 'status:todo', Refine: 'status:refine' },
+      }),
+    )
+    const proposal = improvements.add(improvement())
+    const open = (status: string) =>
+      call(`/api/improvements/${proposal.id}/open`, {
+        method: 'POST',
+        headers: { 'x-github-token': 'gho_x' },
+        body: JSON.stringify({ status }),
+      })
+
+    const wrong = await open('Done')
+    expect(wrong.status).toBe(400)
+    expect(await wrong.json()).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Done'),
+    })
+    expect(github.calls.some((request) => request.method === 'POST')).toBe(false)
+
+    expect(await (await open('Refine')).json()).toMatchObject({
+      ok: true,
+      message: 'julianjab/ia-flow#77 abierto y en Refine',
+    })
+    expect(github.calls.find((request) => request.method === 'POST')?.body).toMatchObject({
+      labels: ['status:refine'],
+    })
+  })
+
   it('lists and opens an improvement that does not come from a task', async () => {
     const { call, improvements } = await start()
     const { task_ref: _, ...taskless } = improvement({ target: 'config', agent: 'assistant' })
@@ -690,6 +752,47 @@ describe('runner API', () => {
       .find((event) => event.type === 'tasks')
     // o/r#2 queda fuera del contexto de la tarea: no sale como card.
     expect(tasks.items.map((item: { ref: string }) => item.ref)).toEqual(['o/r#1'])
+    fakeProvider.run = defaultRun
+  })
+
+  it('with voice, the question asks for a spoken summary and it comes as `speech`', async () => {
+    const { call } = await start()
+    const prompts: string[] = []
+    fakeProvider.run = async (ctx) => {
+      prompts.push(ctx.prompt)
+      await tool(ctx, 'submit_done').handler({
+        result: {
+          answer: '**o/r#1** falló por timeout.',
+          spoken: 'La tarea uno falló por un timeout.',
+        },
+      })
+      return { outcome: 'success' }
+    }
+    const ask = (voice?: boolean) =>
+      call('/api/assistant', {
+        method: 'POST',
+        body: JSON.stringify({
+          scope: { kind: 'task', ref: 'o/r#1' },
+          messages: [{ role: 'user', content: '¿qué pasó?' }],
+          ...(voice === undefined ? {} : { voice }),
+        }),
+      })
+    const events = async (res: Response) =>
+      (await res.text())
+        .split('\n')
+        .filter((line) => line.startsWith('data: '))
+        .map((line) => JSON.parse(line.slice(6)) as { type: string; text?: string })
+
+    const spoken = await events(await ask(true))
+    expect(prompts[0]).toContain('completá `spoken`')
+    expect(spoken.find((e) => e.type === 'speech')?.text).toBe('La tarea uno falló por un timeout.')
+    // Llega antes de `done`, y la respuesta que se muestra no cambia.
+    expect(spoken.map((e) => e.type).slice(-2)).toEqual(['speech', 'done'])
+    expect(spoken.at(-1)?.text).toBe('**o/r#1** falló por timeout.')
+
+    const quiet = await events(await ask())
+    expect(prompts[1]).not.toContain('spoken')
+    expect(quiet.some((e) => e.type === 'speech')).toBe(false)
     fakeProvider.run = defaultRun
   })
 
