@@ -24,6 +24,7 @@ import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
+import { issueBoards } from './issueBoards.js'
 import { RunnerLogs } from './RunnerLogs.js'
 import { resumeStage } from './resumeStage.js'
 import { runnerApi } from './runnerApi.js'
@@ -274,6 +275,11 @@ export function mountInbox(
     assistant,
     conversations: store.conversations,
     improvements: store.improvements,
+    issueBoard: issueBoards({
+      projects: specs,
+      statuses: async (projectId) => (await boards.meta({ projectId })).statuses,
+      labelBoards: cfg.inbox.issueBoards,
+    }),
     logs,
     ...(options.resources ? { resources: options.resources } : {}),
     ingress: new IngressService({

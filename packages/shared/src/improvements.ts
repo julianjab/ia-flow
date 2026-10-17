@@ -42,12 +42,20 @@ export const ImprovementProposalSchema = z.object({
   /** Quién la abrió o la descartó, y cuándo. */
   decided_by: z.string().optional(),
   decided_at: z.string().optional(),
+  /** Las columnas en que puede entrar su issue al abrirla, si su repo tiene un board (el de un
+   *  proyecto del runner o uno por labels). Lo agrega el runner al listarla: no se guarda. */
+  columns: z.array(z.string()).optional(),
 })
 export type ImprovementProposal = z.infer<typeof ImprovementProposalSchema>
 
 /** `GET /api/improvements?status=`: las de la bandeja, la más nueva primero. */
 export const ImprovementListSchema = z.object({ items: z.array(ImprovementProposalSchema) })
 export type ImprovementList = z.infer<typeof ImprovementListSchema>
+
+/** `POST /api/improvements/:id/open`: la columna en que entra el issue, una de `columns` (sin ella,
+ *  la de entrada del board). */
+export const ImprovementOpenRequestSchema = z.object({ status: z.string().min(1).optional() })
+export type ImprovementOpenRequest = z.infer<typeof ImprovementOpenRequestSchema>
 
 /** `POST /api/improvements/:id/{open,dismiss}`. */
 export const ImprovementDecisionResultSchema = z.object({

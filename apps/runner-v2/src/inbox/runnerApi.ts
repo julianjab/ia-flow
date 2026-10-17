@@ -24,6 +24,7 @@ import {
   GithubUserTokenSchema,
   type ImprovementDecisionResult,
   type ImprovementList,
+  ImprovementOpenRequestSchema,
   type ImprovementProposal,
   ImprovementStatusSchema,
   type InboxProject,
@@ -45,6 +46,7 @@ import { openSse, type SseHub, writeSse } from '../http/sse.js'
 import type { BoardMoves } from './BoardMoves.js'
 import type { InboxService } from './InboxService.js'
 import type { IngressService } from './IngressService.js'
+import { type IssueBoard, placement } from './issueBoards.js'
 import type { RunnerLogs } from './RunnerLogs.js'
 import { TaskActionError, type TaskActions } from './TaskActions.js'
 
@@ -69,6 +71,9 @@ export interface RunnerApiOptions {
   conversations?: ConversationStore
   /** Las mejoras propuestas por un agente (la retrospectiva). Sin esto, no hay. */
   improvements?: ImprovementStore
+  /** A qué board entra el issue de una mejora y en qué columnas (`issueBoards.ts`). Sin esto, se
+   *  abre sin columna. */
+  issueBoard?: (repo: string) => Promise<IssueBoard | undefined>
   /** Sin `github.clientId` no hay login desde la web. */
   deviceFlow?: DeviceFlow
   config: () => ConfigSummary
@@ -322,7 +327,22 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   router.get('/api/improvements', async (req): Promise<ImprovementList> => {
     const raw = req.query.get('status') ?? 'open'
     const status = raw === 'all' ? undefined : parseBody(ImprovementStatusSchema, raw)
-    return { items: improvementsStore().list(status) }
+    const items = improvementsStore().list(status)
+    // Las columnas, sólo de las que esperan decisión, y un board por repo.
+    const boards = new Map<string, Promise<IssueBoard | undefined>>()
+    const boardOf = (repo: string) => {
+      if (!boards.has(repo))
+        boards.set(repo, options.issueBoard?.(repo) ?? Promise.resolve(undefined))
+      return boards.get(repo) as Promise<IssueBoard | undefined>
+    }
+    return {
+      items: await Promise.all(
+        items.map(async (item) => {
+          const columns = item.status === 'open' ? (await boardOf(item.repo))?.columns : undefined
+          return columns?.length ? { ...item, columns } : item
+        }),
+      ),
+    }
   })
 
   // Abrir una es crear su issue con el token de quien la confirma (como `POST /api/issues`);
@@ -353,9 +373,19 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
           proposal: decided,
         } satisfies ImprovementDecisionResult
       }
-      const { repo, title, body, labels } = proposal
+      const { repo, title, body } = proposal
+      const { status } = parseBody(ImprovementOpenRequestSchema, await req.json())
+      // La columna se valida antes de abrir nada: elegida mal, no queda un issue suelto.
+      const board = await options.issueBoard?.(repo)
+      let placed: ReturnType<typeof placement> = {}
+      try {
+        placed = board ? placement(board, status) : {}
+      } catch (err) {
+        return reject(400, err instanceof Error ? err.message : String(err))
+      }
+      const labels = [...(proposal.labels ?? []), ...(placed.label ? [placed.label] : [])]
       const created = await createIssue(
-        { repo, title, body, ...(labels ? { labels } : {}) },
+        { repo, title, body, ...(labels.length ? { labels } : {}) },
         token,
         options.fetchImpl,
       )
@@ -366,15 +396,19 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
       })
       const ref = `${repo}#${created.number}`
       options.log(`${login}: abrió ${ref} (${improvementOrigin(proposal)})`)
-      // Si el repo es de un proyecto del runner, el issue entra a su board (en Todo): su pipeline
-      // lo refina e implementa como cualquier otra tarea.
-      const project = options.projects.find((p) => p.repos?.includes(repo))
-      const board = project
-        ? await addCreated(ref, { project_id: project.id }, { token, login })
-        : {}
+      // En un repo de un proyecto del runner, el issue entra a su board; en uno por labels, ya
+      // entró con el label de su columna. Desde ahí su pipeline lo refina e implementa.
+      const entered =
+        board?.kind === 'project'
+          ? await addCreated(
+              ref,
+              { project_id: board.project_id, ...(placed.status ? { status: placed.status } : {}) },
+              { token, login },
+            )
+          : { ...(placed.status ? { status: placed.status } : {}) }
       return {
         ok: true,
-        message: openedResult(ref, board).message,
+        message: openedResult(ref, entered).message,
         ...(decided ? { proposal: decided } : {}),
       } satisfies ImprovementDecisionResult
     } catch (err) {

@@ -341,9 +341,12 @@ agente. El runner trae uno solo, `assistant`: un deploy suma otros con sus propi
 
 **Las mejoras del proceso las propone el mismo asistente**: busca la causa en ejecuciones, trazas y
 config y guarda una card de mejora (`assistant_add_improvement`). Una de `engine` o `config` sin
-`repo` va al de `retrospective.repos`. Al abrirla, la persona crea el issue con SU token y, si el
-repo es de un proyecto del runner, el issue entra a su board en Todo: el refiner y el implementer de
-ese proyecto lo leen contra el código y abren el PR.
+`repo` va al de `retrospective.repos`. Al abrirla, la persona crea el issue con SU token y elige en
+la card la columna en que entra, si su repo tiene board: el de un proyecto del runner, o uno que lleva
+OTRO runner por labels, declarado en `inbox.issueBoards`
+(`{ julianjab/ia-flow: { Todo: status:todo, Refine: status:refine } }`: el issue se abre con el label
+de la columna). Desde ahí, el refiner y el implementer de ese board lo leen contra el código y abren
+el PR.
 
 **Crear la base de una tarea desde un texto**: al asistente de siempre se le pasa una idea, un pedido
 o un bug y, con `assistant_draft_issue`, propone el issue ordenado (contexto, qué se necesita, lo que
