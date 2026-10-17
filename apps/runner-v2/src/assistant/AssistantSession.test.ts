@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import type { AssistantScope, ImprovementProposal, InboxItem } from '@ia-flow/shared'
+import type {
+  AssistantScope,
+  AssistantStreamEvent,
+  ImprovementProposal,
+  InboxItem,
+} from '@ia-flow/shared'
 import { type AssistantBackend, AssistantSession } from './AssistantSession.js'
 import type { TraceInsight } from './TraceInsight.js'
 
@@ -216,7 +221,8 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
           revised.push({ id, changes })
           return base
         },
-        findOpen: () => undefined,
+        findOpen: (repo: string, title: string) =>
+          found.find((m) => m.status === 'open' && m.repo === repo && m.title === title),
         add: (input: Record<string, unknown>) => {
           added.push(input)
           return { ...base, ...input, id: 'm2' }
@@ -268,9 +274,45 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     ])
   })
 
-  it('sin mejoras en la bandeja, una nueva sale de la tarea del contexto y va al repo pedido', async () => {
+  it('en una conversación, una nueva sin base sale como issue propuesto en el chat, sin guardarse', async () => {
     const { backend, added } = withStore([])
-    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {})
+    const events: AssistantStreamEvent[] = []
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, (event) =>
+      events.push(event),
+    )
+    const result = await session.addImprovement({
+      repo: 'o/ia-flow',
+      target: 'config',
+      title: 'Nueva',
+      body: 'b',
+      labels: ['assistant'],
+      reason: 'r',
+    })
+    expect(result).toContain('card en el chat')
+    expect(result).toContain('NO quedó en la bandeja')
+    expect(added).toEqual([])
+    expect(events.filter((event) => event.type === 'proposal')).toEqual([
+      {
+        type: 'proposal',
+        proposal: {
+          id: expect.any(String),
+          kind: 'issue',
+          repo: 'o/ia-flow',
+          title: 'Nueva',
+          body: 'b',
+          labels: ['assistant'],
+          label: 'Abrir un issue en o/ia-flow',
+          reason: 'r',
+        },
+      },
+    ])
+  })
+
+  it('en la sesión de una pipeline, una nueva sin base se guarda en la bandeja', async () => {
+    const { backend, added } = withStore([])
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#5' }, backend, () => {}, {
+      agent: 'retrospective',
+    })
     const result = await session.addImprovement({
       repo: 'o/ia-flow',
       target: 'config',
@@ -310,39 +352,41 @@ describe('AssistantSession: ajustar o agregar una mejora', () => {
     await expect(session.addImprovement({ ...input, task_ref: 'o/r#7' })).rejects.toThrow(
       /no está en ningún board/,
     )
-    await session.addImprovement({ ...input, task_ref: 'o/r#1' })
-    expect(added).toEqual([expect.objectContaining({ task_ref: 'o/r#1', target: 'engine' })])
+    expect(await session.addImprovement({ ...input, task_ref: 'o/r#1' })).toContain(
+      'card en el chat',
+    )
+    expect(added).toEqual([])
   })
 
-  it('sin base ni tarea, en el contexto general la guarda sin tarea', async () => {
-    const { backend, added } = withStore([])
-    const session = new AssistantSession({ kind: 'general' }, backend, () => {})
-    const result = await session.addImprovement({
-      repo: 'o/deploy',
-      target: 'config',
-      title: 'Darle memoria a todos los agentes',
-      body: 'b',
-      reason: 'r',
-    })
-    expect(result).toContain('guardada')
-    expect(added).toEqual([
-      {
-        agent: 'assistant',
-        target: 'config',
+  it('sin base ni tarea, en el contexto general o de un proyecto la propone en el chat', async () => {
+    for (const scope of [
+      { kind: 'general' },
+      { kind: 'project', project_id: 'p' },
+    ] satisfies AssistantScope[]) {
+      const { backend, added } = withStore([])
+      const events: AssistantStreamEvent[] = []
+      const session = new AssistantSession(scope, backend, (event) => events.push(event))
+      await session.addImprovement({
         repo: 'o/deploy',
+        target: 'config',
         title: 'Darle memoria a todos los agentes',
         body: 'b',
         reason: 'r',
-      },
-    ])
+      })
+      expect(added).toEqual([])
+      expect(events).toContainEqual({
+        type: 'proposal',
+        proposal: expect.objectContaining({ kind: 'issue', repo: 'o/deploy' }),
+      })
+    }
   })
 
-  it('sin base ni tarea, en el contexto de un proyecto la guarda sin tarea', async () => {
-    const { backend, added } = withStore([])
-    const session = new AssistantSession({ kind: 'project', project_id: 'p' }, backend, () => {})
-    await session.addImprovement({ repo: 'o/ia-flow', title: 'Nueva', body: 'b', reason: 'r' })
-    expect(added).toHaveLength(1)
-    expect(added[0]).not.toHaveProperty('task_ref')
+  it('una igual pendiente en la bandeja no se vuelve a proponer en el chat', async () => {
+    const { backend } = withStore()
+    const session = new AssistantSession({ kind: 'general' }, backend, () => {})
+    await expect(
+      session.addImprovement({ repo: base.repo, title: base.title, body: 'b', reason: 'r' }),
+    ).rejects.toThrow(/Ya hay una mejora pendiente igual/)
   })
 
   it('sin base, en el contexto de una tarea no sale de otra', async () => {
