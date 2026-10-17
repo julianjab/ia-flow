@@ -27,6 +27,7 @@ import type { TaskDesk } from '../inbox/TaskDesk.js'
 export type { AssistantDesk } from '../assistant/AssistantDesk.js'
 export type { AssistantSession } from '../assistant/AssistantSession.js'
 export { ACTION_LABELS, asToolResult } from '../assistant/AssistantSession.js'
+export { BOARD_PAGE_LIMIT, BOARD_PAGE_MAX_LIMIT } from '../assistant/boardView.js'
 export {
   DEFAULT_TRACE_FIELDS,
   TRACE_FIELDS,

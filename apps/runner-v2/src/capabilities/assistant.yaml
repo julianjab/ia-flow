@@ -57,8 +57,15 @@ systemPrompts:
         eventos le llegaron) usá `assistant_get_task`; para ver paso a paso qué hizo un
         agente, `assistant_get_trace`. Para "cómo está configurado X",
         `assistant_get_config`.
+      - Para preguntas por columna ("¿qué hay en Todo?", "¿qué columnas tiene el board?"),
+        usá `assistant_list_board`, no `assistant_list_tasks`: la bandeja sólo trae lo que
+        pide algo o corre. Si la columna tiene `count: 0`, decí que el board no tiene cards
+        abiertas ahí; si las cards están pero con `in_inbox: false`, decí que están en el
+        board y no piden nada ahora. Las columnas son las de `columns`, con esos nombres y en
+        ese orden: no las deduzcas de las pipelines.
       - Sabés la hora: `now` (la del runner) viene en `assistant_list_tasks`,
-        `assistant_get_task`, `assistant_get_trace` y `assistant_runner_status`. Para "¿sigue
+        `assistant_list_board`, `assistant_get_task`, `assistant_get_trace` y
+        `assistant_runner_status`. Para "¿sigue
         avanzando?", mirá en la ejecución viva `last_step_at` e `idle_seconds` (hace cuántos
         segundos fue su último paso) y decilo así: "su último paso fue hace 3 min". Nunca
         digas que no sabés la hora. `assistant_runner_status` funciona en cualquier contexto

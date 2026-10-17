@@ -24,6 +24,7 @@ import type { ActivityPort } from '../inbox/ActivityPort.js'
 import type { InboxService } from '../inbox/InboxService.js'
 import { taskCost } from '../inbox/pricing.js'
 import { BoardProposals } from './BoardProposals.js'
+import { type BoardQuery, boardView } from './boardView.js'
 import type { ImprovementStore } from './ImprovementStore.js'
 import { isLive, withLiveness } from './liveness.js'
 import type { TraceInsight } from './TraceInsight.js'
@@ -37,7 +38,7 @@ import { type SearchTracesInput, searchTraces } from './traceSearch.js'
 
 /** Lo que el asistente lee del runner. */
 export interface AssistantBackend {
-  inbox: Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain'>
+  inbox: Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain' | 'rest'>
   activity: Pick<ActivityPort, 'executions' | 'recentEvents' | 'trace' | 'eventsForTask'>
   /** Con `fullPromptOf`, el prompt de ese agente va completo (el resto, recortado). */
   config: (options?: { fullPromptOf?: string }) => ConfigSummary
@@ -195,6 +196,37 @@ export class AssistantSession {
         return { ...brief(item), running }
       }),
     }
+  }
+
+  /** Todas las cards abiertas del board del contexto, por columna, estén o no en la bandeja; con
+   *  las columnas reales del board (`boardView.ts`). No en el contexto de una tarea. */
+  async listBoard(input: BoardQuery & { project_id?: string } = {}) {
+    if (this.scope.kind === 'task') {
+      throw new Error('En el contexto de una tarea, usá assistant_get_task')
+    }
+    this.activity('list_board', 'leyendo el board')
+    const { project_id, ...query } = input
+    const projectId = await this.boardProject(project_id)
+    const inbox = await this.backend.inbox.inbox(projectId)
+    const rest = await this.backend.inbox.rest(projectId)
+    return { now: this.now().toISOString(), ...boardView(inbox, rest, query) }
+  }
+
+  /** El proyecto del board a leer: el del contexto, o en el general el pedido (o todos). */
+  private async boardProject(wanted?: string): Promise<string | undefined> {
+    const asked = wanted?.trim()
+    if (this.projectId) {
+      if (asked && asked !== this.projectId) {
+        throw new Error(
+          `Fuera de contexto: esta conversación es sobre el proyecto ${this.projectId}`,
+        )
+      }
+      return this.projectId
+    }
+    if (!asked) return undefined
+    const ids = (await this.backend.inbox.inbox()).projects.map((project) => project.id)
+    if (!ids.includes(asked)) throw new Error(`"${asked}" no es un proyecto: ${ids.join(', ')}`)
+    return asked
   }
 
   /**

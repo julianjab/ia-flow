@@ -17,6 +17,8 @@ import {
   type AssistantDesk,
   type AssistantSession,
   asToolResult,
+  BOARD_PAGE_LIMIT,
+  BOARD_PAGE_MAX_LIMIT,
   DEFAULT_TRACE_FIELDS,
   defineAction,
   TRACE_FIELDS,
@@ -86,6 +88,7 @@ function tools(
       agent,
       (session) => session.listTasks(),
     ),
+    listBoard(desk, agent),
     new AssistantTool(
       'assistant_get_task',
       'Una tarea: su estado en el board, sus ejecuciones (cómo terminó cada una, tokens, costo ESTIMADO en USD, por qué falló), los eventos que le llegaron con qué decidió cada pipeline, y la traza de la última ejecución. Una ejecución viva trae `last_step_at` e `idle_seconds` (cuánto hace de su último paso); la viva y la última traen `agents` si corrió más de un agente (un grupo paralelo corre varios en la MISMA ejecución): el estado de cada uno (running, done, failed…), su último paso y su salida. `agent_id`/`exit`/`summary` de la ejecución son sólo del último que cerró. `now` es la hora del runner.',
@@ -288,6 +291,43 @@ function tools(
         ),
     ),
   ]
+}
+
+/** Leer el board entero por columna: lo que la bandeja muestra y lo que no. Se pagina sola. */
+function listBoard(desk: AssistantDesk, agent: string | undefined): Action {
+  return new AssistantTool(
+    'assistant_list_board',
+    `TODAS las cards abiertas del board del contexto, por columna, pidan algo o no: \`columns\` son las columnas reales del board (las del campo Status, en su orden) con cuántas cards abiertas tiene cada una (\`count\`), incluidas las vacías; cada card dice \`in_inbox\` (true = la bandeja la muestra, con su \`group\`/\`kind\`; false = está en el board y no pide nada ahora). Para preguntas por columna ("¿qué hay en Todo?", "¿qué columnas tiene el board?") o "¿qué hay en el board?": la bandeja (assistant_list_tasks) sólo trae lo que pide algo o corre. Con \`status\`, sólo esa columna (una que no existe es un error con las válidas). Pagina: si hay más, \`next_offset\` dice desde dónde pedir (\`total\` = cards tras el filtro). Sólo cards abiertas. No en el contexto de una tarea. \`now\` es la hora del runner.`,
+    z.strictObject({
+      status: z
+        .string()
+        .optional()
+        .describe('Opcional: una columna, tal como se llama en el board (p.ej. Todo)'),
+      project_id: z
+        .string()
+        .optional()
+        .describe(
+          'Opcional: el proyecto (en el contexto de un proyecto, ese); sin esto, todos los del runner',
+        ),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe('Desde qué card. Default 0; el `next_offset` de la página anterior.'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(BOARD_PAGE_MAX_LIMIT)
+        .optional()
+        .describe(`Máximo de cards por página (default ${BOARD_PAGE_LIMIT})`),
+    }),
+    desk,
+    agent,
+    (session, input) => session.listBoard(input),
+    false,
+  )
 }
 
 /** Proponer cambios al board —mover, sumar, labels—: como las acciones, la persona confirma. */
