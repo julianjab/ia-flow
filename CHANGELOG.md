@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.17.0](https://github.com/julianjab/ia-flow/compare/v2.16.0...v2.17.0) (2026-10-17)
+
+
+### Features
+
+* **runner:** la mejora que se pide en el chat sale como issue propuesto, no como card de la bandeja ([9c1a9c1](https://github.com/julianjab/ia-flow/commit/9c1a9c110eeca5bb22c9662066b402863d1ef048))
+* **runner:** un issue propuesto entra con el label de la columna de entrada de su board por labels ([0a35249](https://github.com/julianjab/ia-flow/commit/0a3524938411310a2fc9801a4a506009f83102bc))
+
 ## [2.16.0](https://github.com/julianjab/ia-flow/compare/v2.15.0...v2.16.0) (2026-10-17)
 
 
