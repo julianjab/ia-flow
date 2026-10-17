@@ -30,7 +30,7 @@ import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
 import { RunnerLogs } from './RunnerLogs.js'
-import { runnerApi } from './runnerApi.js'
+import { type RunnerApiOptions, runnerApi } from './runnerApi.js'
 import { TaskActions } from './TaskActions.js'
 
 const TOKEN = 'runner-secret'
@@ -227,7 +227,7 @@ async function start(
   push = true,
   mergeableState = 'clean',
   deviceFlow?: DeviceFlow,
-  repos?: string[],
+  issueBoard?: RunnerApiOptions['issueBoard'],
 ) {
   const github = fakeGithub(push, mergeableState)
   const hub = new SseHub<RunnerStreamEvent>()
@@ -245,7 +245,7 @@ async function start(
   const api = runnerApi({
     token: token ?? undefined,
     version: 'test',
-    projects: [{ id: 'p', board: { owner: 'o', number: 1 }, ...(repos ? { repos } : {}) }],
+    projects: [{ id: 'p', board: { owner: 'o', number: 1 } }],
     inbox,
     actions: new TaskActions({
       inbox,
@@ -279,6 +279,7 @@ async function start(
     assistant: assistantFor(inbox, conversations, improvements),
     conversations,
     improvements,
+    ...(issueBoard ? { issueBoard } : {}),
     logs,
     resources: () => RESOURCES,
     ...(deviceFlow ? { deviceFlow } : {}),
@@ -602,19 +603,62 @@ describe('runner API', () => {
   })
 
   it('an improvement opened in a repo of a project goes to its board', async () => {
-    const { call, improvements } = await start(TOKEN, true, 'clean', undefined, [
-      'julianjab/ia-flow',
-    ])
+    const { call, improvements } = await start(TOKEN, true, 'clean', undefined, async () => ({
+      kind: 'project',
+      project_id: 'p',
+      columns: ['Todo', 'Refine'],
+    }))
     const proposal = improvements.add(improvement())
+    expect((await (await call('/api/improvements')).json()).items).toEqual([
+      expect.objectContaining({ id: proposal.id, columns: ['Todo', 'Refine'] }),
+    ])
     const opened = await call(`/api/improvements/${proposal.id}/open`, {
       method: 'POST',
       headers: { 'x-github-token': 'gho_x' },
+      body: JSON.stringify({ status: 'Refine' }),
     })
     // El board de estos tests no acepta cards: el issue queda abierto y se dice por qué.
     expect(await opened.json()).toMatchObject({
       ok: true,
       message: expect.stringContaining('julianjab/ia-flow#77 abierto, pero no quedó en el board'),
       proposal: { status: 'opened' },
+    })
+  })
+
+  it('an improvement opened in a repo read by labels carries the label of its column', async () => {
+    const { call, improvements, github } = await start(
+      TOKEN,
+      true,
+      'clean',
+      undefined,
+      async () => ({
+        kind: 'labels',
+        columns: ['Todo', 'Refine'],
+        labels: { Todo: 'status:todo', Refine: 'status:refine' },
+      }),
+    )
+    const proposal = improvements.add(improvement())
+    const open = (status: string) =>
+      call(`/api/improvements/${proposal.id}/open`, {
+        method: 'POST',
+        headers: { 'x-github-token': 'gho_x' },
+        body: JSON.stringify({ status }),
+      })
+
+    const wrong = await open('Done')
+    expect(wrong.status).toBe(400)
+    expect(await wrong.json()).toMatchObject({
+      ok: false,
+      message: expect.stringContaining('Done'),
+    })
+    expect(github.calls.some((request) => request.method === 'POST')).toBe(false)
+
+    expect(await (await open('Refine')).json()).toMatchObject({
+      ok: true,
+      message: 'julianjab/ia-flow#77 abierto y en Refine',
+    })
+    expect(github.calls.find((request) => request.method === 'POST')?.body).toMatchObject({
+      labels: ['status:refine'],
     })
   })
 
