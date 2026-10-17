@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.15.0](https://github.com/julianjab/ia-flow/compare/v2.14.0...v2.15.0) (2026-10-17)
+
+
+### Features
+
+* **assistant:** voz, un solo asistente y mejoras con columna ([#312](https://github.com/julianjab/ia-flow/issues/312)) ([673cb01](https://github.com/julianjab/ia-flow/commit/673cb01da5c8fea11b67e70bc6ec3b0bbedd010e))
+
 ## [2.14.0](https://github.com/julianjab/ia-flow/compare/v2.13.0...v2.14.0) (2026-10-16)
 
 
