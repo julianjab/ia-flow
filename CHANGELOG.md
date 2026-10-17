@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.16.0](https://github.com/julianjab/ia-flow/compare/v2.15.0...v2.16.0) (2026-10-17)
+
+
+### Features
+
+* **runner-v2:** el runner y los hosts borran los worktrees de un PR cerrado ([#314](https://github.com/julianjab/ia-flow/issues/314)) ([da14bb5](https://github.com/julianjab/ia-flow/commit/da14bb53255b97e49c75c9f95caf590f9f23c8b6))
+
 ## [2.15.0](https://github.com/julianjab/ia-flow/compare/v2.14.0...v2.15.0) (2026-10-17)
 
 
