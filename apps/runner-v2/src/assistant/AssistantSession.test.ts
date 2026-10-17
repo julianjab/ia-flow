@@ -463,3 +463,91 @@ describe('AssistantSession: config de un agente y costo de una tarea', () => {
     expect(detail.cost_note).toContain('ESTIMADO')
   })
 })
+
+describe('AssistantSession.listBoard', () => {
+  /** El board de dos proyectos: anota con qué proyecto se pidió la bandeja y el resto. */
+  function boardBackend() {
+    const asked: Array<[string, string | undefined]> = []
+    const projects = [
+      { id: 'p', board: { owner: 'o', number: 1 }, statuses: ['Todo', 'Build'] },
+      { id: 'q', board: { owner: 'o', number: 2 }, statuses: ['Todo'] },
+    ]
+    const backend = {
+      inbox: {
+        inbox: async (projectId?: string) => {
+          asked.push(['inbox', projectId])
+          return {
+            projects: projects.filter((project) => !projectId || project.id === projectId),
+            items: [],
+          }
+        },
+        rest: async (projectId?: string) => {
+          asked.push(['rest', projectId])
+          return {
+            columns: [
+              {
+                status: 'Todo',
+                items: [
+                  {
+                    ref: 'o/r#3',
+                    project_id: 'p',
+                    title: 'Nunca tocada',
+                    url: 'u',
+                    labels: [],
+                    updated_at: '2026-10-01T00:00:00Z',
+                  },
+                ],
+              },
+            ],
+          }
+        },
+      },
+      now: () => new Date('2026-10-16T12:00:00Z'),
+    } as unknown as AssistantBackend
+    return { backend, asked }
+  }
+
+  it('in the context of a task, it is refused pointing at get_task', async () => {
+    const { backend } = boardBackend()
+    const session = new AssistantSession({ kind: 'task', ref: 'o/r#1' }, backend, () => {})
+    await expect(session.listBoard()).rejects.toThrow(
+      'En el contexto de una tarea, usá assistant_get_task',
+    )
+  })
+
+  it('in the context of a project, reads only its board and refuses another project', async () => {
+    const { backend, asked } = boardBackend()
+    const events: AssistantStreamEvent[] = []
+    const session = new AssistantSession({ kind: 'project', project_id: 'p' }, backend, (event) =>
+      events.push(event),
+    )
+    const board = await session.listBoard({ status: 'Todo' })
+    expect(asked).toEqual([
+      ['inbox', 'p'],
+      ['rest', 'p'],
+    ])
+    expect(board.now).toBe('2026-10-16T12:00:00.000Z')
+    expect(board.cards).toEqual([expect.objectContaining({ ref: 'o/r#3', in_inbox: false })])
+    expect(events).toEqual([{ type: 'tool', name: 'list_board', summary: 'leyendo el board' }])
+    await expect(session.listBoard({ project_id: 'q' })).rejects.toThrow(/Fuera de contexto/)
+  })
+
+  it('in the general context, project_id narrows it to a project that exists', async () => {
+    const { backend, asked } = boardBackend()
+    const session = new AssistantSession({ kind: 'general' }, backend, () => {})
+    await session.listBoard({ project_id: 'q' })
+    expect(asked.slice(-2)).toEqual([
+      ['inbox', 'q'],
+      ['rest', 'q'],
+    ])
+    await expect(session.listBoard({ project_id: 'z' })).rejects.toThrow(
+      '"z" no es un proyecto: p, q',
+    )
+    asked.length = 0
+    await session.listBoard()
+    expect(asked).toEqual([
+      ['inbox', undefined],
+      ['rest', undefined],
+    ])
+  })
+})

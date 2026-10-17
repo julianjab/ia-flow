@@ -21,8 +21,9 @@ const inbox = {
   item: async () => undefined,
   detail: async () => undefined,
   explain: async () => undefined,
-  inbox: async () => ({ items: [] }),
-} as unknown as Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain'>
+  inbox: async () => ({ items: [], projects: [] }),
+  rest: async () => ({ columns: [] }),
+} as unknown as Pick<InboxService, 'inbox' | 'item' | 'detail' | 'explain' | 'rest'>
 
 function mount(options: Record<string, unknown> = { engine: 'julianjab/ia-flow' }) {
   const improvements = new SqliteImprovementStore(new Database(':memory:'))
@@ -181,6 +182,19 @@ describe('the assistant tools in the pipeline of a task', () => {
     const status = JSON.parse(String(await tool('assistant_runner_status').execute({}, run)))
     expect(Date.parse(status.now)).not.toBeNaN()
     expect(status.live_executions).toEqual([])
+  })
+
+  it('lists the board by column, with an input the model can see, but not in the context of a task', async () => {
+    const { tool } = mount()
+    const board = tool('assistant_list_board')
+    expect(() => z.toJSONSchema(board.input)).not.toThrow()
+    expect(Object.keys(z.toJSONSchema(board.input).properties ?? {})).toEqual([
+      'status',
+      'project_id',
+      'offset',
+      'limit',
+    ])
+    await expect(board.execute({}, run)).rejects.toThrow(/usá assistant_get_task/)
   })
 
   it('searching the traces needs a runner that keeps them in a database', async () => {
