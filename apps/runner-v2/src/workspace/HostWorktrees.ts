@@ -21,7 +21,8 @@
  *
  * **Sólo lo que armó el host.** Cada worktree que entrega `begin` queda anotado en un registro en
  * disco (`ledgerPath`), y sólo lo anotado se borra: si un runner comparte el mismo workspace (una
- * laptop con los dos), sus worktrees no se tocan.
+ * laptop con los dos), sus worktrees no se tocan. Una corrida en un carril arma también el worktree
+ * de la task del que cuelga: ése se anota con `adopt` (no queda en uso, así que lo barre `sweep`).
  *
  * **El respaldo (`sweep`)**: lo que `end` deja —una pausa que nunca se retoma, trabajo de una task
  * que no vuelve, o una corrida que el host no terminó porque se cayó— lo barre al arrancar y cada
@@ -90,6 +91,18 @@ export class HostWorktrees {
     } finally {
       this.#preparing--
     }
+  }
+
+  /** Anota como del host un worktree que armó sin entregarlo (el de la task de un carril). */
+  adopt(path: string): void {
+    if (this.#owned.has(path)) return
+    this.#owned.add(path)
+    this.#write()
+  }
+
+  /** Si una corrida lo está usando o armando, o se está borrando: ahí no se toca nada. */
+  isBusy(path: string): boolean {
+    return this.#busy(path) || this.#removing.has(path)
   }
 
   /** La corrida terminó (`ending`: cómo cerró el modelo; sin él, la sesión terminó sola). */

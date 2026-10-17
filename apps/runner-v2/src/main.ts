@@ -19,8 +19,9 @@
  * Bun carga solo el `.env` del directorio desde el que corre (gitignoreado).
  */
 import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createLogger, type TraceJournal } from '@ia-flow/telemetry'
+import { NodeShellRunner } from '@ia-flow/workspace'
 import { type MountedRunner, mountRunner } from './boot.js'
 import { registerVirtualModules } from './bundle/register.js'
 import { parseArgs, parseIssueTarget, type RunnerArgs, USAGE } from './cli.js'
@@ -48,6 +49,11 @@ import { type ActivityStore, openActivityStore } from './storage/activityStore.j
 import { startHeartbeat } from './telemetry/heartbeat.js'
 import { machineResources } from './telemetry/resources.js'
 import { startTelemetry, type Telemetry, TraceRoute } from './telemetry/telemetry.js'
+import {
+  CLOSED_PR_SWEEP_INTERVAL_MS,
+  ClosedPrWorktrees,
+  githubPullRequests,
+} from './workspace/ClosedPrWorktrees.js'
 
 /** Lo que el runner imprime también sale como log OTLP, con la traza activa y el scope del evento. */
 const runnerLog = createLogger('ia-flow-runner-v2')
@@ -130,6 +136,7 @@ async function startServing(
     }),
   })
   const hostsApi = nodeHandler((req) => hosts.fetch(req))
+  const stopClosedPrSweep = sweepClosedPrWorktrees(mounted, log)
   const stopHeartbeat = startHeartbeat(
     () => mounted.engine.executions?.stats ?? { running: 0, waiting: 0, paused: 0 },
   )
@@ -173,6 +180,7 @@ async function startServing(
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       stopHeartbeat()
+      stopClosedPrSweep()
       mcpHost?.close()
       hosts.close()
       inbox.close()
@@ -183,9 +191,31 @@ async function startServing(
   }
 }
 
+/**
+ * Los worktrees del runner cuyo PR ya se cerró (`ClosedPrWorktrees`): al arrancar y cada tanto. Sin
+ * `busy`: tras el cierre del PR nada corre sobre el worktree de su task, y el margen
+ * (`CLOSED_PR_GRACE_MS`) cubre lo que el merge mismo dispara.
+ */
+function sweepClosedPrWorktrees(mounted: MountedRunner, log: (line: string) => void): () => void {
+  const closedPrs = new ClosedPrWorktrees({
+    shell: new NodeShellRunner(),
+    workspace: mounted.services.workspace,
+    reposBase: join(process.env.WORKSPACE_DIR || defaultWorkspaceRoot(), 'repos'),
+    pullRequests: githubPullRequests(mounted.services.github),
+    log: { info: log, warn: log },
+  })
+  const sweep = () => {
+    closedPrs.sweep().catch((err: unknown) => runnerLog.warn(`limpieza de PRs cerrados: ${err}`))
+  }
+  sweep()
+  const timer = setInterval(sweep, CLOSED_PR_SWEEP_INTERVAL_MS)
+  timer.unref()
+  return () => clearInterval(timer)
+}
+
 /** El host: se suscribe al runner y toma tareas hasta que lo apaguen. Sin servidor propio. */
 function startHosting(
-  { client, settings, githubAuthMode, worktrees }: MountedHost,
+  { client, settings, githubAuthMode, worktrees, closedPrs }: MountedHost,
   telemetry: Telemetry,
 ): void {
   console.log(`→ github: ${githubAuthMode}`)
@@ -199,6 +229,12 @@ function startHosting(
   }
   sweep()
   setInterval(sweep, SWEEP_INTERVAL_MS).unref()
+  // Lo de un PR ya cerrado, más seguido: el merge libera el disco sin esperar al barrido grande.
+  const sweepClosedPrs = () => {
+    closedPrs.sweep().catch((err: unknown) => runnerLog.warn(`limpieza de PRs cerrados: ${err}`))
+  }
+  sweepClosedPrs()
+  setInterval(sweepClosedPrs, CLOSED_PR_SWEEP_INTERVAL_MS).unref()
   client.start()
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

@@ -21,6 +21,7 @@ import {
   type Provider,
   type Tool,
 } from '@ia-flow/agent-engine'
+import { GithubClient } from '@ia-flow/github-api'
 import {
   CLOSED_BY_RUNNER,
   HostClient,
@@ -30,7 +31,6 @@ import {
   type TaskRunner,
   type WorkspaceToolSpec,
 } from '@ia-flow/provider-remote'
-import { createLogger } from '@ia-flow/telemetry'
 import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import {
   HOST_WORKSPACE_TOOLS,
@@ -41,6 +41,7 @@ import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { defaultHostWorkspaceRoot } from '../config/runnerHome.js'
 import { resolveGithubAuth, verifyGithubAuth } from '../github/githubAuth.js'
 import { machineResources } from '../telemetry/resources.js'
+import { ClosedPrWorktrees, githubPullRequests } from '../workspace/ClosedPrWorktrees.js'
 import { HostWorktrees } from '../workspace/HostWorktrees.js'
 import { mountWorkspace } from '../workspace/mountWorkspace.js'
 import { CLAUDE_CLI_TYPE, createProvider, providerIds } from './providers.js'
@@ -101,6 +102,8 @@ export interface MountedHost {
   githubAuthMode: string
   /** El worktree de cada corrida, y el respaldo que barre lo que quedó (`sweep`). */
   worktrees: HostWorktrees
+  /** Lo que quedó en disco de un PR que ya se cerró: worktree, carriles y branch local. */
+  closedPrs: ClosedPrWorktrees
 }
 
 /** Cada cuánto barre los worktrees que quedaron en disco (además de al arrancar). */
@@ -122,12 +125,24 @@ export async function mountHost(
     githubToken: () => github.auth.getToken(),
     log: opts.log,
   })
+  // Por el log del runner (consola + OTLP): sin esto, lo que el host borra o deja no se ve en
+  // los logs del pod.
+  const log = { info: opts.log, warn: opts.log, error: opts.log }
+  const shell = new NodeShellRunner()
   const worktrees = new HostWorktrees({
-    shell: new NodeShellRunner(),
+    shell,
     workspace,
-    log: createLogger('ia-flow-runner-v2.host'),
+    log,
     // Lo que armó el host: sólo eso se borra.
     ledgerPath: join(root, 'host-worktrees.json'),
+  })
+  const closedPrs = new ClosedPrWorktrees({
+    shell,
+    workspace,
+    reposBase: join(root, 'repos'),
+    pullRequests: githubPullRequests(new GithubClient({ auth: github.auth })),
+    busy: (path) => worktrees.isBusy(path),
+    log,
   })
   const provider = createProvider(settings.provider, cfg.providers, {
     cwd: (ctx) => session.dirFor(ctx),
@@ -149,7 +164,7 @@ export async function mountHost(
       worktrees,
     }),
   })
-  return { client, settings, githubAuthMode: github.mode, worktrees }
+  return { client, settings, githubAuthMode: github.mode, worktrees, closedPrs }
 }
 
 /**
@@ -165,13 +180,18 @@ export function providerTaskRunner(opts: {
   log: (line: string) => void
   /** Quién arma el worktree de cada corrida y lo borra al terminar (`HostWorktrees`). Sin él, el
    *  worktree queda en disco. */
-  worktrees?: Pick<HostWorktrees, 'begin' | 'end'>
+  worktrees?: Pick<HostWorktrees, 'begin' | 'end' | 'adopt'>
   fetchImpl?: typeof fetch
 }): TaskRunner {
   return async (task, runner, signal): Promise<RunResult> => {
     const ctx = contextOf(task)
     const prepare = () => opts.session.dirFor(ctx)
     const cwd = opts.worktrees ? await opts.worktrees.begin(prepare) : await prepare()
+    if (opts.worktrees && ctx.lane) {
+      // El carril cuelga del worktree de la task, que `prepare` también armó: es del host.
+      const { target, repoBasePath } = await opts.session.prepare(ctx)
+      opts.worktrees.adopt(opts.session.manager.worktreePath(target.task, repoBasePath))
+    }
     const link = new RunnerLink({
       task,
       base: runner.base,
