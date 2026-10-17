@@ -291,6 +291,17 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     }
   }
 
+  /** Un issue sin board pedido, en un repo que lleva otro runner por labels (`inbox.issueBoards`):
+   *  entra con el label de su columna de entrada, como el de una mejora abierta desde la bandeja.
+   *  Sin él, ese runner no lo vería. */
+  const withEntryLabel = async (request: CreateIssueRequest): Promise<CreateIssueRequest> => {
+    if (request.board) return request
+    const board = await options.issueBoard?.(request.repo)
+    const label = board?.kind === 'labels' ? placement(board, undefined).label : undefined
+    if (!label || request.labels?.includes(label)) return request
+    return { ...request, labels: [...(request.labels ?? []), label] }
+  }
+
   router.post('/api/issues', async (req, res) => {
     const reject = (status: number, message: string) => {
       sendJson(res, status, { ok: false, message } satisfies CreateIssueResult)
@@ -299,7 +310,7 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     const token = req.header('x-github-token')
     if (!token) return reject(401, 'Iniciá sesión con GitHub para abrir el issue')
     try {
-      const request = parseBody(CreateIssueRequestSchema, await req.json())
+      const request = await withEntryLabel(parseBody(CreateIssueRequestSchema, await req.json()))
       const login = await loginOf(token)
       const created = await createIssue(request, token, options.fetchImpl)
       const ref = `${request.repo}#${created.number}`
