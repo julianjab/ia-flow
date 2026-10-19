@@ -196,7 +196,7 @@ describe('InboxService', () => {
   it('a task outside the inbox still has a detail, as idle', async () => {
     const { inbox } = service([card('o/r#4', { status: 'Todo' })], fakeActivity())
     const detail = await inbox.detail('o/r#4')
-    expect(detail?.item).toMatchObject({ group: 'idle', kind: 'idle', actions: [] })
+    expect(detail?.item).toMatchObject({ group: 'idle', kind: 'idle', actions: ['comment'] })
     expect(await inbox.detail('o/r#99')).toBeUndefined()
   })
 

@@ -256,6 +256,7 @@ async function start(
       settings,
       redispatch: async () => 'ok',
       rerunReview: async (ref) => `review de ${ref}`,
+      rerunStage: async (ref) => `etapa de ${ref}`,
       stop: () => 'ok',
       resumeStage: () => undefined,
       taskActions: () => ({}),
@@ -340,7 +341,11 @@ describe('runner API', () => {
   it('serves the inbox, the runner info and a task detail', async () => {
     const { call } = await start()
     const inbox = await (await call('/api/inbox')).json()
-    expect(inbox.items[0]).toMatchObject({ ref: 'o/r#1', kind: 'merge', actions: ['merge'] })
+    expect(inbox.items[0]).toMatchObject({
+      ref: 'o/r#1',
+      kind: 'merge',
+      actions: ['merge', 'comment'],
+    })
     const info = await (await call('/api/runner')).json()
     expect(info).toMatchObject({
       service: 'ia-flow-runner',
@@ -374,6 +379,32 @@ describe('runner API', () => {
       method: 'PUT',
       url: 'https://api.github.com/repos/o/r/pulls/9/merge',
       body: { merge_method: 'squash' },
+    })
+  })
+
+  it('comment is offered on any task, needs the text and is posted on the issue as that user', async () => {
+    const { call, github } = await start()
+    const post = (body: unknown) =>
+      call('/api/tasks/o/r/1/actions', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'x-github-token': 'gho_x' },
+      })
+
+    const empty = await post({ action: 'comment', comment: '  ' })
+    expect(empty.status).toBe(400)
+    expect(github.calls.some((request) => request.url.endsWith('/comments'))).toBe(false)
+
+    const commented = await post({ action: 'comment', comment: 'Decisión: concatenar.' })
+    expect(await commented.json()).toMatchObject({
+      ok: true,
+      message: 'comentado en o/r#1',
+      github_login: 'julian',
+    })
+    expect(github.calls.find((request) => request.url.endsWith('/comments'))).toEqual({
+      method: 'POST',
+      url: 'https://api.github.com/repos/o/r/issues/1/comments',
+      body: { body: 'Decisión: concatenar.' },
     })
   })
 

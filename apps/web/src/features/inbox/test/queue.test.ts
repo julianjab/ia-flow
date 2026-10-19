@@ -286,6 +286,24 @@ describe('acciones y confirmación en línea', () => {
     expect(q.first?.action?.id).toBe('approve_prd')
     expect(q.first?.secondary.map((a) => a.id)).toEqual(['back_to_refine'])
   })
+
+  it('comentar pide el texto y no va en la fila de la cola: queda para el detalle', () => {
+    expect(actionOf('comment')).toEqual({
+      id: 'comment',
+      label: 'Comentar',
+      confirms: false,
+      comment: 'required',
+    })
+    expect(actionOf('rerun_stage').label).toBe('Re-ejecutar etapa')
+    const q = build([item({ ...prd(1), actions: ['approve_prd', 'back_to_refine', 'comment'] })])
+    expect(q.first?.secondary.map((a) => a.id)).toEqual(['back_to_refine'])
+  })
+
+  it('una tarea que sólo ofrece comentar no tiene acción principal', () => {
+    const q = build([item({ ...prd(1), actions: ['comment'] })])
+    expect(q.first?.action).toBeUndefined()
+    expect(q.first?.secondary).toEqual([])
+  })
 })
 
 describe('detalle', () => {

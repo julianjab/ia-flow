@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import type { ExecutionSummary } from '@ia-flow/shared'
-import { type BoardCard, classify, inboxOrder, type TaskActivity } from './classify.js'
+import {
+  anytimeActions,
+  type BoardCard,
+  classify,
+  inboxOrder,
+  type TaskActivity,
+} from './classify.js'
 import { InboxSection } from './InboxSection.js'
 
 const settings = InboxSection.parse({})
@@ -42,7 +48,7 @@ describe('classify', () => {
       },
       options,
     )
-    expect(result).toMatchObject({ group: 'run', kind: 'agent', actions: ['stop'] })
+    expect(result).toMatchObject({ group: 'run', kind: 'agent', actions: ['stop', 'comment'] })
     expect(result?.why).toBe('build-reentry → reviewer corriendo · 32k tokens')
   })
 
@@ -85,9 +91,9 @@ describe('classify', () => {
       idle,
       options,
     )
-    expect(withPr).toMatchObject({ group: 'need', kind: 'merge', actions: ['merge'] })
+    expect(withPr).toMatchObject({ group: 'need', kind: 'merge', actions: ['merge', 'comment'] })
     const withoutPr = classify(card({ status: 'Review', labels: ['reviewed'] }), idle, options)
-    expect(withoutPr?.actions).toEqual([])
+    expect(withoutPr?.actions).toEqual(['comment'])
   })
 
   it('Review without reviewed always needs you, whatever else, with a review to re-run', () => {
@@ -96,7 +102,7 @@ describe('classify', () => {
       group: 'need',
       kind: 'review',
       why: 'Review sin reviewed · PR #7',
-      actions: ['rerun_review'],
+      actions: ['rerun_review', 'comment'],
     })
     // Ni un blocker ni una corrida cerrada la mueven de ahí.
     expect(
@@ -107,18 +113,28 @@ describe('classify', () => {
       ),
     ).toMatchObject({ group: 'need', kind: 'review' })
     // Sin PR no hay nada que revisar: se ve, pero sin la acción.
-    expect(classify(card({ status: 'Review', itemId: 'PVTI_1' }), idle, options)?.actions).toEqual(
-      [],
-    )
+    expect(classify(card({ status: 'Review', itemId: 'PVTI_1' }), idle, options)?.actions).toEqual([
+      'comment',
+    ])
     // Mientras el reviewer corre, corre.
     expect(classify(stuck, { waiting: false, live: run() }, options)?.group).toBe('run')
+  })
+
+  it('Review + reviewed with a PR on the board also offers to re-run the review', () => {
+    const reviewed = card({
+      status: 'Review',
+      labels: ['reviewed'],
+      itemId: 'PVTI_1',
+      pr: { number: 7, url: 'u' },
+    })
+    expect(classify(reviewed, idle, options)?.actions).toEqual(['merge', 'rerun_review', 'comment'])
   })
 
   it('Refined asks for the PRD approval', () => {
     expect(classify(card({ status: 'Refined' }), idle, options)).toMatchObject({
       group: 'need',
       kind: 'prd',
-      actions: ['approve_prd', 'back_to_refine'],
+      actions: ['approve_prd', 'back_to_refine', 'comment'],
     })
   })
 
@@ -142,7 +158,11 @@ describe('classify', () => {
       },
       options,
     )
-    expect(doubt).toMatchObject({ group: 'need', kind: 'doubt', actions: ['answer_and_unblock'] })
+    expect(doubt).toMatchObject({
+      group: 'need',
+      kind: 'doubt',
+      actions: ['answer_and_unblock', 'comment'],
+    })
     expect(doubt?.why).toContain('¿90 días o para siempre?')
 
     const crash = classify(
@@ -156,7 +176,7 @@ describe('classify', () => {
       },
       options,
     )
-    expect(crash).toMatchObject({ group: 'fail', kind: 'crash', actions: ['retry'] })
+    expect(crash).toMatchObject({ group: 'fail', kind: 'crash', actions: ['retry', 'comment'] })
   })
 
   it('the agent exit decides: prerequisite is a missing piece, doubt is a decision', () => {
@@ -169,7 +189,7 @@ describe('classify', () => {
     expect(missing).toMatchObject({
       group: 'need',
       kind: 'prerequisite',
-      actions: ['answer_and_unblock'],
+      actions: ['answer_and_unblock', 'comment'],
     })
     expect(missing?.why).toBe('Le falta una pieza: falta #1578')
 
@@ -189,7 +209,11 @@ describe('classify', () => {
 
   it('Refine or Build with no movement for staleHours is stale', () => {
     const stale = classify(card({ updatedAt: '2026-09-28T10:00:00Z' }), idle, options)
-    expect(stale).toMatchObject({ group: 'need', kind: 'stale', actions: ['relaunch'] })
+    expect(stale).toMatchObject({
+      group: 'need',
+      kind: 'stale',
+      actions: ['relaunch', 'rerun_stage', 'comment'],
+    })
     expect(stale?.why).toBe('Build sin movimiento hace 26 h')
     const recentEvent = classify(
       card({ updatedAt: '2026-09-28T10:00:00Z' }),
@@ -219,5 +243,27 @@ describe('inboxOrder', () => {
       'queue:0',
       'queue:1',
     ])
+  })
+})
+
+describe('anytimeActions', () => {
+  it('Refine or Build with nothing running can re-run its stage, and always comment', () => {
+    expect(anytimeActions(card({ status: 'Build' }), idle, options.settings)).toEqual([
+      'rerun_stage',
+      'comment',
+    ])
+    expect(anytimeActions(card({ status: 'Refine' }), idle, options.settings)).toEqual([
+      'rerun_stage',
+      'comment',
+    ])
+  })
+
+  it('while something runs or waits, or the card is blocked or elsewhere, only comment', () => {
+    const settings = options.settings
+    expect(anytimeActions(card(), { waiting: false, live: run() }, settings)).toEqual(['comment'])
+    expect(anytimeActions(card(), { waiting: true }, settings)).toEqual(['comment'])
+    expect(anytimeActions(card({ labels: ['blocked'] }), idle, settings)).toEqual(['comment'])
+    expect(anytimeActions(card({ status: 'Todo' }), idle, settings)).toEqual(['comment'])
+    expect(anytimeActions(card({ status: 'Review' }), idle, settings)).toEqual(['comment'])
   })
 })

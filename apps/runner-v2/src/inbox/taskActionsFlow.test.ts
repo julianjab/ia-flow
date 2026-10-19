@@ -77,7 +77,7 @@ describe('what the inbox offers', () => {
   it('a declared action replaces the built-in one and brings its label and input', async () => {
     const item = (await inbox(defs).item('o/r#1')) as InboxItem
     expect(item.kind).toBe('prerequisite')
-    expect(item.actions).toEqual(['answer_and_unblock'])
+    expect(item.actions).toEqual(['comment', 'answer_and_unblock'])
     expect(item.action_defs).toEqual([
       {
         id: 'answer_and_unblock',
@@ -96,7 +96,7 @@ describe('what the inbox offers', () => {
       },
     })
     const item = (await inbox(strict, 'prerequisite').item('o/r#1')) as InboxItem
-    expect(item.actions).toEqual([])
+    expect(item.actions).toEqual(['comment'])
     expect(item.action_defs).toBeUndefined()
   })
 
@@ -131,13 +131,13 @@ describe('what the inbox offers', () => {
     })
     const item = (await service.item('o/r#1')) as InboxItem
     expect(item.group).toBe('run')
-    expect(item.actions).toEqual(['stop'])
+    expect(item.actions).toEqual(['stop', 'comment'])
     expect(item.action_defs).toBeUndefined()
   })
 
   it('without declarations the built-in actions stay as they were', async () => {
     const item = (await inbox({}).item('o/r#1')) as InboxItem
-    expect(item.actions).toEqual(['answer_and_unblock'])
+    expect(item.actions).toEqual(['answer_and_unblock', 'comment'])
     expect(item.action_defs).toBeUndefined()
   })
 })
@@ -172,6 +172,7 @@ describe('running a declared action as the person', () => {
             }),
       redispatch: async () => 'ok',
       rerunReview: async () => 'ok',
+      rerunStage: async () => 'ok',
       stop: () => 'ok',
       resumeStage: () => 'Refine',
       changed: () => {},
@@ -240,12 +241,12 @@ describe('GET /api/tasks: the facts, unclassified', () => {
       live: {},
       queue: { waiting: false },
       task: { idle_hours: 1, waiting_hours: 1, unlocks: 0, blocked_by: 0 },
-      actions: ['answer_and_unblock'],
+      actions: ['answer_and_unblock', 'comment'],
       action_defs: [{ id: 'answer_and_unblock', comment: 'required' }],
     })
     expect(tasks[0]?.last_run?.exit).toBe('prerequisite')
     // A card nobody has touched is still there — whether it is a decision is the dashboard's call.
-    expect(tasks[1]).toMatchObject({ item: { status: 'Todo' }, run: {}, actions: [] })
+    expect(tasks[1]).toMatchObject({ item: { status: 'Todo' }, run: {}, actions: ['comment'] })
     expect(capacity).toEqual({ running: 1, waiting: 0, paused: 0, max_concurrent: 2, free: 1 })
   })
 
@@ -269,13 +270,13 @@ describe('GET /api/tasks: the facts, unclassified', () => {
     const result = await service.tasks()
     expect(result.capacity).toEqual({ running: 0, waiting: 0, paused: 0 })
     // Sin taskActions declaradas el proyecto sigue ofreciendo lo que el runner traía (classify).
-    expect(result.tasks[0]?.actions).toEqual(['answer_and_unblock'])
+    expect(result.tasks[0]?.actions).toEqual(['answer_and_unblock', 'comment'])
     expect(result.tasks[0]?.action_defs).toEqual([])
   })
 
   it('a declared action replaces the built-in one with the same id, never duplicates it', async () => {
     const { tasks } = await tasksService([blocked], defs).tasks()
-    expect(tasks[0]?.actions).toEqual(['answer_and_unblock'])
+    expect(tasks[0]?.actions).toEqual(['answer_and_unblock', 'comment'])
     expect(tasks[0]?.action_defs).toHaveLength(1)
   })
 })
