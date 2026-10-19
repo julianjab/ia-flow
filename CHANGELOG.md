@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.20.0](https://github.com/julianjab/ia-flow/compare/v2.19.0...v2.20.0) (2026-10-19)
+
+
+### Features
+
+* **menubar:** logs del server con estado de carga y recarga inmediata al cambiar de nivel ([f78600e](https://github.com/julianjab/ia-flow/commit/f78600eae09328c2792343970dd75c9cd515a7ad))
+
+
+### Bug Fixes
+
+* **inbox:** relanzar una task conserva su clave de ejecución ([c41d4ec](https://github.com/julianjab/ia-flow/commit/c41d4ec7bacde8f7b65516965314af5c197b128d))
+* **menubar:** más contraste: base sólida bajo el material y la ventana en reposo al 85 % ([5d6bcc2](https://github.com/julianjab/ia-flow/commit/5d6bcc2a359ee529e1dc53aad9cace3a092d26bd))
+* **provider-anthropic-api:** context editing apagado por default y sin turnos vacíos ([f34d139](https://github.com/julianjab/ia-flow/commit/f34d1398a2d475bcb08deba482edc268d7bcc190))
+
 ## [2.19.0](https://github.com/julianjab/ia-flow/compare/v2.18.0...v2.19.0) (2026-10-19)
 
 
