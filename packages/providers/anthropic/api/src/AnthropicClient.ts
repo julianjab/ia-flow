@@ -54,6 +54,14 @@ export interface AnthropicMessagesResponse {
   /** Por qué paró, estructurado (hoy: el detalle de un `refusal`). */
   stop_details?: unknown
   usage?: Record<string, unknown>
+  /** Lo que borró el context editing en este request (`applied_edits`), si borró algo. */
+  context_management?: {
+    applied_edits?: Array<{
+      type?: string
+      cleared_tool_uses?: number
+      cleared_input_tokens?: number
+    }>
+  } | null
   /** El header `request-id` de la respuesta — no viene en el body. Es lo que pide soporte de
    *  Anthropic para rastrear un request; el `_` es la convención del SDK oficial. */
   _request_id?: string

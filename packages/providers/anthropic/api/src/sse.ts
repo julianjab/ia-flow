@@ -100,6 +100,8 @@ function applyContentBlockStop(
 function applyMessageDelta(evt: Record<string, unknown>, message: Record<string, unknown>): void {
   if (evt.delta) Object.assign(message, evt.delta)
   if (evt.usage) message.usage = { ...(message.usage as object), ...(evt.usage as object) }
+  // Lo que borró el context editing llega al final, fuera de `delta`.
+  if (evt.context_management) message.context_management = evt.context_management
 }
 
 function applySseEvent(

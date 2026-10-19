@@ -10,6 +10,7 @@ export type {
 export { AnthropicApiError, AnthropicClient, backoffMs } from './AnthropicClient.js'
 export type {
   AnthropicAgentProviderConfig,
+  AnthropicClearToolUsesConfig,
   AnthropicEffort,
   AnthropicMessage,
   AnthropicProviderOptions,

@@ -71,6 +71,8 @@ default del paquete (`RUN_CONFIG_DEFAULTS`).
 | `effort` / `taskBudgetTokens` | `output_config` — nivel de esfuerzo / presupuesto total de tokens | apagado |
 | `eagerMcpTools` | Carga el catálogo MCP entero de una, en vez de diferido con búsqueda | `false` |
 | `mcpTransport` | `connector` (Anthropic se conecta a los MCP) o `client` (este paquete se conecta y pasa sus tools como tools normales) — ver "MCP remoto" | `connector` |
+| `maxToolResultChars` | Tope en caracteres del resultado de UNA tool que entra a la conversación; lo que sobra se recorta con un aviso que le pide al modelo un rango o una búsqueda. La traza y `onToolResult` lo ven entero | `100000` |
+| `clearToolUses` | Context editing (`clear_tool_uses_20250919`): la API borra los resultados viejos de tools cuando la entrada pasa un umbral. `true` con los defaults (`triggerTokens: 100000`, `keepToolUses: 5`, `clearAtLeastTokens: 20000`), un objeto para ajustarlos (más `excludeTools`), `false` lo apaga | `true` |
 
 Los defaults del paquete sirven para el caso simple. Un agente que trabaja sobre un repo (leer,
 editar, correr tests, publicar) necesita bastante más: registrá el provider con sus propios

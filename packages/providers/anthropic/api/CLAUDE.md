@@ -21,6 +21,10 @@ src/
 ├── AnthropicProvider.ts  clase AnthropicProvider (implementa Provider) — compone un
 │                         AnthropicClient y le agrega el loop de tool_use, MCP remoto,
 │                         thinking/task budgets, checkpointing.
+├── runConfig.ts          las perillas de una corrida (`AnthropicRunConfig`): defaults, validación
+│                         del `providerConfig` y resolución agente → provider → default.
+├── context.ts            cuánto pesa lo que se reenvía: el tope de cada resultado de tool y el
+│                         `context_management` (borrado server-side de resultados viejos).
 ├── conversation.ts       cómo se arma lo que se reenvía: llamadas MCP colgadas pareadas con
 │                         un error, nunca `thinking` al final, siempre termina en el usuario
 │                         (tras un `pause_turn`, "Continuá."). Cada regla salió de un 400 real.

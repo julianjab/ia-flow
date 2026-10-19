@@ -105,6 +105,11 @@ function responseAttributes(data: AnthropicMessagesResponse): Record<string, str
   if (usage.server_tool_use != null) {
     attributes['anthropic.usage.server_tool_use'] = truncate(usage.server_tool_use)
   }
+  for (const edit of data.context_management?.applied_edits ?? []) {
+    if (edit.type !== 'clear_tool_uses_20250919') continue
+    attributes['anthropic.context.cleared_tool_uses'] = edit.cleared_tool_uses ?? 0
+    attributes['anthropic.context.cleared_input_tokens'] = edit.cleared_input_tokens ?? 0
+  }
   return attributes
 }
 
