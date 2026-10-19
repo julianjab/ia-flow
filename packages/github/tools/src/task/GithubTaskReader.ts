@@ -39,9 +39,16 @@ const ISSUE_OF_ITEM = `query($id: ID!) {
   }
 }`
 
+// La sección "Development" del issue: las ramas vinculadas (`createLinkedBranch`) y los PRs
+// abiertos que lo cierran. Una rama que subió el agente sin vincular sólo aparece por su PR.
 const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
-    issue(number: $number) { linkedBranches(first: 10) { nodes { ref { name } } } }
+    issue(number: $number) {
+      linkedBranches(first: 10) { nodes { ref { name } } }
+      closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
+        nodes { number headRefName isCrossRepository createdAt }
+      }
+    }
   }
 }`
 
@@ -220,16 +227,34 @@ export class GithubTaskReader {
     return this.client.requestJson(`/repos/${owner}/${repo}/pulls/${number}`)
   }
 
-  /** Las ramas vinculadas al issue (su sección "Development"): la de la task, si ya tiene una. */
+  /**
+   * Las ramas de la task según su sección "Development": primero las vinculadas al issue y después
+   * las de los PRs abiertos del mismo repo que lo cierran, el más viejo primero (el que tiene el
+   * historial y el review). Sin las de los PRs, una rama que subió el agente sin vincular no se
+   * encontraba, y la task terminaba con otra rama y otro PR.
+   */
   async linkedBranches(owner: string, repo: string, number: number): Promise<string[]> {
     const data = await this.client.graphql<{
       repository?: {
-        issue?: { linkedBranches?: { nodes?: Array<{ ref?: { name: string } | null }> } } | null
+        issue?: {
+          linkedBranches?: { nodes?: Array<{ ref?: { name: string } | null }> }
+          closedByPullRequestsReferences?: {
+            nodes?: Array<{
+              headRefName?: string
+              isCrossRepository?: boolean
+              createdAt?: string
+            } | null>
+          }
+        } | null
       } | null
     }>(LINKED_BRANCHES, { owner, repo, number })
-    return (data.repository?.issue?.linkedBranches?.nodes ?? [])
-      .map((node) => node.ref?.name)
-      .filter((name): name is string => Boolean(name))
+    const issue = data.repository?.issue
+    const linked = (issue?.linkedBranches?.nodes ?? []).map((node) => node.ref?.name)
+    const fromPrs = (issue?.closedByPullRequestsReferences?.nodes ?? [])
+      .filter((pr) => pr && !pr.isCrossRepository)
+      .sort((a, b) => (a?.createdAt ?? '').localeCompare(b?.createdAt ?? ''))
+      .map((pr) => pr?.headRefName)
+    return [...new Set([...linked, ...fromPrs].filter((name): name is string => Boolean(name)))]
   }
 
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */

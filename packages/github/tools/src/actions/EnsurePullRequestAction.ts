@@ -36,6 +36,24 @@ export function closesIssue(body: string, issue: IssueRef): boolean {
   return new RegExp(`\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+${ref}\\b`, 'i').test(body)
 }
 
+/** Los PRs abiertos que cierran el issue (sección "Development"), vengan de la rama que vengan. */
+const OPEN_CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) {
+      closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
+        nodes { number url headRefName isCrossRepository }
+      }
+    }
+  }
+}`
+
+interface ClosingPr {
+  number: number
+  url: string
+  headRefName: string
+  isCrossRepository?: boolean
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -49,6 +67,8 @@ function escapeRegExp(value: string): string {
  * - PR abierto que ya lo cierra: no hace nada.
  * - Sin PR abierto pero con uno mergeado o cerrado para la rama: tira. Abrir otro (o reabrir
  *   uno cerrado a mano) es decisión humana, no del engine.
+ * - Sin PR de la rama pero con otro PR abierto que ya cierra el issue desde OTRA rama: tira. Dos
+ *   PRs para la misma task divergen y duplican el review; qué rama queda es decisión humana.
  * - Sin ningún PR: lo abre, con el título del issue y `Closes #n` de cuerpo — sólo si la rama
  *   tiene commits propios por delante de la base. Que la rama exista no alcanza: `link_branch`
  *   la crea al arrancar apuntando a la base, así que existe aunque no se haya publicado nada.
@@ -101,6 +121,13 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
       )
     }
 
+    const other = await this.openPrFromAnotherBranch(issue, branch)
+    if (other) {
+      throw new Error(
+        `ensure_pull_request: #${issue.number} ya tiene el PR #${other.number} abierto desde ${other.headRefName}, y esta corrida trabajó en ${branch} — no se abre un segundo PR. Llevá los commits a ${other.headRefName} o cerrá #${other.number}: es decisión humana (${other.url})`,
+      )
+    }
+
     const [repository, issueData] = await Promise.all([
       this.client.requestJson<{ default_branch: string }>(repo()),
       this.client.requestJson<{ title: string }>(issuePath(issue.owner, issue.repo, issue.number)),
@@ -135,5 +162,19 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
       }),
     })
     return `PR #${created.number} abierto desde ${branch}: ${created.html_url}`
+  }
+
+  private async openPrFromAnotherBranch(
+    issue: IssueRef,
+    branch: string,
+  ): Promise<ClosingPr | undefined> {
+    const data = await this.client.graphql<{
+      repository?: {
+        issue?: { closedByPullRequestsReferences?: { nodes?: Array<ClosingPr | null> } } | null
+      } | null
+    }>(OPEN_CLOSING_PRS, { owner: issue.owner, repo: issue.repo, number: issue.number })
+    return (data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []).find(
+      (pr): pr is ClosingPr => !!pr && !pr.isCrossRepository && pr.headRefName !== branch,
+    )
   }
 }

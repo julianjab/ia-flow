@@ -45,9 +45,14 @@ interface TaskRef {
  * La rama de cada task:
  *
  * - con `branchPrefix` en el proyecto: `<prefijo><número>`, siempre (se la encuentra por nombre);
- * - sin prefijo, como ia-flow: la rama vinculada al issue si ya tiene una; si no, la que propone
- *   la capacidad `branchName` (recordada por issue mientras el proceso vive: hasta que
- *   `link_branch` la vincula, cada evento de la task ve la misma); sin la capacidad, `task/<n>`.
+ * - sin prefijo, como ia-flow: la que ya tiene en su sección "Development" —la rama vinculada al
+ *   issue o, si no hay, la de su PR abierto más viejo: una rama que subió el agente sin vincular
+ *   sólo se ve por su PR—; si no tiene ninguna, la que propone la capacidad `branchName`
+ *   (recordada por issue mientras el proceso vive: hasta que `link_branch` la vincula o se abre el
+ *   PR, cada evento de la task ve la misma); sin la capacidad, `task/<n>`.
+ *
+ *   Sin la rama del PR, un reinicio del runner le pedía otro nombre al modelo y la task terminaba
+ *   con dos ramas y dos PRs abiertos (#3522 y #3534).
  */
 export class TaskBranches {
   /** Lo propuesto y todavía sin vincular, por task. Compartido entre instancias: el intake se
@@ -59,7 +64,7 @@ export class TaskBranches {
     private readonly prefix: string | undefined,
   ) {}
 
-  /** La rama que la task ya tiene (por prefijo, o vinculada al issue), si la tiene. */
+  /** La rama que la task ya tiene (por prefijo, vinculada al issue o la de su PR), si la tiene. */
   async known(task: TaskRef): Promise<string | undefined> {
     if (this.prefix) return `${this.prefix}${task.number}`
     const [linked] = await this.reader.linkedBranches(task.owner, task.repo, task.number)
