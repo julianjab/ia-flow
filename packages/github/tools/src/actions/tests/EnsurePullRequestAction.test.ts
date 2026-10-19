@@ -36,6 +36,7 @@ function fakeGithub(
       url: string
       headRefName: string
       isCrossRepository?: boolean
+      repository?: { nameWithOwner: string }
     }>
   } = {},
 ) {
@@ -189,6 +190,7 @@ describe('EnsurePullRequestAction', () => {
           number: 3522,
           url: 'https://github.com/x/pull/3522',
           headRefName: 'feat/add-crm-fields-to-profiling-prompt',
+          repository: { nameWithOwner: 'la-haus/subscriptions' },
         },
       ],
     })
@@ -199,11 +201,19 @@ describe('EnsurePullRequestAction', () => {
     expect(writes()).toEqual([])
   })
 
-  it('ignores a closing PR from a fork or from the same branch when deciding to open one', async () => {
+  it('ignores a closing PR from a fork, another repo or the same branch when deciding to open one', async () => {
+    const SAME = { nameWithOwner: 'la-haus/subscriptions' }
     const { client, writes } = fakeGithub({
       closingPrs: [
-        { number: 10, url: 'u', headRefName: 'feat/x', isCrossRepository: true },
-        { number: 11, url: 'u', headRefName: 'ia-flow-local/1640' },
+        { number: 10, url: 'u', headRefName: 'feat/x', isCrossRepository: true, repository: SAME },
+        { number: 11, url: 'u', headRefName: 'ia-flow-local/1640', repository: SAME },
+        // Otro repo que cierra el issue con `Closes la-haus/subscriptions#1640`.
+        {
+          number: 12,
+          url: 'u',
+          headRefName: 'feat/y',
+          repository: { nameWithOwner: 'la-haus/ims' },
+        },
       ],
     })
 

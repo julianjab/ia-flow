@@ -3,6 +3,9 @@ import { GithubTokenAuth } from '@ia-flow/github-auth'
 import { describe, expect, it, vi } from 'vitest'
 import { GithubTaskReader } from '../GithubTaskReader.js'
 
+/** El repo de la task, como lo devuelve GitHub (mayúsculas incluidas). */
+const REPO = { nameWithOwner: 'O/R' }
+
 /** Un GitHub que responde a cualquier GraphQL con `issue`. */
 function readerWith(issue: Record<string, unknown>) {
   const fetchImpl = vi.fn(
@@ -25,11 +28,13 @@ describe('GithubTaskReader.linkedBranches', () => {
             number: 3534,
             headRefName: 'feat/crm-fields-in-profiling-prompt',
             createdAt: '2026-10-19T15:56:00Z',
+            repository: REPO,
           },
           {
             number: 3522,
             headRefName: 'feat/add-crm-fields-to-profiling-prompt',
             createdAt: '2026-10-16T19:06:00Z',
+            repository: REPO,
           },
         ],
       },
@@ -42,13 +47,18 @@ describe('GithubTaskReader.linkedBranches', () => {
     ])
   })
 
-  it('a branch the agent pushed without linking is found through its PR', async () => {
+  it('a branch the agent pushed without linking is found through its PR, never from another repo or a fork', async () => {
     const reader = readerWith({
       linkedBranches: { nodes: [] },
       closedByPullRequestsReferences: {
         nodes: [
-          { number: 9, headRefName: 'feat/from-a-fork', isCrossRepository: true },
-          { number: 3522, headRefName: 'feat/add-crm-fields-to-profiling-prompt' },
+          { number: 9, headRefName: 'feat/from-a-fork', isCrossRepository: true, repository: REPO },
+          { number: 8, headRefName: 'feat/other-repo', repository: { nameWithOwner: 'o/other' } },
+          {
+            number: 3522,
+            headRefName: 'feat/add-crm-fields-to-profiling-prompt',
+            repository: REPO,
+          },
         ],
       },
     })
@@ -61,7 +71,9 @@ describe('GithubTaskReader.linkedBranches', () => {
   it('does not repeat a branch that is linked and also has the PR', async () => {
     const reader = readerWith({
       linkedBranches: { nodes: [{ ref: { name: 'feat/x' } }] },
-      closedByPullRequestsReferences: { nodes: [{ number: 1, headRefName: 'feat/x' }] },
+      closedByPullRequestsReferences: {
+        nodes: [{ number: 1, headRefName: 'feat/x', repository: REPO }],
+      },
     })
 
     expect(await reader.linkedBranches('o', 'r', 1)).toEqual(['feat/x'])
