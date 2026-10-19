@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.21.2](https://github.com/julianjab/ia-flow/compare/v2.21.1...v2.21.2) (2026-10-19)
+
+
+### Bug Fixes
+
+* **inbox:** una duda del agente le gana a esperar otro issue ([d547ffe](https://github.com/julianjab/ia-flow/commit/d547ffec0aaa7b75395c2b21a71ffade9d058343))
+* **menubar:** acciones nuevas con su nombre, y la cola también se puede preguntar ([219245c](https://github.com/julianjab/ia-flow/commit/219245c6277c4af8c1886a481112f170ee9f530d))
+
 ## [2.21.1](https://github.com/julianjab/ia-flow/compare/v2.21.0...v2.21.1) (2026-10-19)
 
 
