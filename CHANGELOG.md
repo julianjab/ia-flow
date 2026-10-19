@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.18.0](https://github.com/julianjab/ia-flow/compare/v2.17.0...v2.18.0) (2026-10-19)
+
+
+### Features
+
+* **epic:** piezas del engine para orquestar épicas (child_closed, remove_blocked_by, node id de hijos) ([#319](https://github.com/julianjab/ia-flow/issues/319)) ([9b2d3ba](https://github.com/julianjab/ia-flow/commit/9b2d3ba9af8ed8f6c09832372c7881014a137117))
+
+
+### Bug Fixes
+
+* **menubar:** no cerrar la sesión de GitHub por renovaciones concurrentes ([4cb44e4](https://github.com/julianjab/ia-flow/commit/4cb44e4320f1add3438ca51c5418389ab5ea2af3))
+
 ## [2.17.0](https://github.com/julianjab/ia-flow/compare/v2.16.0...v2.17.0) (2026-10-17)
 
 
