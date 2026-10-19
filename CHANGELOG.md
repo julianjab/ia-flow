@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.21.0](https://github.com/julianjab/ia-flow/compare/v2.20.1...v2.21.0) (2026-10-19)
+
+
+### Features
+
+* **github-tools:** add_to_project acepta la columna en la que entra el issue ([e2b21d1](https://github.com/julianjab/ia-flow/commit/e2b21d1b6f47bb610899b1d959abaf8bbaff1658))
+* **intake:** un sub-issue que cambia de columna avisa a su épica ([3f47cb8](https://github.com/julianjab/ia-flow/commit/3f47cb833bf94610c21908034845154c1cff411e))
+
 ## [2.20.1](https://github.com/julianjab/ia-flow/compare/v2.20.0...v2.20.1) (2026-10-19)
 
 
