@@ -7,6 +7,7 @@ import {
   CreateGithubIssueAction,
   type GithubProjectContext,
   MarkBlockedByAction,
+  RemoveBlockedByAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
 } from '../index.js'
@@ -129,6 +130,18 @@ describe('MarkBlockedByAction', () => {
       blocking_issue_id: 'I_a',
     })
     expect(graphql.mock.calls[0]?.[0]).toContain('addBlockedBy')
+    expect(graphql.mock.calls[0]?.[1]).toEqual({ issueId: 'I_b', blockingIssueId: 'I_a' })
+  })
+})
+
+describe('RemoveBlockedByAction', () => {
+  it('removes the native dependency between the two issues', async () => {
+    const graphql = vi.fn(async (_query: string, _vars?: unknown) => ({}))
+    await new RemoveBlockedByAction(project({ graphql })).run(ctx(), {
+      blocked_issue_id: 'I_b',
+      blocking_issue_id: 'I_a',
+    })
+    expect(graphql.mock.calls[0]?.[0]).toContain('removeBlockedBy')
     expect(graphql.mock.calls[0]?.[1]).toEqual({ issueId: 'I_b', blockingIssueId: 'I_a' })
   })
 })
