@@ -13,7 +13,13 @@ import {
   issueRefs,
   ProjectsV2Intake,
 } from '@ia-flow/github-tools'
-import { type EventFields, type Location, locate, mergedPullRequest } from '@ia-flow/github-webhook'
+import {
+  closedIssue,
+  type EventFields,
+  type Location,
+  locate,
+  mergedPullRequest,
+} from '@ia-flow/github-webhook'
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import { eventMessage } from './message.js'
@@ -43,6 +49,11 @@ const Input = z.strictObject({
   /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
    *  sin prerrequisitos abiertos (`mark_blocked_by`). */
   unblockDependents: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.child_closed` sobre el issue PADRE (la épica) del issue
+   *  que un `issues.closed` acaba de cerrar —por el merge de su PR o a mano—, con el hijo en
+   *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
+   *  antes de que sigan los demás hijos. */
+  notifyParent: z.boolean().optional(),
   /**
    * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
    * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
@@ -76,6 +87,7 @@ interface TaskRef {
 }
 
 const UNBLOCKED = 'issue.unblocked'
+const CHILD_CLOSED = 'issue.child_closed'
 
 /** Por qué `payload` no cumple `when` (las filas que dan false, con lo que vino), o `undefined`. */
 function unmet(when: Condition[], payload: unknown): string | undefined {
@@ -162,6 +174,7 @@ class ProjectResolver {
     const type = ctx.event.type.replace(/^github\./, '')
     const when = (input.when ?? []).map((row) => new Condition(row))
     if (input.unblockDependents) return this.unblocked(raw, ctx, when)
+    if (input.notifyParent) return this.childClosed(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
     if ('skip' in location) return { skipped: location.skip }
@@ -334,5 +347,38 @@ class ProjectResolver {
     return emitted.length > 0
       ? { emitted }
       : { skipped: `PR #${merged.pr} no deja ninguna task sin prerrequisitos` }
+  }
+
+  /** `issue.child_closed` sobre el padre del issue recién cerrado, si el padre es de este proyecto
+   *  (su catálogo, su board y el `when` del intake). El hijo puede ser de otro repo. */
+  private async childClosed(
+    raw: Record<string, unknown>,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> {
+    const closed = closedIssue(raw)
+    if ('skip' in closed) return { skipped: closed.skip }
+    const child = `${closed.owner}/${closed.repo}#${closed.number}`
+    const parent = await this.reader.parentOf(closed.owner, closed.repo, closed.number)
+    if (!parent) return { skipped: `${child} no es sub-issue de nada` }
+    if (!this.inCatalog(parent.owner, parent.repo)) {
+      return { skipped: `el padre de ${child} no es del catálogo de ${this.project.id}` }
+    }
+    const published = await this.publish(
+      ctx,
+      parent,
+      {
+        emit: CHILD_CLOSED,
+        extra: {
+          child,
+          childUrl: `https://github.com/${closed.owner}/${closed.repo}/issues/${closed.number}`,
+          stateReason: closed.stateReason,
+        },
+      },
+      { when },
+    )
+    return 'skip' in published
+      ? { skipped: published.skip }
+      : { emitted: [String(published.scope?.issue)] }
   }
 }

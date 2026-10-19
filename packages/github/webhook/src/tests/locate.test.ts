@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { locate } from '../locate.js'
+import { closedIssue, locate } from '../locate.js'
 
 const issuesPayload = (action: string, extra: Record<string, unknown> = {}) => ({
   action,
@@ -78,5 +78,35 @@ describe('locate — pull_request', () => {
   it('an action without a label has no label', () => {
     const located = locate('pull_request', prPayload('opened'))
     expect('extra' in located && located.extra).not.toHaveProperty('label')
+  })
+})
+
+describe('closedIssue', () => {
+  it('a closed issue is the issue, with why it was closed', () => {
+    const raw = issuesPayload('closed')
+    ;(raw.issue as Record<string, unknown>).state_reason = 'not_planned'
+    expect(closedIssue(raw)).toEqual({
+      owner: 'julianjab',
+      repo: 'ia-flow',
+      number: 12,
+      stateReason: 'not_planned',
+    })
+  })
+
+  it('without state_reason it was completed, as GitHub assumes', () => {
+    expect(closedIssue(issuesPayload('closed'))).toMatchObject({
+      number: 12,
+      stateReason: 'completed',
+    })
+  })
+
+  it('any other action is skipped', () => {
+    expect(closedIssue(issuesPayload('reopened'))).toEqual({ skip: 'issues.reopened' })
+  })
+
+  it('a closed PR is not an issue that finished', () => {
+    const raw = issuesPayload('closed')
+    ;(raw.issue as Record<string, unknown>).pull_request = { url: 'x' }
+    expect(closedIssue(raw)).toEqual({ skip: 'issues.closed de un PR' })
   })
 })

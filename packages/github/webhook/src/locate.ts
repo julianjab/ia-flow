@@ -202,3 +202,23 @@ export function mergedPullRequest(
   if (!pr.merged) return { skip: `PR #${pr.number} cerrado sin mergear` }
   return { owner: pr.owner, repo: pr.repo, pr: pr.number }
 }
+
+/**
+ * El issue que un webhook `issues.closed` acaba de cerrar, y por qué (`completed`, `not_planned`,
+ * `duplicate`): que lo cerró el merge de un PR o una persona a mano da igual, el cierre es la señal
+ * de que el trabajo terminó. Sin `state_reason`, `completed` (lo que GitHub asume).
+ */
+export function closedIssue(
+  raw: Raw,
+): { skip: string } | { owner: string; repo: string; number: number; stateReason: string } {
+  if (raw.action !== 'closed') return { skip: `issues.${String(raw.action)}` }
+  const parsed = parseGithubIssuePayload(raw)
+  if (parsed.isPullRequest) return { skip: 'issues.closed de un PR' }
+  const reason = (raw.issue as { state_reason?: unknown } | undefined)?.state_reason
+  return {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    number: parsed.number,
+    stateReason: typeof reason === 'string' && reason ? reason : 'completed',
+  }
+}

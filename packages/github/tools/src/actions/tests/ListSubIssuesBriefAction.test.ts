@@ -16,6 +16,7 @@ function subIssue(number: number) {
     title: `hijo ${number}`,
     state: 'open',
     html_url: `https://github.com/la-haus/x/issues/${number}`,
+    node_id: `I_${number}`,
     body: 'un body enorme que NO tiene que llegar al modelo',
   }
 }
@@ -35,7 +36,7 @@ function clientWith(pages: unknown[]) {
 }
 
 describe('ListSubIssuesBriefAction', () => {
-  it('lists number, title, state and url — without bodies', async () => {
+  it('lists number, title, state, url and node id — without bodies', async () => {
     const { client, urls } = clientWith([[subIssue(7), subIssue(8)]])
 
     const result = JSON.parse(
@@ -48,8 +49,20 @@ describe('ListSubIssuesBriefAction', () => {
     expect(result).toEqual({
       count: 2,
       subIssues: [
-        { number: 7, title: 'hijo 7', state: 'open', url: 'https://github.com/la-haus/x/issues/7' },
-        { number: 8, title: 'hijo 8', state: 'open', url: 'https://github.com/la-haus/x/issues/8' },
+        {
+          number: 7,
+          title: 'hijo 7',
+          state: 'open',
+          url: 'https://github.com/la-haus/x/issues/7',
+          issueId: 'I_7',
+        },
+        {
+          number: 8,
+          title: 'hijo 8',
+          state: 'open',
+          url: 'https://github.com/la-haus/x/issues/8',
+          issueId: 'I_8',
+        },
       ],
     })
     expect(urls).toEqual([

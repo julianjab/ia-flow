@@ -55,6 +55,13 @@ const CLOSING_ISSUES = `query($owner: String!, $repo: String!, $number: Int!) {
   }
 }`
 
+// La épica de un issue: su padre en la jerarquía de sub-issues de GitHub.
+const PARENT = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issue(number: $number) { parent { number repository { name owner { login } } } }
+  }
+}`
+
 const CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
@@ -167,6 +174,29 @@ export class GithubTaskReader {
       repo: node.repository.name,
       number: node.number,
     }))
+  }
+
+  /** El issue padre de `owner/repo#number` (del que es sub-issue), si tiene uno. Puede ser de otro
+   *  repo. */
+  async parentOf(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<{ owner: string; repo: string; number: number } | undefined> {
+    const data = await this.client.graphql<{
+      repository?: {
+        issue?: {
+          parent?: { number: number; repository: { name: string; owner: { login: string } } } | null
+        } | null
+      } | null
+    }>(PARENT, { owner, repo, number })
+    const parent = data.repository?.issue?.parent
+    if (!parent) return undefined
+    return {
+      owner: parent.repository.owner.login,
+      repo: parent.repository.name,
+      number: parent.number,
+    }
   }
 
   /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno. */

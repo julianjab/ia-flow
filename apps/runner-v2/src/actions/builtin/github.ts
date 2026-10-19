@@ -21,6 +21,7 @@ import {
   PostUserCommentAction,
   PrChecksAction,
   ReactToCommentAction,
+  RemoveBlockedByAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
   ReviewPullRequestAction,
@@ -113,6 +114,10 @@ export default [
   defineAction({
     id: 'mark_blocked_by',
     create: (ctx) => new MarkBlockedByAction(projectContext(ctx, 'mark_blocked_by')),
+  }),
+  defineAction({
+    id: 'remove_blocked_by',
+    create: (ctx) => new RemoveBlockedByAction(projectContext(ctx, 'remove_blocked_by')),
   }),
   // Lo que el engine hace por el implementer, no el modelo: vincular la rama de la task al issue
   // al arrancar (`onStart`) y garantizar el PR con `Closes #n` al terminar (`done`).
