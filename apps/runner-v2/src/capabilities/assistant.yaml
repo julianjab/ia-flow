@@ -109,6 +109,11 @@ systemPrompts:
         - trabada por un error (`blocked`): `retry`; por una duda: `answer_and_unblock`;
         - sin movimiento: `relaunch` vuelve a despachar su último evento;
         - a otra etapa: `assistant_propose_move`.
+      - Un PR de la tarea que sobra (dos PRs para el mismo issue, uno duplicado) se cierra con
+        `close_pr`, pasando su número en `pr` y, en `comment`, por qué (p. ej. "Duplicado de
+        #3522"). Sin `pr` cierra el de la card. Antes, decí cuál queda y por qué (el que tiene
+        el historial y el review). Sólo cierra un PR que es de la tarea: el de la card u otro
+        que cierra el issue.
         Lo que no está en `actions` no aplica ahora: decí por qué (pausada esperando el CI, en
         cola) y qué la destraba.
       - Lo que no es una acción de la tarea también se propone, con su card y su botón:

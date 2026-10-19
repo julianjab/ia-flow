@@ -169,12 +169,16 @@ async function postSigned<T>(
  * features y no se importan entre sí, así que cada una trae su llamada.
  */
 export async function executeProposal(
-  proposal: Pick<AssistantTaskProposal, 'ref' | 'action' | 'comment'>,
+  proposal: Pick<AssistantTaskProposal, 'ref' | 'action' | 'comment' | 'pr'>,
   githubToken: string,
 ): Promise<TaskActionResult> {
   return postSigned(
     `${taskPath(proposal.ref)}/actions`,
-    { action: proposal.action, ...(proposal.comment ? { comment: proposal.comment } : {}) },
+    {
+      action: proposal.action,
+      ...(proposal.comment ? { comment: proposal.comment } : {}),
+      ...(proposal.pr ? { pr: proposal.pr } : {}),
+    },
     githubToken,
     TaskActionResultSchema,
   )

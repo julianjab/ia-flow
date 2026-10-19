@@ -1,13 +1,18 @@
 /**
  * Lo que una persona hace sobre una tarea desde la bandeja (o confirmando lo que propuso el
- * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, comentar, relanzar,
- * reintentar, re-ejecutar el review o la etapa, o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
+ * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, comentar, cerrar un PR,
+ * relanzar, reintentar, re-ejecutar el review o la etapa, o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
  * queda a su nombre en el board — y sólo si la bandeja dice que la acción aplica a la tarea.
  */
 import type { Action, PipelineExecutionContext } from '@ia-flow/agent-engine'
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
-import { type BoardWriter, UpdateIssueAction, type UpdateIssueInput } from '@ia-flow/github-tools'
+import {
+  type BoardWriter,
+  closesIssue,
+  UpdateIssueAction,
+  type UpdateIssueInput,
+} from '@ia-flow/github-tools'
 import type { BuiltinTaskAction, TaskActionRequest, TaskActionResult } from '@ia-flow/shared'
 import { createLogger } from '@ia-flow/telemetry'
 import type { Boards } from '../board/Boards.js'
@@ -72,6 +77,41 @@ async function assertMergeable(
   if (reason) {
     throw new TaskActionError(`PR #${pr} no se puede mergear: ${reason} (${state})`, 409)
   }
+}
+
+/**
+ * Cierra `pr` sin mergear, si es de la tarea: el de la card, u otro abierto del mismo repo que
+ * cierra el issue (`Closes #n`) — el caso de un duplicado. Con `comment`, lo deja antes en el PR.
+ */
+async function closePullRequest(
+  client: GithubClient,
+  target: IssueTarget,
+  pr: number,
+  cardPr: number | undefined,
+  comment: string,
+): Promise<string> {
+  const repo = `/repos/${target.owner}/${target.repo}`
+  const data = await client.requestJson<{ state?: string; body?: string | null }>(
+    `${repo}/pulls/${pr}`,
+  )
+  if (data.state !== 'open') throw new TaskActionError(`PR #${pr} no está abierto`, 409)
+  if (pr !== cardPr && !closesIssue(data.body ?? '', target)) {
+    throw new TaskActionError(
+      `PR #${pr} no es de ${target.owner}/${target.repo}#${target.number}: no es el de la card ni lo cierra`,
+      409,
+    )
+  }
+  if (comment) {
+    await client.requestJson(`${repo}/issues/${pr}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ body: comment }),
+    })
+  }
+  await client.requestJson(`${repo}/pulls/${pr}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ state: 'closed' }),
+  })
+  return `PR #${pr} cerrado`
 }
 
 /** `UpdateIssueAction` fuera de una pipeline: el issue lo fija la bandeja, no un evento. */
@@ -210,6 +250,11 @@ export class TaskActions {
       case 'comment':
         await postComment()
         return `comentado en ${ref}`
+      case 'close_pr': {
+        const number = request.pr ?? pr
+        if (number === undefined) throw new TaskActionError(`${ref} no tiene un PR abierto`, 409)
+        return closePullRequest(client, target, number, pr, request.comment?.trim() ?? '')
+      }
       default:
         throw new TaskActionError(
           `"${String(action)}" no es una acción que este runner conozca`,

@@ -213,8 +213,9 @@ function stale(
 
 /**
  * Lo que se ofrece sobre CUALQUIER tarea del board, caiga o no en la bandeja: comentar (lo lee el
- * pipeline de comentarios, también con un agente trabajando) y, si nada corre ni espera, volver a
- * correr la etapa en la que está. Va después de las del caso: la principal es la del caso.
+ * pipeline de comentarios, también con un agente trabajando), cerrar un PR suyo si tiene (un
+ * duplicado) y, si nada corre ni espera, volver a correr la etapa en la que está. Va después de las
+ * del caso: la principal es la del caso.
  */
 export function anytimeActions(
   card: BoardCard,
@@ -227,7 +228,11 @@ export function anytimeActions(
     idle &&
     !card.labels.includes(labels.blocked) &&
     (card.status === statuses.refine || card.status === statuses.build)
-  return [...(rerunnable ? (['rerun_stage'] as const) : []), 'comment']
+  return [
+    ...(rerunnable ? (['rerun_stage'] as const) : []),
+    'comment',
+    ...(card.pr ? (['close_pr'] as const) : []),
+  ]
 }
 
 export function classify(

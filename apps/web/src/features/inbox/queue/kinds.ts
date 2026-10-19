@@ -100,6 +100,7 @@ const SHORT_LABEL: Record<string, string> = {
   rerun_review: 'Re-review',
   rerun_stage: 'Re-ejecutar etapa',
   comment: 'Comentar',
+  close_pr: 'Cerrar PR',
   answer_and_unblock: 'Responder',
   relaunch: 'Relanzar',
   retry: 'Reintentar',
@@ -107,21 +108,24 @@ const SHORT_LABEL: Record<string, string> = {
   back_to_refine: 'Devolver a Refine',
 }
 
-/** Las que piden el texto a la persona. */
+/** Las que piden el texto a la persona, y las que lo aceptan (cerrar un PR: el porqué, en el PR). */
 const TAKES_COMMENT = new Set(['answer_and_unblock', 'comment'])
+const MAY_TAKE_COMMENT = new Set(['close_pr'])
 
 /** Las que el runner ofrece sobre cualquier tarea: van en el detalle, no en la fila de la cola
  *  (sumarían un botón y un campo de texto a cada decisión) ni como principal. */
-export const DETAIL_ONLY = new Set(['comment'])
+export const DETAIL_ONLY = new Set(['comment', 'close_pr'])
 
 /** Las que firman con GitHub o no se deshacen. Relanzar y Responder no confirman. */
-const CONFIRMS = new Set(['merge', 'approve_prd', 'stop'])
+const CONFIRMS = new Set(['merge', 'approve_prd', 'stop', 'close_pr'])
 
 export function actionOf(id: string, defs: readonly TaskActionDef[] = []): QueueAction {
   const def = defs.find((d) => d.id === id)
   const base = def?.label ?? SHORT_LABEL[id] ?? id
   const confirms = CONFIRMS.has(id) || Boolean(def?.confirm)
-  const comment = def?.comment ?? (TAKES_COMMENT.has(id) ? 'required' : undefined)
+  const comment =
+    def?.comment ??
+    (TAKES_COMMENT.has(id) ? 'required' : MAY_TAKE_COMMENT.has(id) ? 'optional' : undefined)
   return {
     id,
     label: confirms ? `${base}…` : base,
@@ -191,6 +195,14 @@ export function confirmCopy(
             text: `Se aprueba el PRD de ${refs} con ${who(login)}: pasa a Build.`,
             label: 'Aprobar ahora',
           }
+    case 'close_pr': {
+      const one = targets[0]
+      const which = one?.pr ? `el PR #${one.pr.number} de ${refs}` : `el PR de ${refs}`
+      return {
+        text: `Se cierra ${which} sin mergear, con ${who(login)}. La rama queda.`,
+        label: 'Cerrar ahora',
+      }
+    }
     case 'stop':
       return {
         text: `Se detiene la ejecución en curso de ${refs} con ${who(login)}: no se retoma sola.`,

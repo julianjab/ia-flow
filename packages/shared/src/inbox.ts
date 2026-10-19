@@ -57,6 +57,9 @@ export const BuiltinTaskActionSchema = z.enum([
   /** Comenta en el issue a nombre de la persona: lo lee el pipeline de comentarios, como uno
    *  escrito en GitHub. Se ofrece siempre, también con un agente trabajando. */
   'comment',
+  /** Cierra un PR de la tarea sin mergearlo (p. ej. un duplicado), con un comentario opcional en
+   *  el PR. Sin `pr`, el de la card. */
+  'close_pr',
 ])
 export type BuiltinTaskAction = z.infer<typeof BuiltinTaskActionSchema>
 
@@ -446,6 +449,8 @@ export type RunnerInfo = z.infer<typeof RunnerInfoSchema>
 export const TaskActionRequestSchema = z.object({
   action: TaskActionSchema,
   comment: z.string().optional(),
+  /** El PR sobre el que actúa (`close_pr`); sin esto, el de la card. */
+  pr: z.number().int().positive().optional(),
 })
 export type TaskActionRequest = z.infer<typeof TaskActionRequestSchema>
 
@@ -566,6 +571,8 @@ export const AssistantTaskProposalSchema = z.object({
   label: z.string(),
   reason: z.string(),
   comment: z.string().optional(),
+  /** El PR sobre el que actúa (`close_pr`). */
+  pr: z.number().int().positive().optional(),
 })
 export type AssistantTaskProposal = z.infer<typeof AssistantTaskProposalSchema>
 

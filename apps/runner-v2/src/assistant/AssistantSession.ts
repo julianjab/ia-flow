@@ -73,6 +73,7 @@ export const ACTION_LABELS: Record<string, string> = {
   rerun_review: 'Re-ejecutar el review',
   rerun_stage: 'Re-ejecutar la etapa',
   comment: 'Comentar en el issue',
+  close_pr: 'Cerrar el PR',
 }
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
@@ -592,7 +593,13 @@ export class AssistantSession {
   }
 
   /** Muestra una propuesta para que la persona la confirme. No ejecuta nada. */
-  async propose(input: { ref?: unknown; action?: unknown; reason?: unknown; comment?: unknown }) {
+  async propose(input: {
+    ref?: unknown
+    action?: unknown
+    reason?: unknown
+    comment?: unknown
+    pr?: unknown
+  }) {
     if (this.origin) {
       throw new Error('Fuera de una conversación no se proponen acciones sobre una tarea')
     }
@@ -608,6 +615,10 @@ export class AssistantSession {
       )
     }
     const comment = typeof input.comment === 'string' ? input.comment.trim() : ''
+    // El PR de `close_pr`: el que se pidió (un duplicado) o el de la card. Si es de la tarea lo
+    // vuelve a chequear el runner al ejecutarla, con el permiso de la persona.
+    const pr = action === 'close_pr' ? Number(input.pr) || item.pr?.number : undefined
+    if (action === 'close_pr' && !pr) throw new Error(`${item.ref} no tiene un PR que cerrar`)
     const needsComment = def
       ? def.comment === 'required'
       : action === 'answer_and_unblock' || action === 'comment'
@@ -620,9 +631,10 @@ export class AssistantSession {
         id: globalThis.crypto.randomUUID(),
         ref: item.ref,
         action,
-        label,
+        label: pr ? `${label} #${pr}` : label,
         reason: String(input.reason ?? ''),
         ...(comment ? { comment } : {}),
+        ...(pr ? { pr } : {}),
       },
     })
     return 'Propuesta mostrada. NO está ejecutada: la persona decide.'

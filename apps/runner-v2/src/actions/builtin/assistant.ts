@@ -224,7 +224,15 @@ function tools(
         comment: z
           .string()
           .optional()
-          .describe('El comentario, para las acciones que lo piden (answer_and_unblock, comment)'),
+          .describe(
+            'El comentario, para las acciones que lo piden (answer_and_unblock, comment); en close_pr, opcional, va en el PR',
+          ),
+        pr: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('close_pr: el número del PR a cerrar (un duplicado). Sin esto, el de la card'),
       }),
       desk,
       agent,
