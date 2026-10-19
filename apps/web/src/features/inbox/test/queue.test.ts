@@ -299,6 +299,21 @@ describe('acciones y confirmación en línea', () => {
     expect(q.first?.secondary.map((a) => a.id)).toEqual(['back_to_refine'])
   })
 
+  it('cerrar un PR confirma, acepta un comentario y queda para el detalle', () => {
+    expect(actionOf('close_pr')).toEqual({
+      id: 'close_pr',
+      label: 'Cerrar PR…',
+      confirms: true,
+      comment: 'optional',
+    })
+    const q = build([item({ ...prd(1), actions: ['approve_prd', 'close_pr'] })])
+    expect(q.first?.secondary.map((a) => a.id)).toEqual([])
+    expect(confirmCopy(actionOf('close_pr'), [merge(4281)], 'julian')).toEqual({
+      text: 'Se cierra el PR #5281 de seller#4281 sin mergear, con tu usuario de GitHub (@julian). La rama queda.',
+      label: 'Cerrar ahora',
+    })
+  })
+
   it('una tarea que sólo ofrece comentar no tiene acción principal', () => {
     const q = build([item({ ...prd(1), actions: ['comment'] })])
     expect(q.first?.action).toBeUndefined()

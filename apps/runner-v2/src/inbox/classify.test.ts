@@ -91,7 +91,11 @@ describe('classify', () => {
       idle,
       options,
     )
-    expect(withPr).toMatchObject({ group: 'need', kind: 'merge', actions: ['merge', 'comment'] })
+    expect(withPr).toMatchObject({
+      group: 'need',
+      kind: 'merge',
+      actions: ['merge', 'comment', 'close_pr'],
+    })
     const withoutPr = classify(card({ status: 'Review', labels: ['reviewed'] }), idle, options)
     expect(withoutPr?.actions).toEqual(['comment'])
   })
@@ -102,7 +106,7 @@ describe('classify', () => {
       group: 'need',
       kind: 'review',
       why: 'Review sin reviewed · PR #7',
-      actions: ['rerun_review', 'comment'],
+      actions: ['rerun_review', 'comment', 'close_pr'],
     })
     // Ni un blocker ni una corrida cerrada la mueven de ahí.
     expect(
@@ -127,7 +131,12 @@ describe('classify', () => {
       itemId: 'PVTI_1',
       pr: { number: 7, url: 'u' },
     })
-    expect(classify(reviewed, idle, options)?.actions).toEqual(['merge', 'rerun_review', 'comment'])
+    expect(classify(reviewed, idle, options)?.actions).toEqual([
+      'merge',
+      'rerun_review',
+      'comment',
+      'close_pr',
+    ])
   })
 
   it('Refined asks for the PRD approval', () => {
@@ -265,5 +274,10 @@ describe('anytimeActions', () => {
     expect(anytimeActions(card({ labels: ['blocked'] }), idle, settings)).toEqual(['comment'])
     expect(anytimeActions(card({ status: 'Todo' }), idle, settings)).toEqual(['comment'])
     expect(anytimeActions(card({ status: 'Review' }), idle, settings)).toEqual(['comment'])
+  })
+
+  it('a card with a PR can close it', () => {
+    const withPr = card({ status: 'Review', pr: { number: 7, url: 'u' } })
+    expect(anytimeActions(withPr, idle, options.settings)).toEqual(['comment', 'close_pr'])
   })
 })

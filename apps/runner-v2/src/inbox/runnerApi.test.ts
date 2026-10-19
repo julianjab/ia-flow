@@ -90,7 +90,12 @@ function fakeGithub(push = true, mergeableState = 'clean') {
     if (url.endsWith('/user')) return userOf(init)
     if (url.endsWith('/repos/o/r')) return Response.json({ permissions: { push } })
     if (url.endsWith('/issues') && init?.method === 'POST') return openIssue(url)
-    if (url.endsWith('/pulls/9')) return Response.json({ mergeable_state: mergeableState })
+    if (url.endsWith('/pulls/9')) {
+      return Response.json({ mergeable_state: mergeableState, state: 'open', body: '' })
+    }
+    // Un duplicado que cierra el issue #1, y un PR abierto que no es de la tarea.
+    if (url.endsWith('/pulls/12')) return Response.json({ state: 'open', body: 'Closes #1' })
+    if (url.endsWith('/pulls/13')) return Response.json({ state: 'open', body: 'Otra cosa' })
     return Response.json({ merged: true })
   }) as typeof fetch
   return { calls, fetchImpl }
@@ -344,7 +349,7 @@ describe('runner API', () => {
     expect(inbox.items[0]).toMatchObject({
       ref: 'o/r#1',
       kind: 'merge',
-      actions: ['merge', 'comment'],
+      actions: ['merge', 'comment', 'close_pr'],
     })
     const info = await (await call('/api/runner')).json()
     expect(info).toMatchObject({
@@ -405,6 +410,40 @@ describe('runner API', () => {
       method: 'POST',
       url: 'https://api.github.com/repos/o/r/issues/1/comments',
       body: { body: 'Decisión: concatenar.' },
+    })
+  })
+
+  it('close_pr closes the card PR, or a duplicate that closes the issue, never someone else PR', async () => {
+    const { call, github } = await start()
+    const post = (body: unknown) =>
+      call('/api/tasks/o/r/1/actions', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'x-github-token': 'gho_x' },
+      })
+    const closes = () =>
+      github.calls.filter((request) => request.method === 'PATCH').map((request) => request.url)
+
+    const foreign = await post({ action: 'close_pr', pr: 13 })
+    expect(foreign.status).toBe(409)
+    expect(closes()).toEqual([])
+
+    const duplicate = await post({ action: 'close_pr', pr: 12, comment: 'Duplicado de #9' })
+    expect(await duplicate.json()).toMatchObject({ ok: true, message: 'PR #12 cerrado' })
+    expect(github.calls.find((request) => request.url.endsWith('/issues/12/comments'))).toEqual({
+      method: 'POST',
+      url: 'https://api.github.com/repos/o/r/issues/12/comments',
+      body: { body: 'Duplicado de #9' },
+    })
+
+    const own = await post({ action: 'close_pr' })
+    expect(await own.json()).toMatchObject({ ok: true, message: 'PR #9 cerrado' })
+    expect(closes()).toEqual([
+      'https://api.github.com/repos/o/r/pulls/12',
+      'https://api.github.com/repos/o/r/pulls/9',
+    ])
+    expect(github.calls.find((request) => request.method === 'PATCH')?.body).toEqual({
+      state: 'closed',
     })
   })
 

@@ -551,3 +551,43 @@ describe('AssistantSession.listBoard', () => {
     ])
   })
 })
+
+describe('AssistantSession.propose — close_pr', () => {
+  const withPr: InboxItem = {
+    ...merge,
+    pr: { number: 3522, url: 'u' },
+    actions: ['merge', 'comment', 'close_pr'],
+  }
+  const session = (events: AssistantStreamEvent[]) =>
+    new AssistantSession(
+      { kind: 'general' },
+      { inbox: { item: async () => withPr } } as unknown as AssistantBackend,
+      (event) => events.push(event),
+    )
+
+  it('proposes closing the duplicate it names, with its number in the label and the why', async () => {
+    const events: AssistantStreamEvent[] = []
+    await session(events).propose({
+      ref: 'o/r#1',
+      action: 'close_pr',
+      pr: 3534,
+      comment: 'Duplicado de #3522',
+      reason: 'el review está en #3522',
+    })
+    expect(events[0]).toMatchObject({
+      type: 'proposal',
+      proposal: {
+        action: 'close_pr',
+        label: 'Cerrar el PR #3534',
+        pr: 3534,
+        comment: 'Duplicado de #3522',
+      },
+    })
+  })
+
+  it('without pr, it is the PR of the card', async () => {
+    const events: AssistantStreamEvent[] = []
+    await session(events).propose({ ref: 'o/r#1', action: 'close_pr', reason: 'x' })
+    expect(events[0]).toMatchObject({ proposal: { label: 'Cerrar el PR #3522', pr: 3522 } })
+  })
+})
