@@ -28,6 +28,8 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `propose_improvement` | `apps/runner-v2/src/actions/builtin/assistant.ts` |
 | `react_to_comment` | `packages/github/tools/src/actions/ReactToCommentAction.ts` |
 | `redispatch_task` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
+| `remove_blocked_by` | `apps/runner-v2/src/actions/builtin/github.ts` |
+| `remove_blocked_by` | `packages/github/tools/src/actions/RemoveBlockedByAction.ts` |
 | `reply_pr_review_thread` | `packages/github/tools/src/actions/ReviewThreadActions.ts` |
 | `request_slack_review` | `apps/runner-v2/src/actions/builtin/slack.ts` |
 | `rerun_review` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
