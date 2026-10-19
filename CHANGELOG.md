@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.19.0](https://github.com/julianjab/ia-flow/compare/v2.18.0...v2.19.0) (2026-10-19)
+
+
+### Features
+
+* **inbox:** cerrar un PR de la tarea (close_pr) desde la bandeja y el asistente ([3ac2ea9](https://github.com/julianjab/ia-flow/commit/3ac2ea9ce8ca1f42316208d0957b2f99469383b1))
+* **inbox:** comentar y re-ejecutar la etapa desde la bandeja y el asistente ([191bf1b](https://github.com/julianjab/ia-flow/commit/191bf1b0bbc7d14f5bf8bdc97ea15d156db1a257))
+* **provider-anthropic-api:** acotar el contexto que se reenvía en cada vuelta ([de48648](https://github.com/julianjab/ia-flow/commit/de4864892daedcfc7e72cb44ccbd9bfbc18cad7f))
+
+
+### Bug Fixes
+
+* **github-tools:** sólo los PRs del repo del issue dan la rama de la task ([7deba0d](https://github.com/julianjab/ia-flow/commit/7deba0d28032739c7b6f9dccfabb36491349dc63))
+* **github-tools:** una sola rama y un solo PR por task ([177dbef](https://github.com/julianjab/ia-flow/commit/177dbefee5cb767052be624d70c412f6c24ae34e))
+
 ## [2.18.0](https://github.com/julianjab/ia-flow/compare/v2.17.0...v2.18.0) (2026-10-19)
 
 
