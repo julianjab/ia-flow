@@ -11,6 +11,27 @@ import { z } from 'zod'
 import { DefinitionPipelineSource } from '../DefinitionSource.js'
 import { MemorySource, pipelineDoc } from './memory.js'
 
+const ReportInput = z.strictObject({
+  target: z.enum(['issue', 'pr']),
+  summary: z.string().optional(),
+})
+
+/** Un `post_comment` de juguete para el reporte de cierre. */
+class Report extends Action<typeof ReportInput> {
+  readonly description = 'publica el reporte'
+  readonly input = ReportInput
+  readonly received: unknown[] = []
+
+  constructor() {
+    super({ id: 'report' })
+  }
+
+  async execute(input: z.infer<typeof ReportInput>, _ctx: PipelineExecutionContext) {
+    this.received.push(input)
+    return 'ok'
+  }
+}
+
 const UpdateInput = z.strictObject({
   status: z.string().optional(),
   fields: z.record(z.string(), z.string()).optional(),
@@ -37,6 +58,7 @@ class Update extends Action<typeof UpdateInput> {
  *  `submit_*` que vio. */
 function setup(exit: string, submitted: Record<string, unknown> = {}) {
   const update = new Update()
+  const report = new Report()
   const schemas: Record<string, Tool['inputSchema']> = {}
   // Lo que el provider real le devolvería al modelo si el submit no valida.
   const rejected: string[] = []
@@ -62,6 +84,7 @@ function setup(exit: string, submitted: Record<string, unknown> = {}) {
             id: 'refiner',
             provider: 'fake',
             prompt: 'p',
+            report: { action: 'report', with: { target: 'issue' } },
             routes: {
               to_functional: {
                 to: { action: 'update', with: { fields: { 'Task Type': 'Functional' } } },
@@ -73,7 +96,7 @@ function setup(exit: string, submitted: Record<string, unknown> = {}) {
       ],
       pipelines: [pipelineDoc({ id: 'refine', on: ['refine'], do: [{ agent: 'refiner' }] })],
     }),
-    { providers, actions: { update } } as never,
+    { providers, actions: { update, report } } as never,
   )
   const run = async () => {
     const [pipeline] = source.list()
@@ -84,7 +107,7 @@ function setup(exit: string, submitted: Record<string, unknown> = {}) {
       pipelineId: 'refine',
     })
   }
-  return { update, schemas, rejected, run }
+  return { update, report, schemas, rejected, run }
 }
 
 const keysOf = (schema: Tool['inputSchema'] | undefined) =>
@@ -120,5 +143,17 @@ describe('ActionStepFactory — destinos de una salida', () => {
 
     expect(keysOf(schemas.submit_free)).toContain('update')
     expect(update.received).toEqual([{ labels: ['x'] }])
+  })
+
+  it('el reporte de cierre con `with` sigue recibiendo lo que escribe el modelo', async () => {
+    const { report, update, schemas, run } = setup('to_functional', {
+      report: { summary: 'desglose listo' },
+    })
+
+    await run()
+
+    expect(keysOf(schemas.submit_to_functional)).toEqual(['report'])
+    expect(report.received).toEqual([{ target: 'issue', summary: 'desglose listo' }])
+    expect(update.received).toEqual([{ fields: { 'Task Type': 'Functional' } }])
   })
 })

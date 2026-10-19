@@ -284,9 +284,11 @@ describe('Agent', () => {
       const registry = callingProvider('submit_back_to_build', {
         update_issue: { comment: 'el test de X falla' },
       })
+      // Un destino sin `bind` es del modelo: completa su input.
+      const open = { back_to_build: { when: 'Falla la implementación', to: updateIssue } }
 
       const result = await new Agent(
-        { id: 'refiner', provider: 'fake', prompt: 'p', routes },
+        { id: 'refiner', provider: 'fake', prompt: 'p', routes: open },
         registry,
       ).run(ctxFor())
 
@@ -294,15 +296,18 @@ describe('Agent', () => {
       expect(result.payload).toEqual({ update_issue: { comment: 'el test de X falla' } })
     })
 
-    it('the submit schema asks for each destination input, minus the fields fixed by bind', async () => {
+    it('a destination with bind takes nothing from the model: a submit that brings it is rejected', async () => {
       const errors: string[] = []
-      const registry = callingProvider('submit_done', { update_issue: { status: 'Done' } }, errors)
+      const registry = callingProvider('submit_done', { update_issue: { comment: 'x' } }, errors)
       const agent = new Agent({ id: 'refiner', provider: 'fake', prompt: 'p', routes }, registry)
 
-      // El modelo recibe el rechazo (el status lo fijó el operador con bind). Si igual termina sin
-      // un submit válido y hay más de una salida, la corrida no adivina: falla.
+      // El destino lo fijó el operador con bind: ni lo que fijó ni lo que dejó libre lo elige el
+      // modelo. Recibe el rechazo; si igual termina sin un submit válido y hay más de una salida,
+      // la corrida no adivina: falla.
       await expect(agent.run(ctxFor())).rejects.toThrow(/terminó sin elegir salida/)
-      expect(errors[0]).toMatch(/submit_done: input inválido[\s\S]*Unrecognized key: "status"/)
+      expect(errors[0]).toMatch(
+        /submit_done: input inválido[\s\S]*Unrecognized key: "update_issue"/,
+      )
     })
 
     it('rejects a second submit in the same turn', async () => {

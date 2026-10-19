@@ -286,14 +286,14 @@ describe('submitSchemaFor', () => {
     return exit
   }
 
-  it('asks for the report and for each destination input, keyed by id', () => {
+  it('asks for the report and for each open destination input, keyed by id; a bound one asks nothing', () => {
     const exit = exitOf(
       { routes: { ready: { to: [toBuild, new Notify()] } }, report: commentOnIssue },
       'ready',
     )
     const schema = submitSchemaFor('a', exit)
 
-    expect(Object.keys(schema.shape)).toEqual(['report', 'update_issue', 'notify'])
+    expect(Object.keys(schema.shape)).toEqual(['report', 'notify'])
     expect(
       schema.safeParse({
         report: { summary: 's', validations: [] },
