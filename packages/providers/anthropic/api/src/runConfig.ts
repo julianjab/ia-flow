@@ -69,7 +69,7 @@ export interface AnthropicRunConfig {
    *  Claude Code). Un archivo entero de 300 KB son ~100k tokens que se reenvían cada vuelta. */
   maxToolResultChars?: number
   /** Borrado server-side de resultados viejos de tools cuando la conversación crece (context
-   *  editing). `true` con los defaults, un objeto para ajustarlos, `false` lo apaga. */
+   *  editing). `true` con los defaults, un objeto para ajustarlos, `false` (default) lo apaga. */
   clearToolUses?: boolean | AnthropicClearToolUsesConfig
 }
 
@@ -94,7 +94,10 @@ export const RUN_CONFIG_DEFAULTS = {
   mcpTransport: 'connector',
   bumpMaxTokensOnTruncation: true,
   maxToolResultChars: 100_000,
-  clearToolUses: true,
+  // Apagado: con la beta de context editing, claude-opus-5 devolvió respuestas vacías (`content:
+  // []`, 2 tokens de salida) en 3 de 31 requests, contra 0 en ~4500 sin ella — aunque nunca llegó
+  // a borrar nada. Se activa por agente o provider cuando haga falta.
+  clearToolUses: false,
 } as const satisfies AnthropicRunConfig
 
 const EFFORTS: readonly AnthropicEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']

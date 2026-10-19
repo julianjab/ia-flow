@@ -5,9 +5,10 @@
  *   - Un resultado de tool enorme no entra entero (`clipToolResult`): el `Read` de Claude Code
  *     rechaza más de 25k tokens y le dice al modelo que pida un rango. Sin tope, un `CLAUDE.md` de
  *     300 KB son ~100k tokens que se reenvían en cada vuelta (subscriptions#1905).
- *   - Los resultados viejos se borran server-side (`clear_tool_uses` de context editing): la API
- *     los reemplaza por un aviso cuando la conversación pasa un umbral. Nosotros seguimos
- *     guardando el historial entero, así que checkpoints y reanudaciones no cambian.
+ *   - Los resultados viejos se pueden borrar server-side (`clear_tool_uses` de context editing,
+ *     opt-in: ver `clearToolUses` en `runConfig.ts`): la API los reemplaza por un aviso cuando la
+ *     conversación pasa un umbral. Nosotros seguimos guardando el historial entero, así que
+ *     checkpoints y reanudaciones no cambian.
  */
 import type { AnthropicClearToolUsesConfig } from './runConfig.js'
 
@@ -24,14 +25,21 @@ const CLEAR_TOOL_USES_DEFAULTS = {
   clearAtLeastTokens: 20_000,
 } as const satisfies AnthropicClearToolUsesConfig
 
-/** El `context_management` del body, o `undefined` si está apagado. */
+/**
+ * El `context_management` del body, o `undefined` si está apagado. Con `thinking` en el request va
+ * además `clear_thinking` con `keep: 'all'`, primero (la API lo exige así), como lo manda Claude
+ * Code: el default depende del modelo (los anteriores a Opus 4.5 conservan sólo el último turno),
+ * y borrar thinking invalida la caché. Sin `thinking` no va: la API lo rechaza con 400.
+ */
 export function buildContextManagement(
   clearToolUses: boolean | AnthropicClearToolUsesConfig,
+  thinking = false,
 ): Record<string, unknown> | undefined {
   if (clearToolUses === false) return undefined
   const config = { ...CLEAR_TOOL_USES_DEFAULTS, ...(clearToolUses === true ? {} : clearToolUses) }
   return {
     edits: [
+      ...(thinking ? [{ type: 'clear_thinking_20251015', keep: 'all' }] : []),
       {
         type: 'clear_tool_uses_20250919',
         trigger: { type: 'input_tokens', value: config.triggerTokens },

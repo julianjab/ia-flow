@@ -80,6 +80,9 @@ export interface ToolResultBlock {
 
 const MAX_TOKEN_BUMP_CEILING = 128_000
 
+/** Cuántas respuestas vacías seguidas se reintentan antes de dar la corrida por fallida. */
+const MAX_EMPTY_RESPONSES = 2
+
 /**
  * El token de un MCP server: un string fijo, o una función que lo devuelve en cada request. La
  * función es para tokens que vencen (el installation token de una GitHub App dura una hora):
@@ -264,8 +267,7 @@ export class AnthropicProvider implements Provider {
     const taskBudgetTokens = cfg.taskBudgetTokens
     if (taskBudgetTokens != null) extraBetas.push('task-budgets-2026-03-13')
     if (apiMcpServers) extraBetas.push('mcp-client-2025-11-20')
-    const contextManagement = buildContextManagement(cfg.clearToolUses)
-    if (contextManagement) extraBetas.push(CONTEXT_MANAGEMENT_BETA)
+    if (cfg.clearToolUses !== false) extraBetas.push(CONTEXT_MANAGEMENT_BETA)
 
     const systemBlocks = buildSystemBlocks([...(cfg.systemPrompts ?? []), ...ctx.systemPrompts])
 
@@ -285,6 +287,7 @@ export class AnthropicProvider implements Provider {
 
     let toolRounds = 0
     let pauses = 0
+    let emptyResponses = 0
     for (let round = 0; ; round++) {
       // Cortada desde afuera (quien la delegó la dio por terminada): no arranca otra vuelta.
       if (ctx.signal?.aborted) {
@@ -323,6 +326,7 @@ export class AnthropicProvider implements Provider {
         if (thinking) body.thinking = thinking
         if (apiMcpServers) body.mcp_servers = await withTokens(apiMcpServers)
         if (outputConfig) body.output_config = outputConfig
+        const contextManagement = buildContextManagement(cfg.clearToolUses, thinking !== undefined)
         if (contextManagement) body.context_management = contextManagement
         return this.send(body, round, { stream: useStream, extraBetas, maxRetries, onDelta })
       }
@@ -333,6 +337,28 @@ export class AnthropicProvider implements Provider {
         const bumped = Math.min(maxTokens * 2, MAX_TOKEN_BUMP_CEILING)
         if (bumped > maxTokens) data = await sendOnce(bumped)
       }
+
+      // Un turno sin ningún bloque (visto: `stop_reason` tool_use o end_turn, 2 tokens de salida y
+      // `content: []`) no se suma a la conversación: un mensaje vacío es un 400 en la vuelta
+      // siguiente ("user messages must have non-empty content"), y un end_turn vacío se leía como
+      // un cierre sin salida. Se repite el mismo request.
+      if (data.content.length === 0 && data.stop_reason !== 'max_tokens') {
+        if (emptyResponses >= MAX_EMPTY_RESPONSES) {
+          throw new Error(
+            `AnthropicProvider(${opts.id}): la API devolvió ${emptyResponses + 1} respuestas vacías seguidas (stop_reason ${data.stop_reason})`,
+          )
+        }
+        emptyResponses++
+        this.log.warn(
+          `respuesta vacía (stop_reason ${data.stop_reason}): se repite el request (${emptyResponses}/${MAX_EMPTY_RESPONSES})`,
+          {
+            'ia.round': round,
+            ...(data._request_id ? { 'anthropic.request_id': data._request_id } : {}),
+          },
+        )
+        continue
+      }
+      emptyResponses = 0
 
       if (data.stop_reason === 'max_tokens') {
         // Se quedó sin tokens a mitad de la respuesta — NO es un resultado del agente, así que
