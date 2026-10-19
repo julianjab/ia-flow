@@ -311,7 +311,7 @@ struct TaskRow: View {
                 Text("«\(said)»").font(.lh(11.5)).italic().foregroundStyle(.primary.opacity(0.7)).lineLimit(3)
             }
             HStack(spacing: 6) {
-                if let first = actions.first {
+                if let first = mainAction(actions) {
                     Button { runner.trigger(first, on: item) } label: {
                         if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) }
                         else { Text(first.confirms ? "\(first.label)…" : first.label) }
@@ -339,12 +339,13 @@ struct TaskRow: View {
                 }
                 Spacer(minLength: 0)
                 Menu {
-                    ForEach(actions.dropFirst()) { action in
+                    let rest = actions.filter { $0.id != mainAction(actions)?.id }
+                    ForEach(rest) { action in
                         Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
                             runner.trigger(action, on: item)
                         }
                     }
-                    if actions.count > 1 { Divider() }
+                    if !rest.isEmpty { Divider() }
                     Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
                     Button(item.execution?.status == "running" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
                     Button(item.pr == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") { runner.openWorktree(item) }
@@ -477,17 +478,33 @@ struct CompactRow: View {
     let item: InboxItem
 
     var body: some View {
-        Button { runner.open(item) } label: {
-            HStack(spacing: 6) {
-                Text(item.displayTitle).font(.lh(12)).lineLimit(1)
-                Spacer()
-                refTag(item.ref)
-                Text(item.kind == "dep" ? "bloqueada" : "turno").font(.lh(11)).foregroundStyle(.tertiary)
+        HStack(spacing: 6) {
+            Button { runner.open(item) } label: {
+                HStack(spacing: 6) {
+                    Text(item.displayTitle).font(.lh(12)).lineLimit(1)
+                    Spacer()
+                    refTag(item.ref)
+                    Text(item.kind == "dep" ? "bloqueada" : "turno").font(.lh(11)).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(item.why)
+            // Lo que espera también se puede preguntar o comentar: que esté en cola no la deja sin manos.
+            Menu {
+                let actions = actionsOf(item)
+                ForEach(actions) { action in
+                    Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: item) }
+                }
+                if !actions.isEmpty { Divider() }
+                Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
+                Button("Abrir issue en GitHub") { runner.open(item) }
+                if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 20, height: 16).contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
-        .help(item.why)
     }
 }
 
@@ -515,7 +532,7 @@ struct EpicRow: View {
                     }
                     .buttonStyle(.plain)
                     Spacer(minLength: 4)
-                    if next.isDecision, let action = actionsOf(next).first {
+                    if next.isDecision, let action = mainAction(actionsOf(next)) {
                         Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: next) }
                             .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(runner.busy.contains(next.ref))
                     }

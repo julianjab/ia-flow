@@ -67,9 +67,16 @@ struct ActionView: Identifiable {
 private let shortLabel = [
     "merge": "Mergear", "approve_prd": "Aprobar", "rerun_review": "Re-review", "answer_and_unblock": "Responder",
     "relaunch": "Relanzar", "retry": "Reintentar", "stop": "Detener", "back_to_refine": "Devolver a Refine",
+    "rerun_stage": "Re-ejecutar etapa", "comment": "Comentar", "close_pr": "Cerrar PR",
 ]
 /// Las que firman con GitHub o no se deshacen.
-private let confirming: Set<String> = ["merge", "approve_prd", "stop"]
+private let confirming: Set<String> = ["merge", "approve_prd", "stop", "close_pr"]
+/// Las que piden el texto (Responder, Comentar) y las que lo aceptan (el porqué de cerrar un PR).
+private let commentRequired: Set<String> = ["answer_and_unblock", "comment"]
+private let commentOptional: Set<String> = ["close_pr"]
+/// Las que el runner ofrece sobre cualquier tarea: van en el menú, nunca como botón principal (como
+/// en la web, `DETAIL_ONLY`): si no, «Comentar» sería la acción de cada card que no pide otra cosa.
+private let menuOnly: Set<String> = ["comment", "close_pr"]
 /// La principal de cada caso, si el runner la ofrece.
 private let primaryByKind = [
     "merge": "merge", "prd": "approve_prd", "doubt": "answer_and_unblock", "prerequisite": "answer_and_unblock",
@@ -83,9 +90,14 @@ func actionsOf(_ item: InboxItem) -> [ActionView] {
         let def = item.action_defs?.first { $0.id == id }
         return ActionView(id: id, label: def?.label ?? shortLabel[id] ?? id,
                           confirms: confirming.contains(id) || def?.confirm != nil,
-                          comment: def?.comment ?? (id == "answer_and_unblock" ? "required" : nil),
+                          comment: def?.comment ?? (commentRequired.contains(id) ? "required" : commentOptional.contains(id) ? "optional" : nil),
                           confirmText: def?.confirm)
     }
+}
+
+/// El botón principal de una card: la primera acción que no es sólo de menú.
+func mainAction(_ actions: [ActionView]) -> ActionView? {
+    actions.first { !menuOnly.contains($0.id) }
 }
 
 /// Una acción que pide un texto antes de salir (Responder).
