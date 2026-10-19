@@ -148,8 +148,10 @@ final class RunnerModel: ObservableObject {
         Set(UserDefaults.standard.stringArray(forKey: "runnerCollapsed") ?? ["En cola"])
 
     @Published fileprivate(set) var logLines: [RunnerLogLine] = []
-    @Published var logLevel: String = "info" { didSet { resetLogs() } }
+    @Published var logLevel: String = "info" { didSet { resetLogs(); pollLogs() } }
     @Published private(set) var logError: String?
+    /// Llegó la primera respuesta desde el último reset: antes, la vista muestra que está cargando.
+    @Published fileprivate(set) var logsLoaded = false
     private var lastSeq = 0
 
     private var sessions = loadGithubSessions()
@@ -758,6 +760,7 @@ final class RunnerModel: ObservableObject {
         logLines = []
         lastSeq = 0
         logError = nil
+        logsLoaded = false
     }
 
     /// Trae sólo lo nuevo (`after`) y guarda las últimas 500.
@@ -771,6 +774,7 @@ final class RunnerModel: ObservableObject {
                 lastSeq = page.last_seq
                 logLines = Array((logLines + page.lines).suffix(500))
                 logError = nil
+                logsLoaded = true
             } catch let e as RunnerError {
                 logError = e.status == 404 || e.status == 501 ? "Este runner todavía no expone /api/logs (actualízalo)." : e.message
             } catch {
@@ -851,6 +855,7 @@ extension RunnerModel {
                         title: "Refiner: pedir el contrato del evento antes de cerrar el PRD",
                         body: "…", reason: "El PRD no decía qué id lleva el evento y el build se bloqueó por eso.", status: "open"),
         ]
+        model.logsLoaded = true
         model.logLines = [
             RunnerLogLine(seq: 1, time: "2026-10-15T12:00:01.000Z", level: "info", scope: "ia-flow-runner-v2", message: "webhook projects_v2_item → la-haus/subscriptions#4295", fields: nil, trace_id: nil),
             RunnerLogLine(seq: 2, time: "2026-10-15T12:00:02.000Z", level: "info", scope: "engine", message: "dispatch build", fields: "agent=aiflow-implementer task=#4295", trace_id: nil),

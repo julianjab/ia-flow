@@ -630,8 +630,14 @@ struct RunnerLogsScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 3) {
-                        if runner.logLines.isEmpty, runner.logError == nil {
-                            Text("Sin líneas todavía.").font(.lh(12)).foregroundStyle(.tertiary)
+                        if !runner.logsLoaded, runner.logError == nil {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text("Cargando logs…").font(.lh(12)).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.vertical, 24)
+                        } else if runner.logLines.isEmpty, runner.logError == nil {
+                            Text("Sin líneas todavía.").font(.lh(12)).foregroundStyle(.secondary)
                         }
                         ForEach(runner.logLines) { line in LogLineView(line: line).id(line.seq) }
                     }
@@ -647,7 +653,8 @@ struct RunnerLogsScreen: View {
             }
             Divider().opacity(0.5)
             HStack {
-                Text("\(runner.logLines.count) líneas · se actualiza solo").font(.lh(12)).foregroundStyle(.secondary)
+                Text(runner.logsLoaded ? "\(runner.logLines.count) líneas · se actualiza solo" : "Cargando…")
+                    .font(.lh(12)).foregroundStyle(.secondary)
                 Spacer()
                 IconButton(symbol: "doc.on.doc", help: "Copiar") { runner.copyLogs() }
                 IconButton(symbol: "trash", help: "Limpiar la vista") { runner.resetLogs(); runner.pollLogs() }
