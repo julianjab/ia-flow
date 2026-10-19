@@ -110,6 +110,12 @@ describe('buildContextManagement', () => {
   it('con false no manda nada', () => {
     expect(buildContextManagement(false)).toBeUndefined()
   })
+
+  it('con thinking en el request, clear_thinking conserva todo y va primero', () => {
+    const edits = buildContextManagement(true, true)?.edits as Array<{ type: string }>
+    expect(edits[0]).toEqual({ type: 'clear_thinking_20251015', keep: 'all' })
+    expect(edits[1]?.type).toBe('clear_tool_uses_20250919')
+  })
 })
 
 describe('clipToolResult', () => {
@@ -125,8 +131,17 @@ describe('clipToolResult', () => {
 })
 
 describe('AnthropicProvider — contexto', () => {
-  it('por default manda context_management con su beta', async () => {
+  it('por default no manda context_management ni la beta', async () => {
     const { provider, requests } = readThenFinish()
+
+    await provider.run(ctxFor({ tools: [readTool('ok')] }))
+
+    expect(requests[0]?.body.context_management).toBeUndefined()
+    expect(requests[0]?.headers['anthropic-beta'] ?? '').not.toContain('context-management')
+  })
+
+  it('con clearToolUses: true manda context_management con su beta', async () => {
+    const { provider, requests } = readThenFinish({ clearToolUses: true })
 
     await provider.run(ctxFor({ tools: [readTool('ok')] }))
 
@@ -136,13 +151,15 @@ describe('AnthropicProvider — contexto', () => {
     }
   })
 
-  it('con clearToolUses: false no manda context_management ni la beta', async () => {
-    const { provider, requests } = readThenFinish({ clearToolUses: false })
+  it('con thinking, clear_thinking va en el mismo context_management', async () => {
+    const { provider, requests } = readThenFinish({
+      clearToolUses: true,
+      thinking: { type: 'adaptive' },
+    })
 
     await provider.run(ctxFor({ tools: [readTool('ok')] }))
 
-    expect(requests[0]?.body.context_management).toBeUndefined()
-    expect(requests[0]?.headers['anthropic-beta'] ?? '').not.toContain('context-management')
+    expect(requests[0]?.body.context_management).toEqual(buildContextManagement(true, true))
   })
 
   it('el clearToolUses del agente pisa al del provider', async () => {
@@ -205,5 +222,43 @@ describe('parseAnthropicAgentConfig — contexto', () => {
     { maxToolResultChars: 0 },
   ])('rechaza %j', (raw) => {
     expect(() => parseAnthropicAgentConfig(raw)).toThrow(/valor inválido/)
+  })
+})
+
+describe('AnthropicProvider — respuestas vacías', () => {
+  const empty = { content: [], stop_reason: 'tool_use' }
+  const done = { content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }
+
+  function replying(...bodies: unknown[]) {
+    const sent: Array<{ messages: unknown[] }> = []
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      sent.push(JSON.parse(init.body as string))
+      return jsonResponse(bodies[Math.min(sent.length - 1, bodies.length - 1)])
+    })
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+    return { provider, sent }
+  }
+
+  it('un turno sin bloques no entra a la conversación: se repite el mismo request', async () => {
+    const { provider, sent } = replying(empty, done)
+
+    const result = await provider.run(ctxFor())
+
+    expect(result).toEqual({ outcome: 'success', summary: 'listo' })
+    expect(sent).toHaveLength(2)
+    expect(sent[1]?.messages).toEqual(sent[0]?.messages)
+  })
+
+  it('después de dos reintentos vacíos seguidos, falla diciendo por qué', async () => {
+    const { provider, sent } = replying(empty)
+
+    await expect(provider.run(ctxFor())).rejects.toThrow(/3 respuestas vacías seguidas/)
+    expect(sent).toHaveLength(3)
   })
 })
