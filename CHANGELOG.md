@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.20.1](https://github.com/julianjab/ia-flow/compare/v2.20.0...v2.20.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **agent-engine-definitions:** una salida con `with` no le deja input al modelo ([5a7cbe9](https://github.com/julianjab/ia-flow/commit/5a7cbe932098b4f7122f351682e60bc75048f293))
+
 ## [2.20.0](https://github.com/julianjab/ia-flow/compare/v2.19.0...v2.20.0) (2026-10-19)
 
 
