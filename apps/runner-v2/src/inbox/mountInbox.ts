@@ -150,10 +150,10 @@ export function mountInbox(
     redispatch: async (ref: string, by: string) => {
       const last = store.activity.lastDispatchedEvent(ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)
-      const event = createEvent(last.type, last.payload, {
-        scope: { ...last.scope, redispatchedBy: by },
-        parentId: last.id,
-      })
+      // El mismo scope: es la clave de la ejecución. Con algo más (quién relanzó) la task tenía dos
+      // claves y un webhook que llegaba mientras tanto arrancaba una segunda corrida en paralelo.
+      const event = createEvent(last.type, last.payload, { scope: last.scope, parentId: last.id })
+      options.log(`relanzar ${ref}: ${last.type} (por ${by})`)
       // Corre en segundo plano: una corrida de un agente dura minutos.
       mounted.engine.dispatch(event).catch((err: unknown) => {
         options.log(`relanzar ${ref}: ${err instanceof Error ? err.message : String(err)}`)
