@@ -25,3 +25,8 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 app.mount('#app')
+
+// La PWA (instalable en el teléfono): sólo el build servido por http(s), no `vite dev` ni el .dmg de escritorio.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {})
+}
