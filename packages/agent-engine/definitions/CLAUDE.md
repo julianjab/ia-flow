@@ -78,6 +78,9 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
 - **Una acción con `with` en plantilla** (`{ action: x, with: { n: '{{issue.number}}' } }`) se
   resuelve en cada corrida y la acción la valida como cualquier input (`ActionStep`); un `with`
   fijo sigue siendo `Action.bind`, validado al cargar.
+- **Un paso de acción con `with` no acepta input del modelo**: como destino de una salida, el
+  `submit_<salida>` no ofrece nada de él (lo que el `with` no fija tampoco lo elige el modelo). Sin
+  `with`, el modelo completa el input de la acción.
 - **Una función de catálogo con `with`** recibe esos valores como input: así es pura y sirve en
   cualquier pipeline. Sin `with`, recibe `(ctx, undefined)`.
 - **`firstMatch: true`** en una pipeline: sus pasos son alternativas (ej. un agente por columna o
