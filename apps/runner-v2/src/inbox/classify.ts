@@ -137,25 +137,21 @@ function awaitingHuman(card: BoardCard, { labels, statuses }: ClassifyOptions['s
   return undefined
 }
 
-/** Lo que espera otro issue, o lo que se trabó: por una duda del agente o por un error. */
+/** Lo que se trabó por una duda del agente o lo que espera otro issue, en ese orden; después, lo
+ *  que se trabó por un error. */
 function stuck(
   card: BoardCard,
   activity: TaskActivity,
   { settings }: ClassifyOptions,
 ): Classification | undefined {
-  if (card.blockedBy.length > 0) {
-    return {
-      group: 'queue',
-      kind: 'dep',
-      why: `Bloqueada por ${card.blockedBy.join(', ')}`,
-      since: card.updatedAt,
-      actions: [],
-    }
-  }
   const { lastClosed } = activity
   const failure = lastClosed?.failure
   const since = lastClosed?.closed_at ?? card.updatedAt
   const blockedLabel = card.labels.includes(settings.labels.blocked)
+  // Una pregunta del agente le gana a esperar otro issue: sin respuesta, la task no avanza aunque su
+  // prerrequisito cierre, y en la cola no se puede contestar (platform-infrastructure#2004).
+  const waitsFor =
+    card.blockedBy.length > 0 ? ` · además espera a ${card.blockedBy.join(', ')}` : ''
   // La salida del agente manda sobre el texto de un fallo: `prerequisite` y `doubt` son rutas
   // propias del agente (no un error), y `fail_turn` —que cierra como fallo del agente— sigue
   // siendo una duda para los agentes que todavía no declaran esas salidas.
@@ -163,7 +159,7 @@ function stuck(
     return {
       group: 'need',
       kind: 'prerequisite',
-      why: `Le falta una pieza: ${excerpt(lastClosed.summary ?? failure?.message ?? '')}`,
+      why: `Le falta una pieza: ${excerpt(lastClosed.summary ?? failure?.message ?? '')}${waitsFor}`,
       since,
       actions: ['answer_and_unblock'],
     }
@@ -172,9 +168,18 @@ function stuck(
     return {
       group: 'need',
       kind: 'doubt',
-      why: `El agente tiene una duda: ${excerpt(failure?.message ?? lastClosed?.summary ?? '')}`,
+      why: `El agente tiene una duda: ${excerpt(failure?.message ?? lastClosed?.summary ?? '')}${waitsFor}`,
       since,
       actions: ['answer_and_unblock'],
+    }
+  }
+  if (card.blockedBy.length > 0) {
+    return {
+      group: 'queue',
+      kind: 'dep',
+      why: `Bloqueada por ${card.blockedBy.join(', ')}`,
+      since: card.updatedAt,
+      actions: [],
     }
   }
   if (!blockedLabel && lastClosed?.status !== 'failed' && failure?.by !== 'runtime')
