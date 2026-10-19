@@ -28,6 +28,8 @@ export function eventMessage(type: string, payload: Payload): string {
     }
     case 'issue.child_closed':
       return `Se cerró el sub-issue ${text(payload.child)} (${text(payload.stateReason) || 'completed'}).`
+    case 'issue.child_status_changed':
+      return `El sub-issue ${text(payload.child)} pasó a ${text(payload.to) || 'otra columna'}.`
     case 'check_suite':
     case 'workflow_run':
       return `El CI${where} terminó en ${text(payload.conclusion) || 'un estado desconocido'}.`

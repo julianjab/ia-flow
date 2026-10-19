@@ -23,6 +23,7 @@ import {
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import { eventMessage } from './message.js'
+import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { taskPayload } from './task.js'
 
@@ -54,6 +55,11 @@ const Input = z.strictObject({
    *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
    *  antes de que sigan los demás hijos. */
   notifyParent: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.child_status_changed` sobre el issue PADRE cuando un
+   *  sub-issue cambia de columna, con el hijo en `child` y la columna en `from`/`to`. Cae sobre la
+   *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
+   *  quedó refinado sin que ningún evento del hijo la interrumpa. */
+  notifyParentOfStatus: z.boolean().optional(),
   /**
    * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
    * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
@@ -73,8 +79,7 @@ const Input = z.strictObject({
   pullRequestsWithoutIssue: ConditionRows.optional(),
 })
 
-/** Lo que hizo con un webhook, para la traza y el log. */
-export type Resolved = { emitted: string[] } | { skipped: string }
+export type { Resolved }
 
 /** La task de un webhook: un issue, y el PR del evento si trae uno. */
 interface TaskRef {
@@ -88,6 +93,7 @@ interface TaskRef {
 
 const UNBLOCKED = 'issue.unblocked'
 const CHILD_CLOSED = 'issue.child_closed'
+const CHILD_STATUS_CHANGED = 'issue.child_status_changed'
 
 /** Por qué `payload` no cumple `when` (las filas que dan false, con lo que vino), o `undefined`. */
 function unmet(when: Condition[], payload: unknown): string | undefined {
@@ -177,6 +183,7 @@ class ProjectResolver {
     if (input.notifyParent) return this.childClosed(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
+    if (input.notifyParentOfStatus) return this.childStatusChanged(location, ctx, when)
     if ('skip' in location) return { skipped: location.skip }
     const prOnly = input.pullRequestsWithoutIssue?.map((row) => new Condition(row))
     const task =
@@ -349,8 +356,7 @@ class ProjectResolver {
       : { skipped: `PR #${merged.pr} no deja ninguna task sin prerrequisitos` }
   }
 
-  /** `issue.child_closed` sobre el padre del issue recién cerrado, si el padre es de este proyecto
-   *  (su catálogo, su board y el `when` del intake). El hijo puede ser de otro repo. */
+  /** `issue.child_closed` sobre el padre del issue recién cerrado. */
   private async childClosed(
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
@@ -358,27 +364,34 @@ class ProjectResolver {
   ): Promise<Resolved> {
     const closed = closedIssue(raw)
     if ('skip' in closed) return { skipped: closed.skip }
-    const child = `${closed.owner}/${closed.repo}#${closed.number}`
-    const parent = await this.reader.parentOf(closed.owner, closed.repo, closed.number)
-    if (!parent) return { skipped: `${child} no es sub-issue de nada` }
-    if (!this.inCatalog(parent.owner, parent.repo)) {
-      return { skipped: `el padre de ${child} no es del catálogo de ${this.project.id}` }
+    return notifyParent(this.parentPort(when), ctx, closed, CHILD_CLOSED, {
+      stateReason: closed.stateReason,
+    })
+  }
+
+  /** `issue.child_status_changed` sobre el padre del issue que cambió de columna. */
+  private async childStatusChanged(
+    location: Location,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> {
+    if ('skip' in location) return { skipped: location.skip }
+    if (location.emit !== 'issue.status_changed') {
+      return { skipped: `${location.emit} no es un cambio de columna` }
     }
-    const published = await this.publish(
-      ctx,
-      parent,
-      {
-        emit: CHILD_CLOSED,
-        extra: {
-          child,
-          childUrl: `https://github.com/${closed.owner}/${closed.repo}/issues/${closed.number}`,
-          stateReason: closed.stateReason,
-        },
-      },
-      { when },
-    )
-    return 'skip' in published
-      ? { skipped: published.skip }
-      : { emitted: [String(published.scope?.issue)] }
+    const child =
+      'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
+    if ('skipped' in child) return child
+    return notifyParent(this.parentPort(when), ctx, child, CHILD_STATUS_CHANGED, location.extra)
+  }
+
+  /** Lo que `notifyParent` necesita de esta acción. */
+  private parentPort(when: Condition[]): ParentPort {
+    return {
+      projectId: this.project.id,
+      parentOf: (owner, repo, number) => this.reader.parentOf(owner, repo, number),
+      inCatalog: (owner, repo) => this.inCatalog(owner, repo),
+      publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),
+    }
   }
 }
