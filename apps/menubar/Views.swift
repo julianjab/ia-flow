@@ -41,6 +41,8 @@ struct RootView: View {
         }
         .frame(minWidth: popoverWidth, idealWidth: popoverWidth, maxWidth: windowed ? .infinity : popoverWidth,
                maxHeight: windowed ? .infinity : nil, alignment: .top)
+        // sigue traslúcido, pero con base: sin ella, lo que hay detrás compite con el texto
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
         .animation(.easeOut(duration: 0.15), value: model.confirm == nil)
         .font(.lh(13))
     }

@@ -54,7 +54,8 @@ func renderPNG(_ model: AppModel, dark: Bool, to path: String) {
 /// Fondo traslúcido de la ventana que avisa cuando el mouse entra o sale (barra de título incluida).
 final class HoverGlassView: NSVisualEffectView {
     /// Opacidad de la ventana con el mouse afuera.
-    static let idleAlpha: CGFloat = 0.55
+    /// A 0.55 lo de atrás se leía a través del texto.
+    static let idleAlpha: CGFloat = 0.85
     var onHover: ((Bool) -> Void)?
 
     override func updateTrackingAreas() {
