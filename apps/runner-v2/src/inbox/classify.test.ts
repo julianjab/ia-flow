@@ -207,6 +207,31 @@ describe('classify', () => {
     expect(asked?.why).toContain('¿90 días o para siempre?')
   })
 
+  it('a doubt of the agent wins over waiting for another issue: it has to be answerable', () => {
+    const waiting = card({ labels: ['blocked'], blockedBy: ['la-haus/subscriptions#1912'] })
+    const asked = classify(
+      waiting,
+      {
+        waiting: false,
+        lastClosed: run({ status: 'done', exit: 'doubt', summary: '¿(a), (b) o (c)?' }),
+      },
+      options,
+    )
+    expect(asked).toMatchObject({
+      group: 'need',
+      kind: 'doubt',
+      actions: ['answer_and_unblock', 'comment'],
+    })
+    expect(asked?.why).toContain('además espera a la-haus/subscriptions#1912')
+    // Sin duda, sigue en la cola detrás de su prerrequisito.
+    expect(
+      classify(card({ blockedBy: ['la-haus/subscriptions#1912'] }), idle, options),
+    ).toMatchObject({
+      group: 'queue',
+      kind: 'dep',
+    })
+  })
+
   it('a clean exit with blocked set but no doubt/prerequisite exit is not an agent question', () => {
     const done = classify(
       card({ labels: ['blocked'] }),
