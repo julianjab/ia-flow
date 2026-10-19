@@ -21,12 +21,6 @@ const Node = z.strictObject({
 /**
  * `{ action: addLabel, with: { label: blocked } }`: una acción del catálogo. Un `with` fijo se
  * valida al cargar (`Action.bind`); uno con `{{...}}` se resuelve en cada corrida (`ActionStep`).
- *
- * Con `with`, el paso es de la config: va envuelto en un `ActionStep`, que no le ofrece input al
- * modelo. Si quedara como `BoundAction`, una salida (`to: { action: update_issue, with: { fields:
- * … } }`) le dejaba completar el resto del input en su `submit_<salida>`: el refiner de
- * subscriptions#1905 mandó `status: Functional Refine`, una columna que no existe, y el update
- * entero falló. Sin `with`, la acción sigue abierta: el modelo completa su input.
  */
 export class ActionStepFactory implements StepFactory<z.infer<typeof Node>> {
   readonly keyword = 'action'
@@ -45,7 +39,7 @@ export class ActionStepFactory implements StepFactory<z.infer<typeof Node>> {
       node.when !== undefined ||
       node.whenText !== undefined ||
       node.continueOnError
-    if (!node.with && !own) return built
+    if (!templated && !own) return node.with ? built.bind(node.with as Partial<unknown>) : built
     const action: Action =
       node.with && !templated ? built.bind(node.with as Partial<unknown>) : built
     return new ActionStep({

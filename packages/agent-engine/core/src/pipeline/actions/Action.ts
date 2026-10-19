@@ -68,8 +68,9 @@ export abstract class Action<
 
   /**
    * Fija campos del input desde la configuración — el operador decide, el modelo no. Los campos
-   * fijados desaparecen del schema que ve el agente: `updateIssue.bind({ status: 'Build' })`
-   * deja al modelo completar sólo lo que queda (ej. `labels`), nunca elegir el status.
+   * fijados desaparecen del schema que ve el agente: como tool o reporte, `updateIssue.bind({
+   * status: 'Build' })` deja al modelo completar sólo lo que queda (ej. `labels`), nunca elegir el
+   * status. Como destino de una salida no le deja nada (`BoundAction.routeInput`).
    */
   bind(fixed: Partial<z.infer<S>>): BoundAction {
     return new BoundAction(this, fixed as Record<string, unknown>)
@@ -126,5 +127,12 @@ export class BoundAction extends Action {
 
   execute(input: Record<string, unknown>, ctx: PipelineExecutionContext): Promise<unknown> {
     return this.target.run(ctx, { ...input, ...this.fixed })
+  }
+
+  /** Como destino de una salida, lo fija la config: el refiner de subscriptions#1905 le sumó
+   *  `status: Functional Refine` (una columna que no existe) al `update_issue` de `to_functional` y
+   *  el update entero falló. Como tool de un agente o como reporte, el resto sigue abierto. */
+  override routeInput(): undefined {
+    return undefined
   }
 }

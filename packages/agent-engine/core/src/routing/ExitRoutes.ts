@@ -233,7 +233,7 @@ export function submitSchemaFor(agentId: string, exit: ResolvedExit): ToolInputS
   }
   if (exit.report) add('report', exit.report.acceptsInput())
   for (const target of exit.targets) {
-    const schema = target.acceptsInput()
+    const schema = target.routeInput()
     if (!schema || !schemaHasKeys(schema)) continue
     if (!target.id) {
       throw new Error(

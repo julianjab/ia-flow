@@ -199,6 +199,16 @@ export abstract class Runnable extends Conditional {
     return undefined
   }
 
+  /**
+   * Lo que el modelo puede completar de este paso cuando es DESTINO de una salida (`to`): por
+   * default, todo lo que acepta. Una acción con `with` (`BoundAction`) no acepta nada: el destino
+   * lo fija la config. El reporte de cierre no pasa por acá (`submitSchemaFor`): su `with` fija el
+   * dónde y el modelo escribe el qué.
+   */
+  routeInput(): ToolInputSchema | undefined {
+    return this.acceptsInput()
+  }
+
   get kind(): StepKind {
     return 'action'
   }
