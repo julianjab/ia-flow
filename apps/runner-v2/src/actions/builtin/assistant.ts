@@ -224,7 +224,7 @@ function tools(
         comment: z
           .string()
           .optional()
-          .describe('El comentario, para las acciones que lo piden (answer_and_unblock)'),
+          .describe('El comentario, para las acciones que lo piden (answer_and_unblock, comment)'),
       }),
       desk,
       agent,

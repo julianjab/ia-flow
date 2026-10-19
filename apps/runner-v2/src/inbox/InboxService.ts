@@ -20,7 +20,13 @@ import type {
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
 import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
-import { type BoardCard, type Classification, classify, type TaskActivity } from './classify.js'
+import {
+  anytimeActions,
+  type BoardCard,
+  type Classification,
+  classify,
+  type TaskActivity,
+} from './classify.js'
 import { feedOf, pipelineOf } from './feed.js'
 import type { InboxSettings } from './InboxSection.js'
 import { prioritize } from './prioritize.js'
@@ -369,9 +375,10 @@ export class InboxService {
       const ids = availableTaskActions(defs, facts)
       // Transitorio: un proyecto que todavía no declara sus `taskActions` sigue ofreciendo las que
       // el runner traía (las de `classify`), para que un cliente nuevo no se quede sin botones.
-      const builtin = (classify(card, activity, this.classifyOptions())?.actions ?? []).filter(
-        (id) => !(id in defs),
-      )
+      const builtin = (
+        classify(card, activity, this.classifyOptions())?.actions ??
+        anytimeActions(card, activity, this.options.settings)
+      ).filter((id) => !(id in defs))
       return {
         ...facts,
         ref: card.ref,
@@ -415,7 +422,7 @@ export class InboxService {
       kind: 'idle',
       why: `No necesita nada ahora${card.status ? ` (status ${card.status})` : ''}`,
       since: card.updatedAt,
-      actions: [],
+      actions: anytimeActions(card, activity, this.options.settings),
     }
     return this.toItem(card, activity, found, unlocksOf(cards).get(ref) ?? 0)
   }

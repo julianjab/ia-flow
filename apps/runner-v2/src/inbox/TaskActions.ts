@@ -1,7 +1,7 @@
 /**
  * Lo que una persona hace sobre una tarea desde la bandeja (o confirmando lo que propuso el
- * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, relanzar, reintentar,
- * re-ejecutar el review o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
+ * asistente): mergear, aprobar el PRD, devolverla, contestar y destrabar, comentar, relanzar,
+ * reintentar, re-ejecutar el review o la etapa, o pedirle al agente que pare. Lo que toca GitHub va con el token de ESA persona — el movimiento
  * queda a su nombre en el board — y sólo si la bandeja dice que la acción aplica a la tarea.
  */
 import type { Action, PipelineExecutionContext } from '@ia-flow/agent-engine'
@@ -31,6 +31,8 @@ export interface TaskActionsOptions {
   redispatch(ref: string, by: string): Promise<string>
   /** Vuelve a correr el pipeline de Review, como si la card acabara de llegar ahí. */
   rerunReview(ref: string, by: string): Promise<string>
+  /** Vuelve a correr el pipeline de la columna en la que está la card. */
+  rerunStage(ref: string, by: string): Promise<string>
   /** Le pide al agente que corre para la tarea que termine (suave: lo lee en su próxima vuelta). */
   stop(ref: string, by: string): string
   /** La columna a la que vuelve una tarea trabada (la de la ejecución que falló), si se sabe. */
@@ -98,8 +100,11 @@ export class TaskActions {
       ...(this.options.fetchImpl ? { fetchImpl: this.options.fetchImpl } : {}),
     })
     // Lo que se puede rechazar sin preguntarle nada a GitHub, antes.
-    if (request.action === 'answer_and_unblock' && !request.comment?.trim()) {
-      throw new TaskActionError('contestar necesita el comentario', 400)
+    if (
+      (request.action === 'answer_and_unblock' || request.action === 'comment') &&
+      !request.comment?.trim()
+    ) {
+      throw new TaskActionError(`${request.action} necesita el comentario`, 400)
     }
     const declared = this.options.taskActions(item.project_id)[request.action]
     if (declared?.input?.comment === 'required' && !request.comment?.trim()) {
@@ -148,6 +153,11 @@ export class TaskActions {
         issue: () => target,
       }).execute(input, NO_CTX)
     const unblock = () => update({ removeLabels: [labels.blocked] })
+    const postComment = () =>
+      client.requestJson(`/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: request.comment?.trim() ?? '' }),
+      })
     const action = request.action as BuiltinTaskAction
     switch (action) {
       case 'merge': {
@@ -178,11 +188,7 @@ export class TaskActions {
             409,
           )
         }
-        const comment = request.comment?.trim() ?? ''
-        await client.requestJson(
-          `/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`,
-          { method: 'POST', body: JSON.stringify({ body: comment }) },
-        )
+        await postComment()
         await unblock()
         await update({ status: stage })
         return `comentado, sin ${labels.blocked} y de vuelta en ${stage}`
@@ -197,6 +203,13 @@ export class TaskActions {
         return this.options.stop(ref, login)
       case 'rerun_review':
         return this.options.rerunReview(ref, login)
+      case 'rerun_stage':
+        return this.options.rerunStage(ref, login)
+      // Como si la persona comentara en GitHub: el pipeline de comentarios decide qué hacer, y con
+      // un agente trabajando, su `ifRunning`.
+      case 'comment':
+        await postComment()
+        return `comentado en ${ref}`
       default:
         throw new TaskActionError(
           `"${String(action)}" no es una acción que este runner conozca`,

@@ -98,12 +98,21 @@ const SHORT_LABEL: Record<string, string> = {
   merge: 'Mergear',
   approve_prd: 'Aprobar',
   rerun_review: 'Re-review',
+  rerun_stage: 'Re-ejecutar etapa',
+  comment: 'Comentar',
   answer_and_unblock: 'Responder',
   relaunch: 'Relanzar',
   retry: 'Reintentar',
   stop: 'Detener',
   back_to_refine: 'Devolver a Refine',
 }
+
+/** Las que piden el texto a la persona. */
+const TAKES_COMMENT = new Set(['answer_and_unblock', 'comment'])
+
+/** Las que el runner ofrece sobre cualquier tarea: van en el detalle, no en la fila de la cola
+ *  (sumarían un botón y un campo de texto a cada decisión) ni como principal. */
+export const DETAIL_ONLY = new Set(['comment'])
 
 /** Las que firman con GitHub o no se deshacen. Relanzar y Responder no confirman. */
 const CONFIRMS = new Set(['merge', 'approve_prd', 'stop'])
@@ -112,7 +121,7 @@ export function actionOf(id: string, defs: readonly TaskActionDef[] = []): Queue
   const def = defs.find((d) => d.id === id)
   const base = def?.label ?? SHORT_LABEL[id] ?? id
   const confirms = CONFIRMS.has(id) || Boolean(def?.confirm)
-  const comment = def?.comment ?? (id === 'answer_and_unblock' ? 'required' : undefined)
+  const comment = def?.comment ?? (TAKES_COMMENT.has(id) ? 'required' : undefined)
   return {
     id,
     label: confirms ? `${base}…` : base,
@@ -127,7 +136,8 @@ export function primaryOf(item: InboxItem): string | undefined {
   if (item.primary && offered.includes(item.primary)) return item.primary
   const byKind = primaryAction(item.kind)
   if (byKind && offered.includes(byKind)) return byKind
-  return offered.find((id) => id !== 'stop') ?? offered[0]
+  const candidates = offered.filter((id) => !DETAIL_ONLY.has(id))
+  return candidates.find((id) => id !== 'stop') ?? candidates[0]
 }
 
 /** «a», «a y b», «a, b y c». */

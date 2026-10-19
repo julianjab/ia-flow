@@ -71,6 +71,8 @@ export const ACTION_LABELS: Record<string, string> = {
   retry: 'Reintentar',
   stop: 'Pedirle al agente que pare',
   rerun_review: 'Re-ejecutar el review',
+  rerun_stage: 'Re-ejecutar la etapa',
+  comment: 'Comentar en el issue',
 }
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
@@ -606,7 +608,9 @@ export class AssistantSession {
       )
     }
     const comment = typeof input.comment === 'string' ? input.comment.trim() : ''
-    const needsComment = def ? def.comment === 'required' : action === 'answer_and_unblock'
+    const needsComment = def
+      ? def.comment === 'required'
+      : action === 'answer_and_unblock' || action === 'comment'
     if (needsComment && !comment) {
       throw new Error(`${action} necesita el comentario`)
     }

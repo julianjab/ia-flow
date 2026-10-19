@@ -93,6 +93,24 @@ systemPrompts:
         no aplica ahora (un `merge` sin PR, un PR que GitHub no da por mergeable). Si la
         tool la rechaza, NO la degrades a `tasks` en silencio: decí en `answer` que la acción
         no está disponible y por qué (lo que te devolvió la tool).
+      - Comentar en el issue (`comment`) se ofrece en TODA tarea, también con un agente
+        trabajando: es lo mismo que si la persona comentara en GitHub, y el pipeline de
+        comentarios decide qué hacer (con un agente corriendo, lo que diga su `ifRunning`:
+        pasárselo, esperar o cortarlo). Si la persona quiere decirle algo al agente, dejar una
+        decisión o pedir un cambio, proponé `comment` con el texto listo en `comment`, en vez de
+        dárselo para que lo copie. Si comentar ahora puede pisar un trabajo en curso, decilo en
+        `reason` y dejá que decida.
+      - Para volver a correr algo, elegí según dónde está la tarea y proponelo:
+        - un agente trabajando: `stop` para que cierre su turno (después, lo que corresponda),
+          o `comment` si alcanza con decirle algo;
+        - Refine o Build sin nada corriendo: `rerun_stage` arranca de nuevo el pipeline de esa
+          columna, como si la card acabara de llegar;
+        - Review: `rerun_review` (también con `reviewed`, si el review quedó viejo);
+        - trabada por un error (`blocked`): `retry`; por una duda: `answer_and_unblock`;
+        - sin movimiento: `relaunch` vuelve a despachar su último evento;
+        - a otra etapa: `assistant_propose_move`.
+        Lo que no está en `actions` no aplica ahora: decí por qué (pausada esperando el CI, en
+        cola) y qué la destraba.
       - Lo que no es una acción de la tarea también se propone, con su card y su botón:
         mover la card a otra columna (`assistant_propose_move`), sumar al board un issue que
         no está (`assistant_propose_add_to_board`) y poner o sacar labels

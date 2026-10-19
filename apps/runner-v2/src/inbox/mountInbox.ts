@@ -129,6 +129,21 @@ export function mountInbox(
     addLogSink(logs.sink),
   ]
 
+  /** Despacha un cambio de columna sintético a `status` (default: la columna actual de la card). */
+  const rerunColumn = async (ref: string, by: string, status?: string) => {
+    const card = await inbox.card(ref)
+    if (!card) throw new Error(`${ref} no está en el board`)
+    const column = status ?? card.status
+    if (!column) throw new Error(`${ref} no está en ninguna columna`)
+    const delivery = boards.of(card.projectId).statusChange(card, column, by)
+    dispatchRaw(mounted, delivery, options.log).catch((err: unknown) => {
+      options.log(
+        `re-ejecutar ${column} ${ref}: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    })
+    return `volví a correr ${column} para ${ref}`
+  }
+
   // Lo que el runner sabe hacerle a una task: lo usan las acciones de la bandeja y, por
   // `services.tasks`, las actions `redispatch_task` y `rerun_review` de una `taskActions`.
   const taskDesk = {
@@ -147,18 +162,9 @@ export function mountInbox(
     },
     // Como si la persona hubiera movido la card a Review: el intake lee la card y el PR frescos, y
     // el pipeline de review corre con sus condiciones de siempre (PR abierto, sin blockers).
-    rerunReview: async (ref: string, by: string) => {
-      const card = await inbox.card(ref)
-      if (!card) throw new Error(`${ref} no está en el board`)
-      const status = cfg.inbox.statuses.review
-      const delivery = boards.of(card.projectId).statusChange(card, status, by)
-      dispatchRaw(mounted, delivery, options.log).catch((err: unknown) => {
-        options.log(
-          `re-ejecutar review ${ref}: ${err instanceof Error ? err.message : String(err)}`,
-        )
-      })
-      return `volví a correr ${status} para ${ref}`
-    },
+    rerunReview: (ref: string, by: string) => rerunColumn(ref, by, cfg.inbox.statuses.review),
+    // Lo mismo con la columna en la que está la card (Refine, Build): su pipeline arranca de nuevo.
+    rerunStage: (ref: string, by: string) => rerunColumn(ref, by),
 
     stop: (ref: string, by: string) => {
       const running = store.activity.executions({
@@ -196,6 +202,7 @@ export function mountInbox(
       mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
     redispatch: taskDesk.redispatch,
     rerunReview: taskDesk.rerunReview,
+    rerunStage: taskDesk.rerunStage,
     stop: taskDesk.stop,
     resumeStage: (ref) =>
       resumeStage(

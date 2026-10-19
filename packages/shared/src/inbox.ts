@@ -51,6 +51,12 @@ export const BuiltinTaskActionSchema = z.enum([
   'stop',
   /** Vuelve a correr el reviewer, como si la card acabara de llegar a Review. */
   'rerun_review',
+  /** Vuelve a correr el pipeline de la columna en la que está la card (Refine o Build), como si
+   *  acabara de llegar ahí. */
+  'rerun_stage',
+  /** Comenta en el issue a nombre de la persona: lo lee el pipeline de comentarios, como uno
+   *  escrito en GitHub. Se ofrece siempre, también con un agente trabajando. */
+  'comment',
 ])
 export type BuiltinTaskAction = z.infer<typeof BuiltinTaskActionSchema>
 

@@ -8,6 +8,7 @@ import { withEpic } from '@/features/inbox/queue/epics'
 import { groupSummary, oldestAge } from '@/features/inbox/queue/groupTitle'
 import {
   actionOf,
+  DETAIL_ONLY,
   primaryOf,
   type QueueAction,
   type QueueTone,
@@ -155,7 +156,9 @@ export function entryOf(
     short: shortRef(item.ref),
     url: item.url,
     ...(primary ? { action: actionOf(primary, defs) } : {}),
-    secondary: item.actions.filter((id) => id !== primary).map((id) => actionOf(id, defs)),
+    secondary: item.actions
+      .filter((id) => id !== primary && !DETAIL_ONLY.has(id))
+      .map((id) => actionOf(id, defs)),
     detail: detailOf(item),
     item,
   }

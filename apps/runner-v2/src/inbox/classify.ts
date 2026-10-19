@@ -111,7 +111,9 @@ function awaitingHuman(card: BoardCard, { labels, statuses }: ClassifyOptions['s
         kind: 'merge',
         why: `Review + ${labels.reviewed}${pr}`,
         since: card.updatedAt,
-        actions: card.pr ? ['merge'] : [],
+        // Re-review también acá: un review aprobado puede haber quedado viejo (otro push, un
+        // cambio de alcance).
+        actions: card.pr ? ['merge', ...(card.itemId ? (['rerun_review'] as const) : [])] : [],
       } satisfies Classification
     }
     // Sin PR no hay nada que revisar: el pipeline de review no correría.
@@ -209,7 +211,39 @@ function stale(
   }
 }
 
+/**
+ * Lo que se ofrece sobre CUALQUIER tarea del board, caiga o no en la bandeja: comentar (lo lee el
+ * pipeline de comentarios, también con un agente trabajando) y, si nada corre ni espera, volver a
+ * correr la etapa en la que está. Va después de las del caso: la principal es la del caso.
+ */
+export function anytimeActions(
+  card: BoardCard,
+  activity: TaskActivity,
+  { labels, statuses }: ClassifyOptions['settings'],
+): TaskAction[] {
+  const idle = !activity.waiting && !activity.live
+  // Una card con `blocked` no corre nada: el intake descarta sus eventos (para eso, `retry`).
+  const rerunnable =
+    idle &&
+    !card.labels.includes(labels.blocked) &&
+    (card.status === statuses.refine || card.status === statuses.build)
+  return [...(rerunnable ? (['rerun_stage'] as const) : []), 'comment']
+}
+
 export function classify(
+  card: BoardCard,
+  activity: TaskActivity,
+  options: ClassifyOptions,
+): Classification | undefined {
+  const found = classifyCase(card, activity, options)
+  if (!found) return undefined
+  const extra = anytimeActions(card, activity, options.settings).filter(
+    (action) => !found.actions.includes(action),
+  )
+  return { ...found, actions: [...found.actions, ...extra] }
+}
+
+function classifyCase(
   card: BoardCard,
   activity: TaskActivity,
   options: ClassifyOptions,
