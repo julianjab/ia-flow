@@ -5,6 +5,7 @@
  * contestó, y `task.ts` le da forma.
  */
 import type { GithubClient } from '@ia-flow/github-api'
+import { sameRepo } from '../shared.js'
 import { type OpenPr, openPr, type RawItem, type RawPr } from './shapes.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 
@@ -46,7 +47,7 @@ const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
     issue(number: $number) {
       linkedBranches(first: 10) { nodes { ref { name } } }
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-        nodes { number headRefName isCrossRepository createdAt }
+        nodes { number headRefName isCrossRepository createdAt repository { nameWithOwner } }
       }
     }
   }
@@ -243,6 +244,7 @@ export class GithubTaskReader {
               headRefName?: string
               isCrossRepository?: boolean
               createdAt?: string
+              repository?: { nameWithOwner?: string }
             } | null>
           }
         } | null
@@ -251,7 +253,9 @@ export class GithubTaskReader {
     const issue = data.repository?.issue
     const linked = (issue?.linkedBranches?.nodes ?? []).map((node) => node.ref?.name)
     const fromPrs = (issue?.closedByPullRequestsReferences?.nodes ?? [])
-      .filter((pr) => pr && !pr.isCrossRepository)
+      // Del repo del issue y con la rama en ese repo: un PR de otro repo (`Closes o/r#n`) o de un
+      // fork no da una rama que la task pueda usar.
+      .filter((pr) => pr && !pr.isCrossRepository && sameRepo(pr.repository, owner, repo))
       .sort((a, b) => (a?.createdAt ?? '').localeCompare(b?.createdAt ?? ''))
       .map((pr) => pr?.headRefName)
     return [...new Set([...linked, ...fromPrs].filter((name): name is string => Boolean(name)))]

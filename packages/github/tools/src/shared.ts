@@ -54,3 +54,12 @@ export function issuePath(owner: string, repo: string, number: number, suffix = 
   const safeNumber = assertIssueNumber(number)
   return `/repos/${safeOwner}/${safeRepo}/issues/${safeNumber}${suffix}`
 }
+
+/** Que el repo de un PR (`nameWithOwner`) sea `owner/repo` — GitHub no distingue mayúsculas. */
+export function sameRepo(
+  repository: { nameWithOwner?: string } | undefined,
+  owner: string,
+  repo: string,
+): boolean {
+  return repository?.nameWithOwner?.toLowerCase() === `${owner}/${repo}`.toLowerCase()
+}

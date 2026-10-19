@@ -1,7 +1,7 @@
 import { Action, type PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
 import { z } from 'zod'
-import { issuePath, repoPath } from '../shared.js'
+import { issuePath, repoPath, sameRepo } from '../shared.js'
 import {
   type BranchResolver,
   branchFromPayload,
@@ -41,7 +41,7 @@ const OPEN_CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) 
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-        nodes { number url headRefName isCrossRepository }
+        nodes { number url headRefName isCrossRepository repository { nameWithOwner } }
       }
     }
   }
@@ -52,6 +52,7 @@ interface ClosingPr {
   url: string
   headRefName: string
   isCrossRepository?: boolean
+  repository?: { nameWithOwner?: string }
 }
 
 function escapeRegExp(value: string): string {
@@ -174,7 +175,11 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
       } | null
     }>(OPEN_CLOSING_PRS, { owner: issue.owner, repo: issue.repo, number: issue.number })
     return (data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []).find(
-      (pr): pr is ClosingPr => !!pr && !pr.isCrossRepository && pr.headRefName !== branch,
+      (pr): pr is ClosingPr =>
+        !!pr &&
+        !pr.isCrossRepository &&
+        sameRepo(pr.repository, issue.owner, issue.repo) &&
+        pr.headRefName !== branch,
     )
   }
 }
