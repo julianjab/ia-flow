@@ -18,17 +18,21 @@ type Payload = Record<string, unknown>
 export function withCard(event: DomainEvent<any>, card: BoardCard): DomainEvent<any> {
   // El espejo `event.payload` se arma de nuevo: el viejo tiene la card de antes.
   const { event: _mirror, ...payload } = (event.payload ?? {}) as Payload
+  // En minúsculas, como lo arma el intake (`functional` | `technical`): el campo del board viene
+  // como se escribe ("Functional"), y con él un `item.type eq functional` dejaba de pasar — una
+  // épica que esperó su turno corría con el refiner técnico (subscriptions#1905).
+  const type = card.taskType?.toLowerCase()
   const item: Payload = {
     ...(payload.item as Payload | undefined),
     status: card.status,
     labels: card.labels,
     blocked: card.blockedBy.length > 0,
-    ...(card.taskType !== undefined ? { type: card.taskType } : {}),
+    ...(type !== undefined ? { type } : {}),
   }
   const fresh: Payload = {
     ...payload,
     item,
-    ...(card.taskType !== undefined ? { task_type: card.taskType } : {}),
+    ...(type !== undefined ? { task_type: type } : {}),
   }
   return { ...event, payload: { ...fresh, event: { payload: { ...fresh } } } }
 }
