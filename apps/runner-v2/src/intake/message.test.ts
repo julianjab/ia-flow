@@ -34,4 +34,10 @@ describe('eventMessage', () => {
     )
     expect(eventMessage('otro', {})).toBe('Evento otro.')
   })
+
+  it('says which sub-issue of the epic closed, and why', () => {
+    expect(
+      eventMessage('issue.child_closed', { child: 'o/r#12', stateReason: 'not_planned' }),
+    ).toBe('Se cerró el sub-issue o/r#12 (not_planned).')
+  })
 })

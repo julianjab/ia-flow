@@ -362,3 +362,100 @@ describe('resolve_task on a pull request', () => {
     expect(result).toEqual({ skipped: 'p: PR #30 no cierra ningún issue' })
   })
 })
+
+describe('resolve_task notifyParent', () => {
+  /** o/r#12 cerrado (por el merge de su PR o a mano), como lo manda GitHub. */
+  const closed = (action = 'closed', stateReason?: string) =>
+    createEvent('github.issues', {
+      action,
+      issue: {
+        number: 12,
+        title: 'Un hijo',
+        labels: [],
+        ...(stateReason ? { state_reason: stateReason } : {}),
+      },
+      repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+      sender: { login: 'julian' },
+    })
+
+  /** GitHub de mentira: la épica es o/r#7 (en el board), o `parent` si se dice otro. */
+  async function notify(
+    event: DomainEvent<unknown>,
+    options: {
+      parent?: { owner: string; repo: string; number: number } | null
+      labels?: string[]
+    } = {},
+    input: Record<string, unknown> = {},
+  ) {
+    const base = reader(options.labels ?? []) as unknown as Record<string, unknown>
+    const asked: string[] = []
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      parentOf: async (owner: string, repo: string, number: number) => {
+        asked.push(`${owner}/${repo}#${number}`)
+        if (options.parent === null) return undefined
+        return options.parent ?? { owner: 'o', repo: 'r', number: 7 }
+      },
+    }
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (e) => {
+      published.push(e)
+    })
+    const ctx = {
+      event,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
+    const result = await action.execute(action.input.parse({ notifyParent: true, ...input }), ctx)
+    return { result, published, asked }
+  }
+
+  it('a closed sub-issue is issue.child_closed on its epic, with the child and why it closed', async () => {
+    const { result, published, asked } = await notify(closed('closed', 'completed'))
+    expect(asked).toEqual(['o/r#12'])
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.child_closed'])
+    expect(published[0]?.payload).toMatchObject({
+      child: 'o/r#12',
+      childUrl: 'https://github.com/o/r/issues/12',
+      stateReason: 'completed',
+      message: 'Se cerró el sub-issue o/r#12 (completed).',
+    })
+    expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it('a sub-issue closed as not planned also reaches the epic: deciding what follows is its job', async () => {
+    const { published } = await notify(closed('closed', 'not_planned'))
+    expect(published[0]?.payload).toMatchObject({ stateReason: 'not_planned' })
+  })
+
+  it('an issue without a parent publishes nothing', async () => {
+    const { result, published } = await notify(closed(), { parent: null })
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: o/r#12 no es sub-issue de nada' })
+  })
+
+  it('an epic outside the catalog is not of this project', async () => {
+    const { result, published } = await notify(closed(), {
+      parent: { owner: 'otra', repo: 'cosa', number: 1 },
+    })
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: el padre de o/r#12 no es del catálogo de p' })
+  })
+
+  it('anything but a close is skipped before reading GitHub', async () => {
+    const { result, asked } = await notify(closed('reopened'))
+    expect(asked).toEqual([])
+    expect(result).toEqual({ skipped: 'p: issues.reopened' })
+  })
+
+  it('the when of the intake applies to the epic', async () => {
+    const when = [{ field: 'item.labels', op: 'notContains', value: 'blocked' }]
+    const { result, published } = await notify(closed(), { labels: ['blocked'] }, { when })
+    expect(published).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/o\/r#7 no cumple el when del intake/)
+  })
+})
