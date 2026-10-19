@@ -36,6 +36,22 @@ describe('readAnthropicSseStream', () => {
     expect(message.usage).toEqual({ input_tokens: 5, output_tokens: 3 })
   })
 
+  it('keeps the context_management that comes outside delta in message_delta', async () => {
+    const applied = {
+      applied_edits: [
+        { type: 'clear_tool_uses_20250919', cleared_tool_uses: 3, cleared_input_tokens: 33609 },
+      ],
+    }
+    const res = sseResponse([
+      frame('message_start', { message: { id: 'msg_1', context_management: null } }),
+      frame('message_delta', { delta: { stop_reason: 'end_turn' }, context_management: applied }),
+    ])
+
+    const message = await readAnthropicSseStream(res)
+
+    expect(message.context_management).toEqual(applied)
+  })
+
   it('reassembles a tool_use block from streamed input_json_delta', async () => {
     const res = sseResponse([
       frame('message_start', { message: {} }),
