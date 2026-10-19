@@ -459,3 +459,95 @@ describe('resolve_task notifyParent', () => {
     expect('skipped' in result && result.skipped).toMatch(/o\/r#7 no cumple el when del intake/)
   })
 })
+
+describe('resolve_task notifyParentOfStatus', () => {
+  /** La card de o/r#12 movida en el board, como lo manda GitHub. */
+  const moved = (fieldValue: Record<string, unknown>) =>
+    createEvent('github.projects_v2_item', {
+      action: 'edited',
+      projects_v2_item: {
+        node_id: 'PVTI_12',
+        project_node_id: 'PVT_1',
+        content_node_id: 'I_12',
+        content_type: 'Issue',
+      },
+      changes: { field_value: fieldValue },
+      sender: { login: 'ia-flow[bot]' },
+    })
+  const toRefined = moved({
+    field_name: 'Status',
+    field_type: 'single_select',
+    from: { name: 'Refine' },
+    to: { name: 'Refined' },
+  })
+
+  /** GitHub de mentira: el item PVTI_12 es o/r#12, sub-issue de la épica o/r#7 (o de `parent`). */
+  async function notify(
+    event: DomainEvent<unknown>,
+    parent: { owner: string; repo: string; number: number } | null = {
+      owner: 'o',
+      repo: 'r',
+      number: 7,
+    },
+  ) {
+    const base = reader([]) as unknown as Record<string, unknown>
+    const asked: string[] = []
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      issueOfItem: async () => ({
+        board: { owner: 'o', number: 1 },
+        owner: 'o',
+        repo: 'r',
+        number: 12,
+      }),
+      parentOf: async (owner: string, repo: string, number: number) => {
+        asked.push(`${owner}/${repo}#${number}`)
+        return parent ?? undefined
+      },
+    }
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (e) => {
+      published.push(e)
+    })
+    const ctx = {
+      event,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
+    const result = await action.execute(action.input.parse({ notifyParentOfStatus: true }), ctx)
+    return { result, published, asked }
+  }
+
+  it('a sub-issue that changes column is issue.child_status_changed on its epic, with from/to', async () => {
+    const { result, published, asked } = await notify(toRefined)
+    expect(asked).toEqual(['o/r#12'])
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.child_status_changed'])
+    expect(published[0]?.payload).toMatchObject({
+      child: 'o/r#12',
+      childUrl: 'https://github.com/o/r/issues/12',
+      from: 'Refine',
+      to: 'Refined',
+      message: 'El sub-issue o/r#12 pasó a Refined.',
+    })
+    expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it('an edit that is not the column does not reach the epic', async () => {
+    const { result, published, asked } = await notify(
+      moved({ field_name: 'Task Type', field_type: 'single_select', to: { name: 'Technical' } }),
+    )
+    expect(published).toEqual([])
+    expect(asked).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/no es un cambio de columna/)
+  })
+
+  it('an issue without a parent publishes nothing', async () => {
+    const { result, published } = await notify(toRefined, null)
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: o/r#12 no es sub-issue de nada' })
+  })
+})
