@@ -105,7 +105,11 @@ export default [
   }),
   defineAction({
     id: 'add_to_project',
-    create: (ctx) => new AddToProjectAction(projectContext(ctx, 'add_to_project')),
+    create: (ctx) =>
+      new AddToProjectAction({
+        ...projectContext(ctx, 'add_to_project'),
+        writer: ctx.services.boards.of(projectOf(ctx, 'add_to_project').id),
+      }),
   }),
   defineAction({
     id: 'add_sub_issue',
