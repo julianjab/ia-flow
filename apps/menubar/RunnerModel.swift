@@ -153,6 +153,8 @@ final class RunnerModel: ObservableObject {
     private var lastSeq = 0
 
     private var sessions = loadGithubSessions()
+    /// La renovación en curso del token de GitHub, por server: los que piden sesión mientras tanto la esperan.
+    private var renewing: [String: Task<GithubSession?, Never>] = [:]
     /// Avisa al ícono (el badge) y a quien muestre los toasts.
     var onBadge: ((Int) -> Void)?
     var toast: ((String) -> Void)?
@@ -587,19 +589,42 @@ final class RunnerModel: ObservableObject {
 
     /// La sesión del server, renovada si venció; sin sesión o sin poder renovarla, nil.
     @MainActor func validSession() async -> GithubSession? {
-        guard var session = sessions[selected.baseUrl] else { return nil }
+        let server = selected, key = server.baseUrl
+        guard let session = sessions[key] else { return nil }
         guard session.expired else { return session }
-        guard let refresh = session.refreshToken, let fresh = try? await client.refresh(refresh), let token = fresh.access_token else {
-            sessions[selected.baseUrl] = nil
+        // Una sola renovación a la vez: el refresh token de GitHub es de un solo uso, y dos pedidos juntos (abrir
+        // «Buscar en GitHub» trae los repos y busca) gastaban el mismo: el segundo volvía rechazado y cerraba la sesión.
+        if let pending = renewing[key] { return await pending.value }
+        let task = Task { @MainActor in await renew(session, key: key, server: server) }
+        renewing[key] = task
+        defer { renewing[key] = nil }
+        return await task.value
+    }
+
+    /// Sólo un rechazo del runner (401: GitHub ya no acepta el refresh token) cierra la sesión; una falla de red la
+    /// deja como estaba, para el próximo intento.
+    @MainActor private func renew(_ session: GithubSession, key: String, server: RunnerServer) async -> GithubSession? {
+        guard let refresh = session.refreshToken else { return dropSession(key) }
+        do {
+            let fresh = try await RunnerClient(server: server).refresh(refresh)
+            guard let token = fresh.access_token else { return dropSession(key) }
+            let next = GithubSession(token: token, login: fresh.login ?? session.login,
+                                     expiresAt: fresh.expires_in.map { Date().timeIntervalSince1970 + $0 },
+                                     refreshToken: fresh.refresh_token ?? refresh)
+            sessions[key] = next
             saveGithubSessions(sessions)
+            return next
+        } catch let error as RunnerError where error.status == 401 {
+            return dropSession(key)
+        } catch {
             return nil
         }
-        session = GithubSession(token: token, login: fresh.login ?? session.login,
-                                expiresAt: fresh.expires_in.map { Date().timeIntervalSince1970 + $0 },
-                                refreshToken: fresh.refresh_token ?? refresh)
-        sessions[selected.baseUrl] = session
+    }
+
+    @MainActor private func dropSession(_ key: String) -> GithubSession? {
+        sessions[key] = nil
         saveGithubSessions(sessions)
-        return session
+        return nil
     }
 
     func beginLogin() {
