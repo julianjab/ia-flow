@@ -25,7 +25,20 @@ interface FakePr {
 
 /** Un GitHub falso por ruta REST: los PRs de la rama (cualquier estado), el compare contra la
  *  base, el repo y el issue. */
-function fakeGithub(options: { pr?: FakePr; compareStatus?: number; aheadBy?: number } = {}) {
+function fakeGithub(
+  options: {
+    pr?: FakePr
+    compareStatus?: number
+    aheadBy?: number
+    /** Los PRs abiertos que cierran el issue (GraphQL), de cualquier rama. */
+    closingPrs?: Array<{
+      number: number
+      url: string
+      headRefName: string
+      isCrossRepository?: boolean
+    }>
+  } = {},
+) {
   const calls: Call[] = []
   const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
     const { pathname, search } = new URL(url)
@@ -45,6 +58,15 @@ function fakeGithub(options: { pr?: FakePr; compareStatus?: number; aheadBy?: nu
           : [],
       )
     }
+    if (pathname.endsWith('/graphql')) {
+      return json({
+        data: {
+          repository: {
+            issue: { closedByPullRequestsReferences: { nodes: options.closingPrs ?? [] } },
+          },
+        },
+      })
+    }
     if (pathname.includes('/compare/')) {
       return json({ ahead_by: options.aheadBy ?? 2 }, options.compareStatus ?? 200)
     }
@@ -59,7 +81,9 @@ function fakeGithub(options: { pr?: FakePr; compareStatus?: number; aheadBy?: nu
     auth: new GithubTokenAuth('t'),
     fetchImpl: fetchImpl as unknown as typeof fetch,
   })
-  return { client, calls, writes: () => calls.filter((c) => c.method !== 'GET') }
+  // Una consulta GraphQL va por POST pero es una lectura.
+  const writes = () => calls.filter((c) => c.method !== 'GET' && !c.path.endsWith('/graphql'))
+  return { client, calls, writes }
 }
 
 describe('EnsurePullRequestAction', () => {
@@ -156,6 +180,37 @@ describe('EnsurePullRequestAction', () => {
       )
       expect(writes()).toEqual([])
     }
+  })
+
+  it('never opens a second PR when the issue already has an open one from another branch', async () => {
+    const { client, writes } = fakeGithub({
+      closingPrs: [
+        {
+          number: 3522,
+          url: 'https://github.com/x/pull/3522',
+          headRefName: 'feat/add-crm-fields-to-profiling-prompt',
+        },
+      ],
+    })
+
+    await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(
+      /ya tiene el PR #3522 abierto desde feat\/add-crm-fields-to-profiling-prompt.*no se abre un segundo PR/,
+    )
+    expect(writes()).toEqual([])
+  })
+
+  it('ignores a closing PR from a fork or from the same branch when deciding to open one', async () => {
+    const { client, writes } = fakeGithub({
+      closingPrs: [
+        { number: 10, url: 'u', headRefName: 'feat/x', isCrossRepository: true },
+        { number: 11, url: 'u', headRefName: 'ia-flow-local/1640' },
+      ],
+    })
+
+    const result = await new EnsurePullRequestAction({ client }).run(ctxFor(), {})
+
+    expect(result).toContain('PR #1700 abierto')
+    expect(writes().filter((c) => c.path.endsWith('/pulls'))).toHaveLength(1)
   })
 
   it('takes the issue and branch from the event, never from the model', async () => {
