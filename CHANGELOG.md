@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.3](https://github.com/julianjab/ia-flow/compare/v2.21.2...v2.21.3) (2026-10-19)
+
+
+### Bug Fixes
+
+* **engine:** la revalidación de una task deja el tipo en minúsculas, como el intake ([4c27ee7](https://github.com/julianjab/ia-flow/commit/4c27ee7eb7424c556a1194d0fd69f17c1d2acfff))
+
 ## [2.21.2](https://github.com/julianjab/ia-flow/compare/v2.21.1...v2.21.2) (2026-10-19)
 
 
