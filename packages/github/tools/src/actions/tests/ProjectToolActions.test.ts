@@ -96,6 +96,61 @@ describe('AddToProjectAction', () => {
     expect(graphql.mock.calls.at(-1)?.[1]).toEqual({ projectId: 'PVT_board', contentId: 'I_2' })
   })
 
+  it('with status, the card enters that column: the issue comes from its node id', async () => {
+    const graphql = vi.fn(async (query: string) => {
+      if (query.includes('projectV2(number'))
+        return { repositoryOwner: { projectV2: { id: 'PVT' } } }
+      if (query.includes('node(id')) {
+        return {
+          node: {
+            number: 1911,
+            repository: { name: 'subscriptions', owner: { login: 'la-haus' } },
+          },
+        }
+      }
+      return { addProjectV2ItemById: { item: { id: 'PVTI_new' } } }
+    })
+    const setFields = vi.fn(async () => {})
+    const action = new AddToProjectAction({ ...project({ graphql }), writer: { setFields } })
+
+    const out = JSON.parse(
+      (await action.run(ctx(), { issue_node_id: 'I_1', status: 'Refine' })) as string,
+    )
+
+    expect(out).toEqual({ itemId: 'PVTI_new', status: 'Refine' })
+    expect(setFields).toHaveBeenCalledWith(
+      { owner: 'la-haus', repo: 'subscriptions', number: 1911 },
+      { Status: 'Refine' },
+    )
+  })
+
+  it('without status it does not touch the column', async () => {
+    const graphql = vi.fn(async (query: string) =>
+      query.includes('projectV2(number')
+        ? { repositoryOwner: { projectV2: { id: 'PVT' } } }
+        : { addProjectV2ItemById: { item: { id: 'PVTI_new' } } },
+    )
+    const setFields = vi.fn(async () => {})
+    const action = new AddToProjectAction({ ...project({ graphql }), writer: { setFields } })
+
+    await action.run(ctx(), { issue_node_id: 'I_1' })
+
+    expect(setFields).not.toHaveBeenCalled()
+  })
+
+  it('with status but no board to write to, it says so instead of leaving it without column', async () => {
+    const graphql = vi.fn(async (query: string) =>
+      query.includes('projectV2(number')
+        ? { repositoryOwner: { projectV2: { id: 'PVT' } } }
+        : { addProjectV2ItemById: { item: { id: 'PVTI_new' } } },
+    )
+    const action = new AddToProjectAction(project({ graphql }))
+
+    await expect(action.run(ctx(), { issue_node_id: 'I_1', status: 'Refine' })).rejects.toThrow(
+      /necesita el board/,
+    )
+  })
+
   it('fails when the board does not exist, and retries the lookup next time', async () => {
     const graphql = vi.fn(async () => ({ repositoryOwner: { projectV2: null } }))
     const action = new AddToProjectAction(project({ graphql }))
