@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.21.1](https://github.com/julianjab/ia-flow/compare/v2.21.0...v2.21.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **agent-engine:** el reporte de cierre con `with` vuelve a recibir el texto del modelo ([2e96e37](https://github.com/julianjab/ia-flow/commit/2e96e3732971fa7370bb31f881a1fd65f005f169))
+
 ## [2.21.0](https://github.com/julianjab/ia-flow/compare/v2.20.1...v2.21.0) (2026-10-19)
 
 
