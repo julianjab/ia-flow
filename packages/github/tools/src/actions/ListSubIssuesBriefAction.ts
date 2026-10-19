@@ -20,6 +20,8 @@ export interface SubIssueBrief {
   title: string
   state: string
   url: string
+  /** El node id del issue: el que piden `mark_blocked_by` y `remove_blocked_by`. */
+  issueId: string
 }
 
 export interface ListSubIssuesBriefActionOptions {
@@ -41,7 +43,7 @@ const PER_PAGE = 100
  */
 export class ListSubIssuesBriefAction extends Action<typeof ListSubIssuesBriefInput, string> {
   readonly description =
-    'Índice compacto de los sub-issues de un issue padre: número, título, estado y url — SIN los bodies. Es la forma barata de ver qué hermanos existen y decidir a cuál vale la pena leerle el body después (eso se pide aparte). Preferila al list_sub_issues del MCP de GitHub, que devuelve los issues completos y en una épica grande agota el contexto.'
+    'Índice compacto de los sub-issues de un issue padre: número, título, estado, url y node id (`issueId`, el que piden mark_blocked_by/remove_blocked_by) — SIN los bodies. Es la forma barata de ver qué hermanos existen y decidir a cuál vale la pena leerle el body después (eso se pide aparte). Preferila al list_sub_issues del MCP de GitHub, que devuelve los issues completos y en una épica grande agota el contexto.'
   readonly input = ListSubIssuesBriefInput
   override readonly sideEffects = 'none' as const
   private readonly client: GithubClient
@@ -75,6 +77,7 @@ export class ListSubIssuesBriefAction extends Action<typeof ListSubIssuesBriefIn
           title: item.title as string,
           state: item.state as string,
           url: item.html_url as string,
+          issueId: item.node_id as string,
         })
       }
       if (data.length < PER_PAGE) break
