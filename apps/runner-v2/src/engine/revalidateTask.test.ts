@@ -69,6 +69,16 @@ describe('revalidateTask', () => {
     expect(fresh.scope).toEqual(SCOPE)
   })
 
+  it('el tipo queda en minúsculas, como lo arma el intake: el board lo trae como se escribe', () => {
+    // GitHub devuelve la opción del campo tal cual ("Functional"); los `when` comparan contra
+    // `functional`. Sin esto, una épica que esperó su turno corría con el refiner técnico.
+    const fresh = withCard(labeled(), card({ taskType: 'Functional' }))
+    expect(fresh.payload).toMatchObject({ item: { type: 'functional' }, task_type: 'functional' })
+    expect((fresh.payload as { event: { payload: unknown } }).event.payload).toMatchObject({
+      item: { type: 'functional' },
+    })
+  })
+
   it('relee el board sin cache y devuelve la card de la task', async () => {
     const { boards, calls } = boardsWith([card({ ref: 'otra/cosa#1' }), card()])
     const fresh = await revalidateTask(boards)(labeled())
