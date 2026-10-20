@@ -57,6 +57,31 @@ describe('TaskActions (el panel de detalle)', () => {
     expect(button(wrapper, 'stop').classes()).toContain('btn--danger')
   })
 
+  it('la barra es una fila: la principal y «Más», que despliega el resto', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const wrapper = mount(TaskActions, {
+      props: { item: crash, bar: true },
+      global: { plugins: [pinia] },
+    })
+    const toggle = wrapper.get('[data-test="more-toggle"]')
+    expect(toggle.text()).toBe('Más · 1')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('[data-test="more"]').attributes('style')).toContain('display: none')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-test="more"]').attributes('style') ?? '').not.toContain(
+      'display: none',
+    )
+    expect(wrapper.get('[data-test="more"] [data-action="stop"]').exists()).toBe(true)
+  })
+
+  it('fuera de la barra no hay «Más»: todas a la vista', () => {
+    const { wrapper } = mountActions(crash)
+    expect(wrapper.find('[data-test="more-toggle"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-action] button')).toHaveLength(2)
+  })
+
   it('una card sin acciones no dibuja nada', () => {
     const { wrapper } = mountActions(item({ actions: [] }))
     expect(wrapper.find('.ta').exists()).toBe(false)
