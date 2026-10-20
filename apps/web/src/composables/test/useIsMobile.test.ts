@@ -29,7 +29,7 @@ function emit(query: string, value: boolean) {
   for (const cb of listeners.get(query) ?? []) cb({ matches: value } as MediaQueryListEvent)
 }
 
-const MOBILE = '(max-width: 768px)'
+const MOBILE = '(max-width: 767.98px)'
 const SPLIT = '(min-width: 1100px)'
 
 afterEach(() => {
