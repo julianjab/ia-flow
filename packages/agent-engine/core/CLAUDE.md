@@ -217,6 +217,12 @@ declara `input` (un `z.strictObject`), implementa `execute(input: z.infer<S>)`, 
   el modelo ve qué campo falló y se corrige solo.
 - `ToolInputSchema` fuerza `strictObject` a nivel de tipo: claves que el modelo invente se
   rechazan en vez de descartarse en silencio.
+- **Un objeto anidado que llega como string se repara antes de rechazar** (`nestedInput.ts`): el
+  objeto serializado (`"{\"text\": …}"`) o con el `<parameter name="x">` de la sintaxis de tool
+  use filtrado. Pasa sobre todo con `submit_done.result.text` de un modelo chico (el `file-focus`
+  en Haiku: 39 de 53 submits fallidos); sin esto el modelo reintenta el request entero. Sólo los
+  campos de primer nivel que son objetos, y lo reparado se vuelve a validar: si no cumple, el
+  error es el original.
 - `inputSchema` es un getter perezoso, no un field: `input` es un field de la SUBCLASE, que
   todavía no está asignado cuando corre el constructor de la base.
 - La interfaz `Tool` no cambia: un consumidor puede seguir implementándola a mano con JSON Schema

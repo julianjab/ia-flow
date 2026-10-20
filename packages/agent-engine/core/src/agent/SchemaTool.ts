@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Tool } from './AgentDefinition.js'
+import { repairNestedObjects } from './nestedInput.js'
 
 /** Sólo `z.strictObject(...)`: la API de Anthropic exige `input_schema` de tipo `object`, y
  *  `strict` rechaza claves que el modelo invente en vez de descartarlas en silencio. */
@@ -39,9 +40,12 @@ export abstract class SchemaTool<S extends ToolInputSchema> implements Tool<unkn
   // síncrono — el caller no tiene que cubrir las dos formas de fallar.
   async handler(raw: unknown): Promise<string> {
     const parsed = this.input.safeParse(raw)
-    if (!parsed.success) {
-      throw new Error(`${this.name}: input inválido\n${z.prettifyError(parsed.error)}`)
-    }
-    return this.execute(parsed.data)
+    if (parsed.success) return this.execute(parsed.data)
+    // Un objeto anidado que llegó como string (serializado, o con el `<parameter>` filtrado):
+    // se repara antes de devolverle el error al modelo, que si no reintenta el request entero.
+    const repaired = repairNestedObjects(this.input, raw)
+    const retried = repaired ? this.input.safeParse(repaired) : undefined
+    if (retried?.success) return this.execute(retried.data)
+    throw new Error(`${this.name}: input inválido\n${z.prettifyError(parsed.error)}`)
   }
 }
