@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type ProxyOptions } from 'vite'
 
 const DEFAULT_WEB_PORT = 5173
 const DEFAULT_SERVER_PORT = 3001
@@ -14,6 +14,33 @@ function readPort(env: Record<string, string>, keys: string[], fallback: number)
     throw new Error(`${key} inválido: "${raw}" — debe ser un entero entre 1 y 65535`)
   }
   return { port: fallback, explicit: false }
+}
+
+/**
+ * Runners remotos a través de esta web: `IA_FLOW_PROXY_RUNNERS=prod=https://runner.interno` sirve cada uno bajo
+ * `/<nombre>/…` (`/prod/api/inbox` → `https://runner.interno/api/inbox`): un runner al que sólo llega esta máquina
+ * (detrás de una VPN) se usa desde el teléfono agregando `https://<esta web>/<nombre>` con su token. Expuesta, la
+ * web va detrás de Cloudflare Access, y el runner sigue pidiendo su token.
+ */
+export function remoteRunnerProxies(raw: string | undefined): Record<string, ProxyOptions> {
+  const out: Record<string, ProxyOptions> = {}
+  for (const entry of (raw ?? '').split(',')) {
+    const eq = entry.indexOf('=')
+    if (eq < 0) continue
+    const name = entry.slice(0, eq).trim()
+    const target = entry
+      .slice(eq + 1)
+      .trim()
+      .replace(/\/+$/, '')
+    if (!/^[a-z0-9-]+$/.test(name) || !/^https?:\/\//.test(target)) continue
+    const prefix = `/${name}`
+    out[`^${prefix}/`] = {
+      target,
+      changeOrigin: true,
+      rewrite: (path) => path.slice(prefix.length),
+    }
+  }
+  return out
 }
 
 export default defineConfig(({ mode }) => {
@@ -52,11 +79,12 @@ export default defineConfig(({ mode }) => {
         ? env.IA_FLOW_ALLOWED_HOSTS.split(',').map((h) => h.trim())
         : undefined
 
-  const proxy = {
+  const proxy: Record<string, ProxyOptions> = {
     '/api': {
       target: apiTarget,
       changeOrigin: true,
     },
+    ...remoteRunnerProxies(env.IA_FLOW_PROXY_RUNNERS),
   }
 
   return {
