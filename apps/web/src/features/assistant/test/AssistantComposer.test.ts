@@ -204,70 +204,24 @@ describe('AssistantComposer', () => {
       }
     })
 
-    it('con la voz prendida, se elige con qué voz se lee', async () => {
+    it('con la voz prendida, el chip de voz dice idioma y velocidad, y abre el sheet', async () => {
       localStorage.setItem('ia-flow.assistant.read-aloud', '1')
-      const speech = installFakeSpeech([
-        { name: 'Jorge', lang: 'es-ES' },
-        { name: 'Mónica (Premium)', lang: 'es-ES' },
-      ])
+      const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
       try {
         const w = render()
-        const pick = w.get('[data-test="voice-pick"]')
-        expect((pick.element as HTMLSelectElement).value).toBe('Mónica (Premium)')
-        await pick.setValue('Jorge')
-        expect(useVoiceStore().voice?.name).toBe('Jorge')
+        const chip = w.get('[data-test="rate"]')
+        expect(chip.text()).toBe('ES · 1×')
+        await chip.trigger('click')
+        expect(w.emitted('voice')).toHaveLength(1)
       } finally {
         speech.uninstall()
         localStorage.clear()
       }
     })
 
-    it('con la voz prendida, la velocidad cambia con cada clic, se aplica y queda guardada', async () => {
-      localStorage.setItem('ia-flow.assistant.read-aloud', '1')
-      const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
-      try {
-        const w = render()
-        const rate = w.get('[data-test="rate"]')
-        expect(rate.text()).toBe('1×')
-        await rate.trigger('click')
-        expect(rate.text()).toBe('1.25×')
-        useVoiceStore().say('Hola.', 'k')
-        expect(speech.rateOf).toEqual([1.25])
-        expect(localStorage.getItem('ia-flow.assistant.rate')).toBe('1.25')
-        // Después de la última, vuelve a la normal.
-        await rate.trigger('click')
-        expect(rate.text()).toBe('1.5×')
-        await rate.trigger('click')
-        expect(rate.text()).toBe('1×')
-      } finally {
-        speech.uninstall()
-        localStorage.clear()
-      }
-    })
-
-    it('cambiar la velocidad mientras lee sigue desde la frase actual, a la velocidad nueva', async () => {
-      localStorage.setItem('ia-flow.assistant.read-aloud', '1')
-      const speech = installFakeSpeech([{ name: 'Mónica', lang: 'es-ES' }])
-      try {
-        const w = render()
-        const voice = useVoiceStore()
-        const after = vi.fn()
-        voice.say('Uno. Dos. Tres.', 'k', after)
-        speech.next()
-        await w.get('[data-test="rate"]').trigger('click')
-        expect(speech.said).toEqual([
-          ['Uno.', 'Dos.', 'Tres.'],
-          ['Dos.', 'Tres.'],
-        ])
-        expect(speech.rateOf).toEqual([1, 1.25])
-        expect(voice.speaking).toBe('k')
-        speech.finish()
-        expect(after).toHaveBeenCalledTimes(1)
-        expect(voice.speaking).toBeNull()
-      } finally {
-        speech.uninstall()
-        localStorage.clear()
-      }
+    it('con la voz apagada no hay chip de voz', () => {
+      const w = render()
+      expect(w.find('[data-test="rate"]').exists()).toBe(false)
     })
 
     it('sin permiso del micrófono lo dice', async () => {

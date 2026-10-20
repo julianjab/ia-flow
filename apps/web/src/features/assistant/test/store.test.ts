@@ -222,6 +222,21 @@ describe('useAssistantChatStore', () => {
     expect(chat.turns[1]).toMatchObject({ activity: null })
   })
 
+  it('los pasos se acumulan en orden, sin repetir uno seguido, y quedan al terminar', async () => {
+    const chat = useAssistantChatStore()
+    script = async function* () {
+      yield { type: 'tool', name: 'get_board', summary: 'leyendo el board' }
+      yield { type: 'tool', name: 'get_board', summary: 'leyendo el board' }
+      yield { type: 'tool', name: 'get_task', summary: 'leyendo acme/api#7' }
+      yield { type: 'done', text: 'listo' }
+    }
+    await chat.send('hola')
+    expect(chat.turns[1]).toMatchObject({
+      steps: ['leyendo el board', 'leyendo acme/api#7'],
+      activity: null,
+    })
+  })
+
   it('una propuesta es un turno propio, abierto, y no se ejecuta sola', async () => {
     script = async function* () {
       yield { type: 'text', delta: 'Conviene mergear.' }

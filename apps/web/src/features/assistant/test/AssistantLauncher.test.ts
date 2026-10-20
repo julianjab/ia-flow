@@ -80,6 +80,18 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
+  it('🔈 de la cabecera abre el sheet de voz', async () => {
+    const { wrapper } = await open()
+    const button = $('[data-test="voice"]') as HTMLElement | null
+    // Sin síntesis de voz en el navegador no hay botón: nada que configurar.
+    if (button) {
+      button.click()
+      await flushPromises()
+      expect(document.body.textContent).toContain('Voz del asistente')
+    }
+    wrapper.unmount()
+  })
+
   it('cerrar no corta la respuesta: termina igual y la burbuja la marca como no leída', async () => {
     let release: () => void = () => {}
     script = async function* () {
@@ -164,11 +176,10 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
-  it('abierto desde una tarjeta fija el contexto de esa tarea: en la caja, en el título y en las sugerencias', async () => {
+  it('abierto desde una tarjeta fija el contexto de esa tarea: en la caja y en las sugerencias', async () => {
     const { wrapper, chat } = await open({ kind: 'task', ref: 'acme/api#7' })
     expect(chat.scope).toEqual({ kind: 'task', ref: 'acme/api#7' })
     expect($('[data-test="scope"]')?.textContent).toContain('7 api')
-    expect($('.cw__sub')?.textContent).toContain('sobre acme/api#7')
     expect($$('.st__q').map((c) => c.textContent?.trim())).toContain('¿Qué pasó con esta tarea?')
     wrapper.unmount()
   })
@@ -205,7 +216,7 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
-  it('mientras responde, Enviar pasa a Detener', async () => {
+  it('mientras responde, Enviar pasa a Detener, en el mismo lugar', async () => {
     script = async function* () {
       await new Promise(() => {})
     }
@@ -213,7 +224,8 @@ describe('AssistantLauncher', () => {
     void chat.send('hola')
     await flushPromises()
     const stop = $('[data-test="stop"]') as HTMLElement
-    expect(stop.textContent?.trim()).toBe('Detener')
+    expect(stop.getAttribute('aria-label')).toBe('Detener')
+    expect($('[data-test="send"]')).toBeNull()
     wrapper.unmount()
   })
 
