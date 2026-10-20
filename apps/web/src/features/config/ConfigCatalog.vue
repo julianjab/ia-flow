@@ -92,7 +92,7 @@ const clipped = (shown: string, total: number) => shown.length < total;
 
 <style scoped>
 .cc { display: flex; flex-direction: column; gap: 0.35rem; }
-.cc__hd { display: flex; align-items: baseline; gap: 0.6rem; margin: 0; font-size: var(--fs-body); text-transform: uppercase; letter-spacing: var(--tracking-hd); }
+.cc__hd { display: flex; align-items: baseline; gap: 0.6rem; margin: 0; font-size: var(--fs-num); }
 .cc__n { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .cc__list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .cc__list > li + li { border-top: 1px solid var(--border-mute); }

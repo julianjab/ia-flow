@@ -27,7 +27,7 @@ const store = useInboxStore();
           <!-- El separador va pegado a su dato: si falta el agente o la antigüedad, no cuelga un «·». -->
           <!-- Varios agentes en paralelo: cada uno con su estado, en vez del último que cerró. -->
           <template v-if="r.agents"><span aria-hidden="true">·</span><AgentLanes :agents="r.agents" /></template>
-          <span v-else-if="r.agent" class="mono">· {{ r.agent }}</span>
+          <span v-else-if="r.agent">· {{ r.agent }}</span>
           <template v-if="r.age.text"><span aria-hidden="true">·</span><AgeStamp :age="r.age" /></template>
         </span>
       </div>
@@ -38,12 +38,12 @@ const store = useInboxStore();
 
 <style scoped>
 .rl { list-style: none; margin: 0; padding: 0; }
-.rl__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; padding: 0.25rem 0; }
+.rl__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; padding: 0.4rem 0; }
 .rl__row + .rl__row { border-top: 1px solid var(--border-mute); }
 .rl__wait { flex: none; width: 0.4rem; height: 0.4rem; background: var(--fg-dim); }
 .rl__what { flex: 1 1 12rem; min-width: 0; display: flex; flex-direction: column; }
-.rl__title { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--fs-body-sm); line-height: 1.35; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.rl__title { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--fs-body); line-height: 1.35; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
 .rl__title:hover { color: var(--accent); }
 .rl__title:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
-.rl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.35rem; color: var(--fg-dim); font-size: var(--fs-micro); }
+.rl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.35rem; color: var(--fg-dim); font-size: var(--fs-chrome); }
 </style>

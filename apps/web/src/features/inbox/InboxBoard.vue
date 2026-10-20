@@ -13,16 +13,18 @@ import FeedList from '@/features/inbox/pipeline/FeedList.vue';
 import HygieneNote from '@/features/inbox/pipeline/HygieneNote.vue';
 import PipelineCells from '@/features/inbox/pipeline/PipelineCells.vue';
 import PipelineLine from '@/features/inbox/pipeline/PipelineLine.vue';
+import PipelineStrip from '@/features/inbox/pipeline/PipelineStrip.vue';
 import { loadFailure } from '@/features/inbox/queue/advice';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
 import { useInboxStore } from '@/features/inbox/store';
 import TaskDetailDrawer from '@/features/inbox/TaskDetailDrawer.vue';
 import { useTaskFocusStore } from '@/stores/taskFocus';
 
-// La bandeja como cola de decisiones: el titular, «Lo primero» en grande, «Después» numerado,
-// lo que le das al pipeline, y plegados el board de GitHub y cómo se ordena. Lo que corre o
-// espera no es una tarjeta: son números, al costado desde 1100 px y en una línea bajo el
-// titular por debajo. Se suscribe al stream del runner mientras está montada.
+// La bandeja como cola de decisiones: el titular, «Lo primero» en grande, «Después» numerado
+// y, juntos en «Del board», los plegables de referencia (qué le das al pipeline, épicas, el
+// board de GitHub, cómo se ordena). Lo que corre o espera no es una tarjeta: son números, al
+// costado desde 1100 px, en un plegable bajo el titular por debajo y, en un teléfono, una
+// franja arriba de todo que abre un sheet. Se suscribe al stream del runner mientras está montada.
 //
 // Cada sección pinta en cuanto llega SU dato (`store.sections`): mientras tanto, su esqueleto con
 // la misma forma. Lo que llega aparece con un fade corto, escalonado en el orden real de llegada;
@@ -73,6 +75,7 @@ watch(
         :project="store.project"
         :stream="store.streamState"
         :loading="store.loading"
+        :compact="isMobile"
         @project="store.project = $event"
         @refresh="store.refresh()"
       />
@@ -82,6 +85,18 @@ watch(
 
     <div class="board__cols">
       <div class="board__main">
+        <template v-if="isMobile">
+          <SectionSkeleton v-if="s.pipeline === 'loading'" shape="pipeline-line" label="cargando el pipeline…" />
+          <PipelineStrip
+            v-else-if="s.pipeline === 'ready'"
+            :class="rv(0)"
+            :pipeline="queue.pipeline"
+            :running="queue.running"
+            :blocked="queue.blocked"
+            :stream="store.streamState"
+          />
+        </template>
+
         <SectionSkeleton v-if="s.decisions === 'loading'" shape="headline" />
         <template v-else-if="s.decisions === 'ready'">
           <InboxHeadline v-if="queue.first" :class="rv(0)" :headline="queue.headline" />
@@ -90,7 +105,7 @@ watch(
           </p>
         </template>
 
-        <template v-if="!isSplit">
+        <template v-if="!isSplit && !isMobile">
           <SectionSkeleton v-if="s.pipeline === 'loading'" shape="pipeline-line" label="cargando el pipeline…" />
           <PipelineLine v-else-if="s.pipeline === 'ready'" :class="rv(1)" :pipeline="queue.pipeline" :running="queue.running" :blocked="queue.blocked" />
         </template>
@@ -108,24 +123,30 @@ watch(
           />
         </template>
 
-        <SectionSkeleton v-if="s.feed === 'loading'" shape="feed" :rows="isMobile ? 0 : 3" label="cargando qué le das al pipeline…" />
-        <ActionError v-else-if="s.feed === 'error' && feedError" :failure="feedError" :busy="store.loading" @retry="store.refresh()" />
-        <FeedList
-          v-else-if="s.feed === 'ready' && queue.feed"
-          id="pipeline-feed"
-          :class="rv(0)"
-          :feed="queue.feed"
-          :projects="store.projects"
-          :project="store.project"
-        />
+        <!-- Lo que se consulta, no se decide: una sola lista de plegables, no seis cajas sueltas. -->
+        <section class="board__more" aria-labelledby="board-more">
+          <h2 id="board-more" class="board__more-hd">Del board</h2>
+          <div class="board__list">
+            <SectionSkeleton v-if="s.feed === 'loading'" shape="feed" :rows="isMobile ? 0 : 3" label="cargando qué le das al pipeline…" />
+            <ActionError v-else-if="s.feed === 'error' && feedError" :failure="feedError" :busy="store.loading" @retry="store.refresh()" />
+            <FeedList
+              v-else-if="s.feed === 'ready' && queue.feed"
+              id="pipeline-feed"
+              :class="rv(0)"
+              :feed="queue.feed"
+              :projects="store.projects"
+              :project="store.project"
+            />
 
-        <template v-if="!isSplit && s.decisions === 'ready'">
-          <div v-if="queue.epics.length" :class="rv(3)"><EpicsPanel :epics="queue.epics" folded /></div>
-          <HygieneNote :lines="queue.hygiene" />
-        </template>
+            <template v-if="!isSplit && s.decisions === 'ready'">
+              <div v-if="queue.epics.length" :class="rv(3)"><EpicsPanel :epics="queue.epics" folded /></div>
+              <HygieneNote :lines="queue.hygiene" />
+            </template>
 
-        <BoardRest />
-        <RulesLegend />
+            <BoardRest />
+            <RulesLegend />
+          </div>
+        </section>
       </div>
 
       <aside v-if="isSplit" class="board__aside" aria-label="El pipeline, las épicas y el board">
@@ -156,8 +177,16 @@ watch(
 .board { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .board__top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; }
 .board__top > :last-child { flex: 1 1 auto; }
-/* El título de la pantalla: versalitas de display, como el mockup. Los bloques de abajo son h2. */
-.board__title { margin: 0; font-size: var(--fs-body); text-transform: uppercase; letter-spacing: var(--tracking-hd); }
+/* El título de la pantalla: display, en minúscula normal. Los bloques de abajo son h2. */
+.board__title { margin: 0; font-size: var(--fs-display); }
+.board__more { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.board__more-hd { margin: 0; font-size: var(--fs-body); }
+/* Una lista y no seis cajas: los plegables de adentro pierden su caja y se separan con una línea. */
+.board__list { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.board__list > :deep(*),
+.board__list :deep(.dz) { border: 0; border-radius: 0; background: none; }
+.board__list > :deep(* + *) { border-top: 1px solid var(--border-mute); }
+.board__list > :deep(.hy) { padding: 0.6rem 0.75rem; }
 .board__cols { display: grid; gap: 1.25rem; min-width: 0; }
 .board__main { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
 .board__aside { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }

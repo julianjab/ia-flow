@@ -144,7 +144,7 @@ async function pick(id: string) {
   font-size: var(--fs-input);
 }
 .cl__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0.25rem 0 0.75rem; }
-.cl__group { margin: 0.6rem 0.75rem 0.2rem; color: var(--fg-dim); font-family: var(--font-mono); font-size: var(--fs-micro); letter-spacing: var(--tracking-lbl); text-transform: uppercase; }
+.cl__group { margin: 0.75rem 0.75rem 0.2rem; color: var(--fg-dim); font-size: var(--fs-chrome); font-weight: 500; }
 .cl__item { border-left: 3px solid transparent; }
 .cl__item[aria-current='true'] { border-left-color: var(--accent); background: var(--panel-hi); }
 .cl__row { display: flex; flex-direction: column; gap: 0.15rem; width: 100%; min-height: var(--tap-h); padding: 0.45rem 0.75rem; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }

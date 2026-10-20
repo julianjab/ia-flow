@@ -141,7 +141,7 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
 .ig__stats { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; color: var(--fg-mute); font-size: var(--fs-body-sm); }
 .ig__stats b { color: var(--fg); font-weight: 500; }
 .ig__events { display: flex; flex-direction: column; gap: 0.4rem; }
-.ig__hd { margin: 0; font-size: var(--fs-body); text-transform: uppercase; letter-spacing: var(--tracking-hd); }
+.ig__hd { margin: 0; font-size: var(--fs-num); }
 .ig__list { margin: 0; padding: 0 0.75rem; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .ig__list > li:first-child :deep(.er) { border-top: 0; }
 

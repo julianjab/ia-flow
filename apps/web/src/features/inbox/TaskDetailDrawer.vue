@@ -89,7 +89,7 @@ onUnmounted(() => setLock(false));
 }
 .dd__head { flex: 0 0 auto; display: flex; align-items: center; gap: 0.5rem; min-height: var(--tap-h); padding: 0 0.35rem 0 1rem; border-bottom: 1px solid var(--border); }
 .dd__meta { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.1rem 0.6rem; min-width: 0; }
-.dd__kind { --tone: var(--fg-mute); color: var(--tone); font-size: var(--fs-chrome); font-weight: 600; text-transform: uppercase; letter-spacing: var(--tracking-lbl); }
+.dd__kind { --tone: var(--fg-mute); color: var(--tone); font-size: var(--fs-chrome); font-weight: 600; }
 .dd__chip { line-height: var(--row-h); padding: 0 0.4rem; border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg-mute); font-size: var(--fs-micro); }
 .dd__close { flex: none; width: var(--tap-h); height: var(--tap-h); border: none; background: none; color: var(--fg-dim); font-family: var(--font-mono); font-size: var(--fs-body-sm); cursor: pointer; }
 .dd__close:hover { color: var(--fg); }

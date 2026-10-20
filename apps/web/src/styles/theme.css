@@ -291,12 +291,14 @@ a:not([class]):hover {
    secundario" en la tabla de texto del DESIGN_SYSTEM, no una ausencia ni un
    placeholder — que es la ranura de `--fg-dimmer`. Estaba un escalón más
    apagada, y ésa es la razón por la que ocho formularios se declararon su
-   propia copia idéntica-pero-en-`--fg-dim` en vez de usar esta clase. */
+   propia copia idéntica-pero-en-`--fg-dim` en vez de usar esta clase.
+   v4.1: el nombre quedó por historia —era mono en caja alta—. Un label es
+   texto de UI (Sans) y se escribe como se dice: sin caja alta ni tracking, que
+   hacían que todo dato con nombre gritara igual que un encabezado de sección. */
 .uc-label {
-  font-family: var(--font-mono);
-  font-size: var(--fs-micro);
-  letter-spacing: var(--tracking-lbl);
-  text-transform: uppercase;
+  font-family: var(--font-body);
+  font-size: var(--fs-chrome);
+  font-weight: 500;
   color: var(--fg-dim);
 }
 
@@ -384,11 +386,13 @@ a:not([class]):hover {
   align-items: center;
   gap: 0.4rem;
   min-height: var(--tap-h-sm);
-  padding: 0 0.75rem;
+  padding: 0 0.85rem;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--panel);
+  /* Píldora: un filtro se lee como opción, no como botón de acción (v4.1). */
+  border-radius: 999px;
+  background: none;
   color: var(--fg-mute);
+  white-space: nowrap;
 }
 .filter-chip:hover {
   background: var(--panel-hi);
@@ -399,9 +403,9 @@ a:not([class]):hover {
   outline-offset: 2px;
 }
 .filter-chip[aria-pressed="true"] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--panel);
+  background: var(--panel-hi);
+  border-color: var(--border-hi);
+  color: var(--fg);
 }
 .filter-chip[aria-pressed="true"] > * {
   color: inherit;
@@ -424,9 +428,9 @@ a:not([class]):hover {
   padding: 0.5rem 0.75rem;
   background: var(--panel-hi);
   border-bottom: 1px solid var(--border);
-  font-size: var(--fs-chrome);
-  letter-spacing: var(--tracking-hd);
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
   color: var(--fg);
 }
 .panel__header--dim {
@@ -452,9 +456,7 @@ a:not([class]):hover {
 }
 .settings-section h2 {
   margin: 0;
-  font-size: var(--fs-body);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-hd);
+  font-size: var(--fs-num);
 }
 
 /* Título + acciones en una línea. El texto se encoge (`min-width: 0`) y los

@@ -61,7 +61,7 @@ const groups = computed(() => {
 
 <style scoped>
 .cp { display: flex; flex-direction: column; gap: 0.35rem; }
-.cp__hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; margin: 0; font-size: var(--fs-body); text-transform: uppercase; letter-spacing: var(--tracking-hd); }
+.cp__hd { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; margin: 0; font-size: var(--fs-num); }
 .cp__n { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .cp__hint { margin-left: auto; color: var(--fg-dim); font-family: var(--font-body); font-size: var(--fs-body-sm); font-weight: 400; letter-spacing: 0; text-transform: none; }
 .cp__list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }

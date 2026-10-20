@@ -55,7 +55,7 @@ const emit = defineEmits<{
   flex-direction: column;
 }
 .head { padding: 0.75rem 1rem 0.5rem; border-bottom: 1px solid var(--border); }
-.head h3 { margin: 0; font-size: var(--fs-body); text-transform: uppercase; letter-spacing: var(--tracking-hd); }
+.head h3 { margin: 0; font-size: var(--fs-num); }
 .body { padding: 0.75rem 1rem; }
 .body p { margin: 0; font-size: var(--fs-body-sm); color: var(--fg-mute); line-height: 1.5; }
 .foot { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.75rem 1rem; border-top: 1px solid var(--border); }

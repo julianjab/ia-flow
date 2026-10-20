@@ -108,7 +108,7 @@ async function press() {
 }
 .fd__top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
 /* El h2 de la sección (como «Después»), con la voz de la etiqueta: el verbo de abajo es el h3. */
-.fd__kicker { margin: 0; color: var(--accent); font-weight: 400; }
+.fd__kicker { margin: 0; color: var(--accent); font-weight: 600; }
 /* Teléfono: los hijos de .fd__main se ordenan con los de la card —el botón va después del link y
    las razones— y el porqué queda plegado. */
 .fd__main { display: contents; }

@@ -121,17 +121,18 @@ async function confirm() {
 .dr__glyph { flex: none; width: 1rem; }
 .dr__title { margin: 0; color: var(--fg-mute); line-height: 1.4; overflow-wrap: anywhere; }
 .dr__why { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
-/* Teléfono: la antigüedad arriba a la derecha, en la línea del verbo; abajo, la acción a lo
-   ancho y el toggle a su derecha. `.dr__side` se disuelve en la grilla para ubicar cada pieza. */
-.dr__head { grid-template-columns: 1.4rem minmax(0, 1fr) auto; }
-.dr__rank { grid-column: 1; grid-row: 1; }
+/* Teléfono: dos columnas, sin el número de rango (el orden ya se ve). La antigüedad arriba a la
+   derecha, en la línea del verbo; abajo, la acción a lo ancho y el toggle a su derecha.
+   `.dr__side` se disuelve en la grilla para ubicar cada pieza. */
+.dr__head { grid-template-columns: minmax(0, 1fr) auto; }
+.dr__rank { display: none; }
 .dr__side { display: contents; }
-.dr__what { grid-column: 2; grid-row: 1; }
-.dr__side .age { grid-column: 3; grid-row: 1; line-height: var(--row-h); }
-.dr__act { grid-column: 2; grid-row: 2; }
-.dr__toggle { grid-column: 3; grid-row: 2; width: var(--tap-h); padding: 0; }
-.dr__in { margin-left: 1.9rem; }
-.dr__ok { margin: 0 0 0 1.9rem; color: var(--accent); font-size: var(--fs-body-sm); }
+.dr__what { grid-column: 1; grid-row: 1; }
+.dr__side .age { grid-column: 2; grid-row: 1; line-height: var(--row-h); }
+.dr__act { grid-column: 1; grid-row: 2; justify-self: start; }
+.dr__toggle { grid-column: 2; grid-row: 2; width: var(--tap-h); padding: 0; }
+.dr__in { margin-left: 0; }
+.dr__ok { margin: 0; color: var(--accent); font-size: var(--fs-body-sm); }
 .dr__kids { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border-mute); border-radius: var(--radius); }
 /* Pregunta por la lista (`.dq`), no por la ventana: a 768 la lista mide ~490px y a 1100–1280
    ~470–640 (con el aside al lado), y en una línea al título le quedaban 170–240px. 36rem es lo
@@ -139,7 +140,11 @@ async function confirm() {
    quedan ≥ ~17rem. */
 @container decisions (min-width: 36rem) {
   .dr { padding: 0.75rem 1rem; }
-  .dr__head { gap: 0.5rem 1rem; }
+  .dr__head { grid-template-columns: 1.4rem minmax(0, 1fr) auto; gap: 0.5rem 1rem; }
+  .dr__rank { display: block; grid-column: 1; grid-row: 1; }
+  .dr__what { grid-column: 2; }
+  .dr__in,
+  .dr__ok { margin-left: 1.9rem; }
   .dr__side { display: flex; grid-column: 3; grid-row: 1; align-items: center; gap: 0.4rem; }
   .dr__side .age { margin-right: 0.25rem; }
   .dr__toggle { order: 1; }

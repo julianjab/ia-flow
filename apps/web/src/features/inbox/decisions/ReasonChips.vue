@@ -10,17 +10,17 @@ defineProps<{ reasons: readonly Reason[] }>();
 </script>
 
 <template>
-  <span v-for="r in reasons" :key="r.text" class="why mono" :data-tone="r.tone" :title="r.full ?? r.text">{{ r.text }}</span>
+  <span v-for="r in reasons" :key="r.text" class="why" :data-tone="r.tone" :title="r.full ?? r.text">{{ r.text }}</span>
 </template>
 
 <style scoped>
 .why {
   line-height: var(--row-h);
-  padding: 0 0.4rem;
-  border-radius: var(--radius-sm);
+  padding: 0 0.5rem;
+  border-radius: 999px;
   background: var(--panel-hi);
   color: var(--fg-mute);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-chrome);
   display: inline-block;
   max-width: 100%;
   overflow: hidden;

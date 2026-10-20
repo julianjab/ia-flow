@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import type { Age } from '@/features/inbox/queue/age';
 
-// Cuánto lleva esperando: mono, cifras tabulares, en --warn desde las 24 h.
+// Cuánto lleva esperando: Sans (no se copia), cifras tabulares, en --warn desde las 24 h.
 
 defineProps<{ age: Age; prefix?: string }>();
 </script>
 
 <template>
-  <time v-if="age.text" class="age mono" :class="{ 'age--old': age.old }" :datetime="age.iso" :title="age.iso"
+  <time v-if="age.text" class="age" :class="{ 'age--old': age.old }" :datetime="age.iso" :title="age.iso"
     >{{ prefix ? `${prefix} ` : '' }}{{ age.text }}</time
   >
 </template>

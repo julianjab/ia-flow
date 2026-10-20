@@ -79,7 +79,7 @@ const emit = defineEmits<{ (e: 'open', ref: string): void }>();
 .tl__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 
 .tl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem 0.5rem; min-width: 0; }
-.tl__kind { color: var(--c); font-size: var(--fs-chrome); font-weight: 600; text-transform: uppercase; letter-spacing: var(--tracking-lbl); }
+.tl__kind { color: var(--c); font-size: var(--fs-chrome); font-weight: 600; }
 .tl__ref { color: var(--fg); font-size: var(--fs-chrome); }
 .tl__status { color: var(--fg-dim); font-size: var(--fs-micro); }
 .tl__go { margin-left: auto; color: var(--fg-dim); }
