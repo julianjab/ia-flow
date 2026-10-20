@@ -13,8 +13,10 @@ import {
 } from './macClipboard'
 
 // La pastilla «📋 de la Mac», arriba y en todas las pantallas (va en App.vue). Mientras la pestaña se ve,
-// pregunta cada 4 s (y al volver a ella); escondida no pregunta. Sin sesión de mac-pulse espera 5 min.
+// pregunta cada 4 s (y al volver a ella); escondida no pregunta. Sin sesión de mac-pulse espera 5 min; sin compartir
+// el portapapeles (se prende en los Ajustes de mac-pulse), 1 min.
 const EVERY_MS = 4_000
+const OFF_MS = 60_000
 const NO_SESSION_MS = 5 * 60_000
 const ERROR_MS = 30_000
 
@@ -37,7 +39,9 @@ async function tick() {
   const got = await fetchClip(base, clip.value?.id ?? null)
   now.value = Date.now()
   if (got.kind === 'clip') clip.value = got.clip
-  const wait = got.kind === 'no-session' ? NO_SESSION_MS : got.kind === 'error' ? ERROR_MS : EVERY_MS
+  if (got.kind === 'off') clip.value = null
+  const WAIT: Record<typeof got.kind, number> = { clip: EVERY_MS, same: EVERY_MS, off: OFF_MS, 'no-session': NO_SESSION_MS, error: ERROR_MS }
+  const wait = WAIT[got.kind]
   timer = setTimeout(tick, wait)
 }
 

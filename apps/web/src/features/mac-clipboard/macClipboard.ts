@@ -2,6 +2,8 @@
 // toque para pegarlo acá, en cualquier pantalla. mac-pulse responde con CORS a esta web; por el túnel las dos
 // son subdominios de julianjab.link, así que el navegador manda la cookie de Cloudflare Access de mac-pulse
 // (si nunca se entró a mac-pulse en este navegador, Access redirige y la pastilla simplemente no aparece).
+// Sólo hay algo mientras «Compartir el portapapeles» está prendido en mac-pulse (se prende desde el teléfono, en sus
+// Ajustes); apagado, mac-pulse contesta `enabled: false` y la Mac ni lee su portapapeles.
 
 export type MacClip = { id: string; text: string; at: number; truncated: boolean }
 
@@ -20,6 +22,7 @@ export function macPulseBase(configured: string | undefined, hostname: string): 
 
 export type FetchResult =
   | { kind: 'clip'; clip: MacClip | null }
+  | { kind: 'off' }
   | { kind: 'same' }
   | { kind: 'no-session' }
   | { kind: 'error' }
@@ -38,7 +41,9 @@ export async function fetchClip(
     // la redirección al login de Access, o mac-pulse sin sesión
     if (r.type === 'opaqueredirect' || r.status === 401) return { kind: 'no-session' }
     if (!r.ok) return { kind: 'error' }
-    const body = (await r.json()) as { clip?: MacClip | null }
+    const body = (await r.json()) as { clip?: MacClip | null; enabled?: boolean }
+    // un mac-pulse anterior al interruptor no manda `enabled`: comparte siempre
+    if (body.enabled === false) return { kind: 'off' }
     return { kind: 'clip', clip: body.clip ?? null }
   } catch {
     // CORS (la redirección de Access a otro origen) o sin red: no se distingue desde acá
