@@ -130,17 +130,32 @@ struct RunTraceScreen: View {
         }
     }
 
-    // MARK: pie: detener, preguntar, opciones
+    // MARK: pie: la acción de la tarea, «Más», preguntar, opciones
 
+    /// Una sola fila, como la barra del detalle de la web: la acción del caso a la vista y el resto en «Más».
     private var footer: some View {
-        HStack(spacing: 8) {
-            if watch.running, let stop = actionsOf(watch.item).first(where: { $0.id == "stop" }) {
-                Button("Detener…") { runner.trigger(stop, on: watch.item) }
-                    .buttonStyle(PillButtonStyle(tint: .red, compact: true)).fixedSize()
+        let actions = actionsOf(watch.item)
+        let main = mainAction(actions)
+        let rest = actions.filter { $0.id != main?.id }
+        let busy = runner.busy.contains(watch.item.ref)
+        return HStack(spacing: 8) {
+            if let main {
+                Button(main.confirms ? "\(main.label)…" : main.label) { runner.trigger(main, on: watch.item) }
+                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? .red : .accentColor, compact: true))
+                    .fixedSize().disabled(busy)
             }
-            Button { runner.onAsk?(watch.item) } label: { Label("Preguntar", systemImage: "bubble.left.and.text.bubble.right") }
-                .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
-                .help("Preguntarle al asistente sobre esta tarea")
+            if !rest.isEmpty {
+                Menu {
+                    ForEach(rest) { action in
+                        Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
+                            runner.trigger(action, on: watch.item)
+                        }
+                    }
+                } label: { Text("Más · \(rest.count)").font(.lh(11.5, .semibold)) }
+                    .menuStyle(.button).buttonStyle(PillButtonStyle(compact: true)).menuIndicator(.hidden).fixedSize()
+                    .disabled(busy)
+            }
+            IconButton(symbol: "bubble.left.and.text.bubble.right", help: "Preguntarle al asistente sobre esta tarea") { runner.onAsk?(watch.item) }
             Spacer(minLength: 4)
             Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
             Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }

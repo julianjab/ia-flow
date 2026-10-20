@@ -259,6 +259,14 @@ final class RunnerModel: ObservableObject {
 
     var shownDecisions: [InboxItem] { decisions.filter(keep) }
     var shownRunning: [InboxItem] { running.filter(keep) }
+    /// «Lo último que corrió»: las cards cuya última corrida ya cerró, de la más nueva a la más vieja (como la web).
+    var recentRuns: [InboxItem] {
+        let closed: Set<String> = ["done", "failed", "superseded"]
+        return (inbox?.items ?? [])
+            .filter { $0.execution.map { closed.contains($0.status) && $0.closed_at != nil } ?? false }
+            .sorted { ($0.execution?.closed_at ?? "") > ($1.execution?.closed_at ?? "") }
+            .prefix(5).map { $0 }
+    }
     var shownQueued: [InboxItem] { queued.filter(keep) }
     var shownImprovements: [Improvement] {
         improvements.filter { improvement in
@@ -839,12 +847,16 @@ extension RunnerModel {
         let project = InboxProject(id: "p", board_url: nil, url: nil, statuses: ["Todo", "Refine", "Refined", "Build", "Review", "Done"])
         let inbox = Inbox(generated_at: "", projects: [project], items: [
             item(4281, "feat(core): el motor de asignación resuelve assignable_stages y stage_weights", group: "need", kind: "review", why: "Review sin reviewed · PR #912",
-                 actions: ["rerun_review", "retry"], epic: epic, priority: 1, pr: 912),
+                 actions: ["rerun_review", "retry"], epic: epic, priority: 1, pr: 912,
+                 execution: ExecutionSummary(id: "e0", pipeline_id: "review", status: "done", started_at: isoAgo(40),
+                                             agent_id: "aiflow-reviewer", closed_at: isoAgo(25), exit: "changes_requested")),
             item(4290, "fix(crm): evento lead.profiled en EventBridge", group: "need", kind: "doubt", why: "El agente se trabó y te pregunta",
                  actions: ["answer_and_unblock", "back_to_refine"], epic: epic, priority: 2, said: "¿El evento lleva el user_id o el lead_id?",
                  repo: "ai-cx-agents"),
             item(4301, "Migrar tabla de citas", group: "fail", kind: "crash", why: "La corrida falló por el provider (timeout)",
-                 actions: ["retry"], priority: 3),
+                 actions: ["retry"], priority: 3,
+                 execution: ExecutionSummary(id: "e1", pipeline_id: "build", status: "failed", started_at: isoAgo(20),
+                                             agent_id: "aiflow-implementer", closed_at: isoAgo(12))),
             InboxItem(ref: "la-haus/subscriptions#1271", project_id: "p", title: "Pipeline propio configurable: stages y transitions declarativas (reemplazo del if/elif)",
                       url: "", group: "need", kind: "prd", status: nil, why: "PRD listo para aprobar (status Refined)", since: "2026-10-13T10:00:00Z",
                       pr: nil, execution: nil, blocked_by: nil, epic: nil, agent_said: nil, actions: ["approve_prd", "back_to_refine"],

@@ -35,10 +35,14 @@ y de cada host, con sus lugares ocupados; «A tope» si no quedan lugares o memo
 (`/api/webhooks/status`), el asistente y los últimos avisos de `/api/logs`. Se relee cada 6 s.
 
 **Pestaña «Runner»:** la bandeja de un runner (local o remoto) sobre la misma API que la web
-(`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) con su acción
-principal a un clic y las demás en ⋯, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
+(`/api/inbox`, ya clasificada por el runner): lo que **te necesita** (merge, PRD, dudas, fallos) —la primera con su
+acción a la vista; las demás, cortas: sus acciones salen **deslizándolas a la izquierda** (dos dedos o arrastrando,
+como en MacPulse) o con clic derecho, y un clic en la fila abre su detalle—, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), lo que
 **corre** (con «Detener…»), la **cola** y lo que está **por arrancar**. Cada sección se colapsa con un clic en su título.
+**Lo último que corrió:** las cards cuya última corrida ya cerró (✓ ✕ ↷, agente, la salida si no fue `done`, hace
+cuánto); la más nueva va también junto a la capacidad. **El detalle** (la traza) lleva al pie la acción de la tarea y
+el resto en «Más», en una sola fila.
 **Por arrancar:** las cards de Todo (`feed` de `/api/inbox`): primero las que pueden arrancar ya, después las que
 esperan a otra («espera #12», y en ⋯ se abre la que bloquea). El título abre el issue; «Mover a ▸» (en ⋯) lleva las
 columnas del board de su proyecto (`projects[].statuses`, sin la actual) y mueve la card con tu login

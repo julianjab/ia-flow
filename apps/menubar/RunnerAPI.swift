@@ -79,6 +79,8 @@ struct ExecutionSummary: Codable, Hashable {
     let started_at: String
     let agent_id: String?
     var closed_at: String? = nil
+    /// La salida por la que cerró (`done`, `changes_requested`…).
+    var exit: String? = nil
     /// Lo que dijo el agente al cerrar (su resumen).
     var summary: String? = nil
     var failure: ExecutionFailure? = nil
