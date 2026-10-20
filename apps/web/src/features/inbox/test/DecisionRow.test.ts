@@ -19,6 +19,7 @@ import DecisionRow from '@/features/inbox/decisions/DecisionRow.vue'
 import FirstDecision from '@/features/inbox/decisions/FirstDecision.vue'
 import { buildQueue } from '@/features/inbox/queue/build'
 import type { QueueRow } from '@/features/inbox/queue/entries'
+import { useInboxStore } from '@/features/inbox/store'
 import { useGithubSessionStore } from '@/stores/githubSession'
 
 const NOW = Date.parse('2026-01-03T10:00:00.000Z')
@@ -282,6 +283,39 @@ describe('DecisionRow', () => {
     expect(w.get('.dr__head [data-action="relaunch"]').text()).toBe('· ejecutando')
     resolve({ ok: true, message: 'ok' })
     await flushPromises()
+    w.unmount()
+  })
+
+  it('deslizada ofrece su acción y «Detalle»: la acción corre como el botón', async () => {
+    postTaskAction.mockResolvedValue({ ok: true, message: 'relanzada' })
+    const { pinia } = setup()
+    const w = mountRow(rows([stale])[0] as QueueRow, pinia)
+    const acts = w.findAll('.sw__act')
+    expect(acts.map((b) => b.text())).toEqual(['Relanzar', 'Detalle'])
+    await w.get('[data-test="swipe-act"]').trigger('click')
+    await flushPromises()
+    expect(postTaskAction).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('«Detalle» abre la tarea en grande', async () => {
+    const { pinia } = setup()
+    const w = mountRow(rows([stale])[0] as QueueRow, pinia)
+    await w.get('[data-test="swipe-open"]').trigger('click')
+    const store = useInboxStore()
+    expect(store.openRef).toBe('la-haus/subscriptions#20')
+    expect(store.expanded).toBe(true)
+    w.unmount()
+  })
+
+  it('tocar la fila (fuera de un link o un botón) la abre: el camino sin gesto', async () => {
+    const { pinia } = setup()
+    const w = mountRow(rows([stale])[0] as QueueRow, pinia)
+    await w.get('.dr__title').trigger('click')
+    expect(w.get('[data-test="toggle"]').attributes('aria-expanded')).toBe('true')
+    expect(w.get('.dr').attributes('data-open')).toBeDefined()
+    await w.get('.dr__head [data-action="relaunch"]').trigger('click')
+    expect(w.get('[data-test="toggle"]').attributes('aria-expanded')).toBe('true')
     w.unmount()
   })
 })
