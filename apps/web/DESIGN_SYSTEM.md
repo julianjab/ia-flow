@@ -37,8 +37,8 @@ Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono
   detalle tapa la bandeja, así que no compite con «Lo primero».
 - **Filas de lista cortas, acciones al deslizar** (`ui/SwipeRow.vue`): en una columna angosta una
   fila cerrada dice qué, de qué tarea y hace cuánto —el título en dos líneas, una razón— y su
-  botón no se ve. Deslizarla a la izquierda muestra la acción (primario) y «Detalle»; tocarla la
-  abre con el porqué y el botón. El gesto es un atajo: nunca es el único camino a una acción.
+  botón no se ve. Deslizarla a la izquierda muestra la acción (primario); tocarla abre la tarea
+  en grande, con su barra de acciones. El gesto es un atajo: nunca es el único camino a una acción.
 
 ## Tokens (fuente única: `src/styles/theme.css`)
 

@@ -17,10 +17,10 @@ import SwipeRow, { type SwipeAction } from '@/ui/SwipeRow.vue';
 // cerrada; abrir sólo agrega el porqué debajo. Un grupo («Mergear 2 PRs») abre sus hijas, cada
 // una con su botón, y su propio botón corre la acción sobre todas, en serie.
 //
-// En una columna angosta (un teléfono) la fila cerrada es corta: verbo y antigüedad, el título en
-// dos líneas como mucho y el link con UNA razón. La acción se alcanza de dos formas: deslizando la
-// fila a la izquierda (la acción y «Detalle», como en mac-pulse) o tocándola, que la abre con el
-// porqué y el botón a la vista.
+// Tocar la card (fuera de un link o un botón) abre la tarea en grande, con su traza y sus
+// acciones; un grupo, en cambio, despliega sus hijas. En una columna angosta (un teléfono) la fila
+// cerrada es corta: verbo y antigüedad, el título en dos líneas como mucho y el link con UNA
+// razón; su acción sale deslizándola a la izquierda (como en mac-pulse) o desde el detalle.
 
 const props = defineProps<{ row: QueueRow }>();
 
@@ -36,24 +36,18 @@ const detailId = computed(() => `${domId.value}-detail`);
 const tone = computed(() => ({ '--tone': `var(--${props.row.tone})` }));
 const detail = ref<InstanceType<typeof DecisionDetail> | null>(null);
 
-/** Lo que aparece al deslizarla: su acción, y abrir la tarea en grande (o las hijas de un grupo). */
-const swipe = computed<SwipeAction[]>(() => [
-  ...(props.row.action
+/** Lo que aparece al deslizarla: su acción (el detalle ya está a un toque). */
+const swipe = computed<SwipeAction[]>(() =>
+  props.row.action
     ? [{ id: 'act', label: props.row.action.label, tone: 'primary' as const, disabled: act.busy.value }]
-    : []),
-  { id: 'open', label: props.row.kind === 'group' ? 'Ver las tareas' : 'Detalle' },
-]);
+    : [],
+);
 
-function onSwipe(id: string) {
-  if (id === 'act') void press();
-  else if (single.value) store.expand(single.value.ref);
-  else groupOpen.value = true;
-}
-
-/** Tocar la fila (fuera de un link o un botón) la abre o la cierra: el camino sin gesto. */
+/** Tocar la card (fuera de un link o un botón) abre la tarea en grande; un grupo, sus hijas. */
 function tapRow(e: MouseEvent) {
   if ((e.target as HTMLElement).closest('a, button, input, textarea, select')) return;
-  toggle();
+  if (single.value) store.expand(single.value.ref);
+  else toggle();
 }
 
 function toggle() {
@@ -76,7 +70,7 @@ async function confirm() {
 </script>
 
 <template>
-  <SwipeRow class="dr-sw" :actions="swipe" :disabled="open || act.confirming.value" @action="onSwipe">
+  <SwipeRow class="dr-sw" :actions="swipe" :disabled="open || act.confirming.value" @action="press">
   <article :id="domId" class="dr" :style="tone" :data-kind="row.kind" :data-type="row.type" :data-open="open || undefined">
     <div class="dr__head" @click="tapRow">
       <span class="dr__rank mono">{{ row.rank }}</span>
@@ -143,7 +137,7 @@ async function confirm() {
 <style scoped>
 .dr-sw { border-top: 1px solid var(--border-mute); }
 .dr { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.7rem 0.75rem; min-width: 0; }
-.dr__head { display: grid; gap: 0.5rem 0.5rem; align-items: start; }
+.dr__head { display: grid; gap: 0.5rem 0.5rem; align-items: start; cursor: pointer; }
 .dr__rank { color: var(--fg-dim); font-variant-numeric: tabular-nums; line-height: var(--row-h); }
 .dr__what { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .dr__verb { display: flex; align-items: baseline; gap: 0.5rem; margin: 0; color: var(--tone); font-family: var(--font-body); font-size: var(--fs-body); font-weight: 600; letter-spacing: 0; overflow-wrap: anywhere; }
@@ -155,7 +149,7 @@ async function confirm() {
    abriéndola), el título va en dos líneas y sólo la primera razón. El toggle no se ve: tocar la
    fila ya la abre y la cierra; queda para el lector de pantalla y aparece si le llega el foco del
    teclado. `.dr__side` se disuelve en la grilla para ubicar cada pieza. */
-.dr__head { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer; }
+.dr__head { grid-template-columns: minmax(0, 1fr) auto; }
 .dr__rank { display: none; }
 .dr__side { display: contents; }
 .dr__what { grid-column: 1; grid-row: 1 / span 2; }
@@ -183,7 +177,7 @@ async function confirm() {
    quedan ≥ ~17rem. */
 @container decisions (min-width: 36rem) {
   .dr { padding: 0.75rem 1rem; }
-  .dr__head { grid-template-columns: 1.4rem minmax(0, 1fr) auto; gap: 0.5rem 1rem; cursor: auto; }
+  .dr__head { grid-template-columns: 1.4rem minmax(0, 1fr) auto; gap: 0.5rem 1rem; }
   .dr:not([data-open]) .dr__title { display: block; overflow: visible; }
   .dr:not([data-open]) .dr__why :deep(.why ~ .why) { display: inline-block; }
   .dr__toggle { align-self: auto; }
