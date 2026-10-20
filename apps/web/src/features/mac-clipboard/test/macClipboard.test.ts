@@ -38,6 +38,15 @@ describe('fetchClip', () => {
       cache: 'no-store',
     })
   })
+  it('sin compartir el portapapeles en mac-pulse: apagado', async () => {
+    const f = reply({
+      status: 200,
+      ok: true,
+      type: 'cors',
+      json: async () => ({ clip: null, enabled: false }),
+    })
+    expect(await fetchClip('https://mp', null, f)).toEqual({ kind: 'off' })
+  })
   it('204: no cambió', async () => {
     expect(await fetchClip('https://mp', 'a1', reply({ status: 204 }))).toEqual({ kind: 'same' })
   })
