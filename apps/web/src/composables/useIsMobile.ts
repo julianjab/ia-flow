@@ -66,7 +66,9 @@ function useMediaQuery(query: string): Ref<boolean> {
 /** Bajo `--bp-shell` (768px): la capa táctil. Tab bar, sin sidebar, sheets en
  *  vez de popovers, modales a pantalla completa. */
 export function useIsMobile(): { isMobile: Ref<boolean> } {
-  return { isMobile: useMediaQuery('(max-width: 768px)') }
+  // 767.98 y no 768: el CSS agrega el desktop con `min-width: 768px`, y con
+  // `max-width: 768px` a exactamente 768 aplicaban las dos capas a la vez.
+  return { isMobile: useMediaQuery('(max-width: 767.98px)') }
 }
 
 /** Sobre `--bp-split` (1100px): hay ancho para una segunda columna — el detalle

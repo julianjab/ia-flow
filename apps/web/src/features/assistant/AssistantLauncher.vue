@@ -35,7 +35,6 @@ function stop() {
 }
 const { isMobile } = useIsMobile();
 
-const unread = ref(false);
 /** Las conversaciones abiertas como cajón (bajo 768px, donde no hay lugar al costado). */
 const drawer = ref(false);
 
@@ -62,7 +61,7 @@ function toggle() {
 watch(
   () => chat.streaming,
   (now, before) => {
-    if (before && !now && !ui.isOpen && chat.turns.length) unread.value = true;
+    if (before && !now && !ui.isOpen && chat.turns.length) ui.unread = true;
   },
 );
 
@@ -75,7 +74,6 @@ watch(
   async ([open, mobile]) => {
     setLock(open && mobile);
     if (!open) return;
-    unread.value = false;
     // En desktop el foco va a la caja de pregunta; en un teléfono eso abriría el teclado encima.
     if (!mobile) {
       await nextTick();
@@ -154,9 +152,9 @@ onUnmounted(() => setLock(false));
     </section>
   </Teleport>
 
-  <!-- En un teléfono la ventana tapa todo y trae su ✕: la burbuja sobra. -->
+  <!-- En un teléfono el asistente es una pestaña de la tab bar (AppShell): la burbuja es de desktop. -->
   <button
-    v-if="!(ui.isOpen && isMobile)"
+    v-if="!isMobile"
     type="button"
     class="fab"
     :class="{ 'fab--open': ui.isOpen }"
@@ -166,7 +164,7 @@ onUnmounted(() => setLock(false));
     @click="toggle"
   >
     <span aria-hidden="true">{{ ui.isOpen ? '✕' : '✦' }}</span>
-    <span v-if="unread" class="fab__unread" data-test="unread" aria-label="Respuesta nueva" />
+    <span v-if="ui.unread" class="fab__unread" data-test="unread" aria-label="Respuesta nueva" />
   </button>
 </template>
 

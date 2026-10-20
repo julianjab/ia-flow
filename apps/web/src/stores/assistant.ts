@@ -16,10 +16,13 @@ export const useAssistantStore = defineStore('assistant', () => {
    * a mano no debe volver a fijar el contexto de la última vez.
    */
   const request = ref<AssistantScope | null>(null)
+  /** Una respuesta terminó con el asistente cerrado: la marca quien lo abre (burbuja o pestaña). */
+  const unread = ref(false)
 
   function open(scope?: AssistantScope): void {
     if (scope) request.value = scope
     isOpen.value = true
+    unread.value = false
   }
 
   function close(): void {
@@ -32,5 +35,5 @@ export const useAssistantStore = defineStore('assistant', () => {
     return scope
   }
 
-  return { isOpen, request, open, close, consumeRequest }
+  return { isOpen, request, unread, open, close, consumeRequest }
 })

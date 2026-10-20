@@ -696,7 +696,7 @@ a:not([class]):hover {
    Sólo bajo --bp-shell: sobre el breakpoint no hay teclado virtual que
    dispare el zoom, y 16px en un formulario denso de escritorio se lleva
    puesta la densidad que ese kit existe para dar. */
-@media (max-width: 768px) {
+@media (max-width: 767.98px) {
   input:not([type="checkbox"]):not([type="radio"]),
   textarea,
   select {

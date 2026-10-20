@@ -21,7 +21,8 @@ const props = withDefaults(
     /** Nombra el diálogo para lectores de pantalla. */
     title: string;
     /** Se dibuja arriba del contenido, en caja alta. Sin esto el sheet abre sin
-     *  decir de qué es — el `aria-label` no lo ve nadie que mire la pantalla. */
+     *  decir de qué es — el `aria-label` no lo ve nadie que mire la pantalla.
+     *  Es un título y se escribe como tal: en minúscula normal, no en caja alta. */
     showTitle?: boolean;
   }>(),
   { showTitle: true },
@@ -55,8 +56,9 @@ onUnmounted(() => setLock(false));
   <Teleport to="body">
     <div v-if="open" class="bs-backdrop" @click.self="emit('close')">
       <div class="bs" role="dialog" aria-modal="true" :aria-label="title">
+        <span class="bs__grab" aria-hidden="true" />
         <div v-if="showTitle" class="bs__head">
-          <span class="uc-label">{{ title }}</span>
+          <h2 class="bs__title">{{ title }}</h2>
           <button type="button" class="bs__close" aria-label="Cerrar" @click="emit('close')">✕</button>
         </div>
         <div class="bs__body">
@@ -94,15 +96,18 @@ onUnmounted(() => setLock(false));
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
+/* El asa dice «esto se baja»: es la forma del sheet, no un control (cerrar es ✕ o tocar afuera). */
+.bs__grab { flex: none; align-self: center; width: 2.25rem; height: 0.25rem; margin-top: 0.5rem; border-radius: 2px; background: var(--border-hi); }
 .bs__head {
   flex: 0 0 auto;
-  height: var(--tap-h);
+  min-height: var(--tap-h);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 0.5rem;
   padding: 0 0.35rem 0 1rem;
-  border-bottom: 1px solid var(--border);
 }
+.bs__title { margin: 0; color: var(--fg); font-size: var(--fs-num); font-weight: 600; text-wrap: balance; }
 .bs__close {
   width: var(--tap-h);
   height: var(--tap-h);
@@ -120,7 +125,7 @@ onUnmounted(() => setLock(false));
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 0.5rem 0 0.75rem;
+  padding: 0.25rem 0 calc(0.75rem + env(safe-area-inset-bottom, 0px));
 }
 .bs__foot {
   flex: 0 0 auto;
@@ -134,6 +139,7 @@ onUnmounted(() => setLock(false));
 /* Sobre --bp-shell hay lugar para un diálogo centrado, que es lo que un mouse
    espera. La pieza es la misma; lo que cambia es de dónde entra. */
 @media (min-width: 768px) {
+  .bs__grab { display: none; }
   .bs-backdrop { align-items: center; justify-content: center; }
   .bs {
     width: min(30rem, 92vw);
