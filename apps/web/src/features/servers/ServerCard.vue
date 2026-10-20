@@ -62,7 +62,7 @@ function saveToken() {
       <span class="dot" :class="dotClass" />
       <span class="card__port">{{ label || `:${port}` }}</span>
       <span v-if="isRunner" class="tag">runner{{ server.version ? ` ${server.version}` : '' }}</span>
-      <span v-if="current" class="tag tag--current">estás acá</span>
+      <span v-if="current" class="tag tag--current">Estás acá</span>
       <button
         v-if="!current"
         class="card__x"
@@ -83,23 +83,21 @@ function saveToken() {
       class="card__enter"
       type="button"
       :disabled="!server.reachable"
-      :title="server.reachable ? `entrar a ${server.baseUrl}` : 'no responde'"
+      :title="server.reachable ? `Entrar a ${server.baseUrl}` : 'No responde'"
       @click="emit('enter', server.baseUrl)"
     >
       {{ server.baseUrl }}
     </button>
 
-    <p v-if="server.needsToken" class="card__auth">· pide token</p>
-    <p v-else-if="!server.reachable" class="card__empty">· no responde</p>
-    <p v-else-if="!isRunner" class="card__auth">· no es un runner-v2: esta web no lo opera</p>
+    <p v-if="server.needsToken" class="card__auth">Pide token.</p>
+    <p v-else-if="!server.reachable" class="card__empty">No responde.</p>
+    <p v-else-if="!isRunner" class="card__auth">No es un runner-v2: esta web no lo opera.</p>
 
     <template v-else>
-      <div class="card__stats">
-        <span class="uc-label">proyectos</span>
-        <span class="card__val">{{ server.projects.length }}</span>
-        <span class="uc-label">latencia</span>
-        <span class="card__val">{{ Math.round(server.latencyMs) }} ms</span>
-      </div>
+      <p class="card__stats">
+        <span><b class="card__val">{{ server.projects.length }}</b> {{ server.projects.length === 1 ? 'proyecto' : 'proyectos' }}</span>
+        <span><b class="card__val">{{ Math.round(server.latencyMs) }}</b> ms</span>
+      </p>
 
       <ul v-if="server.projects.length" class="card__projects">
         <li v-for="p in server.projects" :key="p.id">
@@ -107,21 +105,21 @@ function saveToken() {
           <span class="card__dim">{{ p.board.owner }}#{{ p.board.number }}</span>
         </li>
       </ul>
-      <p v-else class="card__empty">· sin proyectos</p>
+      <p v-else class="card__empty">Sin proyectos.</p>
 
       <p class="card__gh">
         <template v-if="github">
-          <span class="uc-label">github</span>
+          <span class="uc-label">GitHub</span>
           <span class="mono">@{{ github.login }}</span>
           <button
             class="btn btn--ghost card__ghbtn"
             type="button"
             @click.stop="emit('github-logout', server.baseUrl)"
           >
-            cerrar sesión
+            Cerrar sesión
           </button>
         </template>
-        <span v-else class="card__dim">· sin sesión de GitHub — se inicia desde la bandeja</span>
+        <span v-else class="card__dim">Sin sesión de GitHub: se inicia desde la bandeja.</span>
       </p>
     </template>
 
@@ -133,14 +131,14 @@ function saveToken() {
           v-model="draft"
           type="password"
           class="ff-field card__tokeninput"
-          placeholder="token de la API"
+          placeholder="Token de la API"
           :aria-label="`token de ${server.baseUrl}`"
           autocomplete="off"
         />
-        <button class="btn" type="submit">guardar</button>
+        <button class="btn" type="submit">Guardar</button>
       </form>
       <button v-else class="btn btn--ghost card__tokenlink" type="button" @click="editing = true">
-        {{ token ? '· token configurado — cambiar' : '· sin token — configurar' }}
+        {{ token ? 'Token configurado · Cambiar' : 'Sin token · Configurar' }}
       </button>
     </div>
   </article>
@@ -226,12 +224,14 @@ function saveToken() {
 .card__enter:disabled { cursor: default; }
 
 .card__stats {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.15rem 0.6rem;
-  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: var(--fs-body-sm);
 }
-.card__val { font-variant-numeric: tabular-nums; }
+.card__val { color: var(--fg-mute); font-weight: 500; font-variant-numeric: tabular-nums; }
 
 .card__projects { list-style: none; margin: 0; padding: 0; font-size: var(--fs-body-sm); }
 .card__projects li { display: flex; align-items: baseline; gap: 0.5rem; }

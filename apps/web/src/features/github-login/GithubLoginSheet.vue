@@ -82,33 +82,36 @@ onBeforeUnmount(() => abort?.abort());
 </script>
 
 <template>
-  <BottomSheet :open="session.loginOpen" title="Iniciar sesión con GitHub" @close="cancel">
+  <BottomSheet :open="session.loginOpen" title="Entrar con GitHub" @close="cancel">
     <div class="gl">
       <p class="gl__lead">
         Tus acciones sobre el board —mergear, aprobar, destrabar— quedan firmadas con tu usuario
         de GitHub, no con el del runner.
       </p>
 
-      <p v-if="phase === 'starting'" class="gl__status">· pidiendo un código…</p>
+      <p v-if="phase === 'starting'" class="gl__status">Pidiendo un código…</p>
 
       <template v-else-if="phase === 'waiting' && code">
-        <p class="gl__step">
-          1. Abrí
-          <a :href="code.verification_uri" target="_blank" rel="noopener noreferrer" class="gl__link">
-            {{ code.verification_uri }} ↗
-          </a>
-        </p>
-        <p class="gl__step">2. Ingresá este código:</p>
-        <div class="gl__code">
-          <output class="gl__usercode" data-test="user-code">{{ code.user_code }}</output>
-          <CopyButton :value="code.user_code" label="el código" />
+        <!-- El orden importa (primero se abre GitHub, después se escribe el código): acá el número es información. -->
+        <ol class="gl__steps">
+          <li class="gl__step">
+            Abrí <span class="mono gl__uri">{{ code.verification_uri.replace(/^https?:\/\//, '') }}</span>
+          </li>
+          <li class="gl__step">Escribí este código</li>
+        </ol>
+        <output class="gl__usercode" data-test="user-code">{{ code.user_code }}</output>
+        <div class="gl__acts">
+          <CopyButton v-slot="{ copied }" :value="code.user_code" label="el código" class="btn gl__copy">
+            {{ copied ? '✓ Copiado' : 'Copiar' }}
+          </CopyButton>
+          <a :href="code.verification_uri" target="_blank" rel="noopener noreferrer" class="btn btn--primary gl__open">Abrir GitHub ↗</a>
         </div>
-        <p class="gl__status"><span class="live-dot" /> esperando que lo autorices…</p>
+        <p class="gl__status"><span class="live-dot" /> Esperando que lo autorices…</p>
       </template>
 
       <div v-else-if="phase === 'failed'" class="gl__fail" role="alert">
         <p class="gl__err">✕ {{ failure }}</p>
-        <button type="button" class="btn btn--primary" @click="start">Reintentar</button>
+        <button type="button" class="btn btn--primary" @click="start">Pedir otro código</button>
       </div>
     </div>
 
@@ -121,24 +124,53 @@ onBeforeUnmount(() => abort?.abort());
 <style scoped>
 .gl { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 1rem; }
 .gl__lead { margin: 0; color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.5; }
-.gl__step { margin: 0; color: var(--fg); }
-/* `a:hover` global pinta el fondo: se pisa explícitamente (DESIGN_SYSTEM «Trampas»). */
-.gl__link { display: inline-flex; align-items: center; min-height: var(--tap-h); }
-.gl__link:hover { background: transparent; color: var(--green-hi); text-decoration: underline; }
-.gl__code { display: flex; align-items: center; gap: 0.75rem; }
-/* El código se lee y se copia: mono, grande y seleccionable de un toque. */
+.gl__steps { display: flex; flex-direction: column; gap: 0.5rem; margin: 0; padding: 0; list-style: none; counter-reset: gl; }
+.gl__step { display: flex; align-items: center; gap: 0.6rem; color: var(--fg); counter-increment: gl; }
+.gl__step::before {
+  content: counter(gl);
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--panel-hi);
+  color: var(--fg-mute);
+  font-size: var(--fs-chrome);
+}
+.gl__uri { color: var(--info); overflow-wrap: anywhere; }
+/* El código se lee y se copia: mono, grande, seleccionable de un toque, en su caja punteada. */
 .gl__usercode {
-  font-family: var(--font-mono);
-  font-size: 1.6rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  display: block;
+  padding: 0.75rem;
+  border: 1px dashed var(--border-hi);
+  border-radius: calc(var(--radius) * 2);
+  background: var(--bg);
   color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-display);
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-align: center;
   user-select: all;
-  padding: 0.25rem 0.75rem;
+}
+.gl__acts { display: flex; gap: 0.5rem; }
+.gl__acts > * { flex: 1; min-height: var(--tap-h-lg); }
+/* `a:hover` global pinta video inverso: el botón-link conserva su primario. */
+.gl__open { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.gl__open:hover { background: var(--green-hi); color: var(--bg); }
+/* CopyButton es un glifo sin caja: acá es un botón de verdad (la caja de `.btn`, que su estilo
+   scoped pisa). */
+.gl__acts .gl__copy {
   border: 1px solid var(--border-hi);
   border-radius: var(--radius);
-  background: var(--panel-hi);
+  background: var(--panel-alt);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--fs-body-sm);
+  font-weight: 500;
 }
+.gl__acts .gl__copy.is-copied { color: var(--accent); }
 .gl__status { margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); display: flex; align-items: center; gap: 0.5rem; }
 .gl__fail { display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
 .gl__err { margin: 0; color: var(--danger); }

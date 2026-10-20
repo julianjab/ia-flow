@@ -8,6 +8,9 @@ import { onBeforeUnmount, ref } from 'vue';
 // — y seleccionarlo con el mouse dentro de un chip pelea con el click del
 // chip. Acá el gesto es explícito y no compite con nada.
 //
+// Sin slot es el glifo (⧉ → ✓); con slot dice lo que quien lo usa quiera, con `copied` para
+// confirmar («Copiar» → «✓ Copiado»).
+//
 // El feedback es local y no un toast: `ui/` no conoce el estado de la app, y
 // un toast global para confirmar un copiado es más ruido que señal.
 
@@ -51,7 +54,7 @@ onBeforeUnmount(() => {
     :aria-label="copied ? 'Copiado' : `Copiar ${label ?? value}`"
     :title="copied ? 'Copiado' : `Copiar ${label ?? value}`"
     @click.stop="copy"
-  >{{ copied ? '✓' : '⧉' }}</button>
+  ><slot :copied="copied">{{ copied ? '✓' : '⧉' }}</slot></button>
 </template>
 
 <style scoped>

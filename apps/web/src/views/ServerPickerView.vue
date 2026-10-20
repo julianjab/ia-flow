@@ -15,6 +15,9 @@ const store = useServersStore();
 const session = useGithubSessionStore();
 const newUrl = ref('');
 const newToken = ref('');
+/** El formulario de agregar: abierto sólo cuando se pide (o cuando no hay ninguno que elegir). */
+const adding = ref(false);
+const showForm = computed(() => adding.value || (store.loaded && store.servers.length === 0));
 
 /**
  * El server que se está por quitar. `null` = el diálogo está cerrado.
@@ -76,6 +79,7 @@ async function add() {
   const token = newToken.value.trim();
   newUrl.value = '';
   newToken.value = '';
+  adding.value = false;
   await store.addServer(raw, token || undefined);
 }
 
@@ -89,8 +93,8 @@ onMounted(() => {
     <header class="picker__hd">
       <h1 class="picker__title">ia-flow</h1>
       <p class="picker__sub">
-        ¿Qué runner querés ver? — {{ upCount }} respondiendo de
-        {{ store.servers.length }} configurados.
+        ¿Qué runner querés ver? {{ upCount }} de {{ store.servers.length }}
+        {{ store.servers.length === 1 ? 'responde' : 'responden' }}.
       </p>
     </header>
 
@@ -109,14 +113,14 @@ onMounted(() => {
       />
     </section>
 
-    <p v-else-if="!store.loaded || store.scanning" class="empty">· cargando…</p>
+    <p v-else-if="!store.loaded || store.scanning" class="empty">Cargando…</p>
     <p v-else class="empty">
-      · todavía no agregaste nada — pegá abajo la URL de un runner
+      Todavía no agregaste ninguno. Pegá abajo la URL de un runner.
     </p>
 
     <ConfirmDialog
       :open="pendingRemove !== null"
-      title="Quitar server"
+      title="Quitar runner"
       :message="removeMessage"
       confirm-label="Quitar"
       danger
@@ -126,24 +130,26 @@ onMounted(() => {
 
     <footer class="picker__ft">
       <button class="btn" :disabled="store.scanning" @click="store.scan()">
-        {{ store.scanning ? 'sondeando…' : 'refrescar' }}
+        {{ store.scanning ? 'Sondeando…' : 'Refrescar' }}
       </button>
-      <form class="add" @submit.prevent="add">
+      <button v-if="!showForm" type="button" class="btn" data-test="add-open" @click="adding = true">＋ Agregar un runner</button>
+      <form v-else class="add" @submit.prevent="add">
         <input
           v-model="newUrl"
           class="ff-field add__input"
-          placeholder="URL — ej. localhost:3001"
+          placeholder="URL, p. ej. localhost:3001"
           aria-label="URL del runner"
         />
         <input
           v-model="newToken"
           type="password"
           class="ff-field add__input add__input--token"
-          placeholder="token (si lo pide)"
+          placeholder="Token, si lo pide"
           aria-label="token de la API"
           autocomplete="off"
         />
-        <button class="btn btn--primary" type="submit" :disabled="!newUrl.trim()">agregar</button>
+        <button class="btn btn--primary" type="submit" :disabled="!newUrl.trim()">Agregar</button>
+        <button v-if="store.servers.length" type="button" class="btn btn--ghost" @click="adding = false">Cancelar</button>
       </form>
     </footer>
   </main>

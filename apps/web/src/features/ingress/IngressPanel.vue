@@ -59,7 +59,7 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
         Lo que entra al runner, con lo que decidió cada pipeline<template v-if="ingress"> · se guardan {{ ingress.retention_days }} días</template>.
       </p>
       <button type="button" class="btn btn--ghost" :disabled="loading" @click="load">
-        {{ loading ? 'leyendo…' : 'Actualizar' }}
+        {{ loading ? 'Leyendo…' : 'Actualizar' }}
       </button>
     </div>
 
@@ -67,7 +67,7 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
       <p>✕ {{ error }}</p>
       <button type="button" class="btn" @click="load">Reintentar</button>
     </div>
-    <p v-else-if="loading && !ingress" class="ig__note">· leyendo las entradas…</p>
+    <p v-else-if="loading && !ingress" class="ig__note">Leyendo las entradas…</p>
 
     <div v-if="ingress" class="ig__sources" role="group" aria-label="Entradas">
       <button
@@ -80,24 +80,26 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
         :data-test="`source-${s.id}`"
         @click="loadEvents(s.id)"
       >
-        <span class="ig__name">
-          {{ s.name }}
-          <span class="ig__kind mono">{{ s.kind === 'webhook' ? 'webhook' : 'socket' }}</span>
-        </span>
-        <span v-if="s.endpoint" class="ig__dim mono">POST {{ s.endpoint }}</span>
-        <span v-if="s.configured" class="ig__state ig__state--ok">✓ configurada</span>
-        <span v-else class="ig__state">sin configurar<template v-if="s.missing"> · falta <span class="mono">{{ s.missing }}</span></template></span>
-        <span class="ig__stats">
-          <span><b class="mono">{{ s.count_24h }}</b> en 24 h</span>
-          <span><b class="mono">{{ s.count_kept }}</b> guardados</span>
-          <span v-if="s.last_at">último {{ formatRelative(s.last_at) }}</span>
+        <span class="ig__dot" aria-hidden="true" />
+        <span class="ig__name">{{ s.name }}</span>
+        <span class="ig__count"><b>{{ s.count_24h }}</b> en 24 h</span>
+        <span class="ig__meta">
+          <span v-if="s.endpoint" class="mono">POST {{ s.endpoint }}</span>
+          <span v-else>{{ s.kind === 'webhook' ? 'webhook' : 'socket' }}</span>
+          <span v-if="!s.configured" class="ig__state">
+            · Sin configurar<template v-if="s.missing"> · falta <span class="mono">{{ s.missing }}</span></template>
+          </span>
+          <template v-else>
+            <span v-if="s.last_at"> · último {{ formatRelative(s.last_at) }}</span>
+            <span> · {{ s.count_kept }} guardados</span>
+          </template>
         </span>
       </button>
     </div>
 
     <section v-if="current" class="ig__events" :aria-label="`Lo que llegó por ${current.name}`">
       <h2 class="ig__hd">Lo que llegó por {{ current.name }}</h2>
-      <p v-if="loadingEvents && !events.length" class="ig__note">· leyendo…</p>
+      <p v-if="loadingEvents && !events.length" class="ig__note">Leyendo…</p>
       <p v-else-if="!events.length" class="ig__note">Todavía no llegó nada por acá.</p>
       <ul v-else class="ig__list">
         <li v-for="e in events" :key="e.id"><EventRow :event="e" show-task /></li>
@@ -112,40 +114,37 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
 .ig__note { flex: 1 1 14rem; margin: 0; color: var(--fg-dim); font-size: var(--fs-body-sm); }
 .ig__err { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--red-bg); }
 .ig__err p { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
-/* Mobile primero: una entrada por fila; desde 640, en columnas. */
-.ig__sources { display: grid; grid-template-columns: 1fr; gap: 0.6rem; }
+/* Las entradas son UNA lista compacta: punto de estado, nombre y cuántas hoy; debajo, de dónde
+   llegan y cuándo. Tocar una cambia lo que se ve abajo. */
+.ig__sources { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
 .ig__src {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.15rem 0.6rem;
   min-height: var(--tap-h-lg);
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--fg-dim);
-  border-radius: var(--radius);
-  background: var(--panel);
+  padding: 0.6rem 0.85rem;
+  border: 0;
+  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.ig__src[data-ok='true'] { border-left-color: var(--accent); }
+.ig__src + .ig__src { border-top: 1px solid var(--border-mute); }
 .ig__src:hover { background: var(--panel-alt); }
-.ig__src[aria-pressed='true'] { border-color: var(--border-hi); background: var(--panel-alt); }
+.ig__src[aria-pressed='true'] { background: var(--panel-hi); }
 .ig__src:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.ig__name { display: flex; align-items: baseline; gap: 0.5rem; color: var(--fg); font-weight: 600; }
-.ig__kind { color: var(--fg-dim); font-size: var(--fs-micro); font-weight: 400; }
-.ig__dim { color: var(--fg-dim); font-size: var(--fs-chrome); overflow-wrap: anywhere; }
-.ig__state { color: var(--warn); font-size: var(--fs-body-sm); }
-.ig__state--ok { color: var(--accent); }
-.ig__stats { display: flex; flex-wrap: wrap; gap: 0.2rem 1rem; color: var(--fg-mute); font-size: var(--fs-body-sm); }
-.ig__stats b { color: var(--fg); font-weight: 500; }
+.ig__dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--fg-dimmer); }
+.ig__src[data-ok='true'] .ig__dot { background: var(--accent); }
+.ig__name { min-width: 0; color: var(--fg); font-weight: 500; }
+.ig__count { color: var(--fg-mute); font-size: var(--fs-body-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ig__count b { color: var(--fg); font-weight: 600; }
+.ig__meta { grid-column: 2 / -1; min-width: 0; color: var(--fg-dim); font-size: var(--fs-chrome); overflow-wrap: anywhere; }
+.ig__state { color: var(--warn); }
 .ig__events { display: flex; flex-direction: column; gap: 0.4rem; }
 .ig__hd { margin: 0; font-size: var(--fs-num); }
 .ig__list { margin: 0; padding: 0 0.75rem; list-style: none; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
 .ig__list > li:first-child :deep(.er) { border-top: 0; }
 
-@media (min-width: 640px) {
-  .ig__sources { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 </style>
