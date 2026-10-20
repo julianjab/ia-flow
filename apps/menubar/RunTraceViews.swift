@@ -34,8 +34,13 @@ struct RunTraceScreen: View {
                 HStack(spacing: 6) {
                     Text(watch.running ? "En vivo" : "Ejecución").font(.lh(17, .bold))
                     Button { runner.open(watch.item) } label: { refTag(watch.ref) }.buttonStyle(.plain).help("Abrir \(watch.ref) en GitHub")
+                    if let pr = watch.item.pr {
+                        Button { runner.openPR(watch.item) } label: { Chip(text: "PR #\(pr.number)", tone: .info, icon: "arrow.up.right") }
+                            .buttonStyle(.plain).fixedSize().help("Abrir el PR #\(pr.number) en GitHub")
+                    }
                 }
                 Text(watch.item.displayTitle).font(.lh(12)).foregroundStyle(.secondary).lineLimit(1)
+                BlockersLine(runner: runner, item: watch.item)
             }
             Spacer(minLength: 4)
             if watch.executions.count > 1 { executionMenu }

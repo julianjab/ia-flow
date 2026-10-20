@@ -320,6 +320,7 @@ struct TaskRow: View {
                 if let agents = item.execution?.parallelAgents {
                     AgentsLine(entries: agents.map { AgentEntry(id: $0.agent_id, agent: $0) })
                 }
+                BlockersLine(runner: runner, item: item)
                 if primary {
                     if let said = item.agent_said, item.isDecision {
                         Text("«\(said)»").font(.lh(11.5)).italic().foregroundStyle(.primary.opacity(0.7)).lineLimit(3)
@@ -408,6 +409,7 @@ struct TaskRow: View {
         Button("Abrir issue en GitHub") { runner.open(item) }
         if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }
         if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }
+        ForEach(item.blocked_by ?? [], id: \.self) { ref in Button("Ver \(shortRef(ref)), que la bloquea") { runner.goTo(ref) } }
     }
 
     /// El porqué sin repetir el PR (va como chip) y con hace cuánto.
@@ -566,6 +568,34 @@ struct RecentRow: View {
         status == "failed" ? .bad : status == "superseded" ? .neutral : .ok
     }
 }
+
+/// «Espera #4281 · destraba 3»: quién la bloquea (un clic lleva a esa tarea) y cuántas destraba ella.
+struct BlockersLine: View {
+    @ObservedObject var runner: RunnerModel
+    let item: InboxItem
+
+    var body: some View {
+        let blockers = item.blocked_by ?? []
+        if !blockers.isEmpty || (item.unlocks ?? 0) > 0 {
+            HStack(spacing: 5) {
+                if !blockers.isEmpty {
+                    Text("Espera").font(.lh(11)).foregroundStyle(.secondary)
+                    ForEach(blockers, id: \.self) { ref in
+                        Button { runner.goTo(ref) } label: { Chip(text: shortRef(ref), tone: .warn, icon: "lock.fill") }
+                            .buttonStyle(.plain).fixedSize().help("Ver \(ref)")
+                    }
+                }
+                if let unlocks = item.unlocks, unlocks > 0 {
+                    Chip(text: "destraba \(unlocks)", tone: .ok, icon: "lock.open.fill").fixedSize()
+                        .help("Cerrarla destraba \(unlocks) tarea\(unlocks == 1 ? "" : "s")")
+                }
+            }
+        }
+    }
+}
+
+/// `la-haus/subscriptions#4281` → `#4281`.
+func shortRef(_ ref: String) -> String { ref.split(separator: "#").last.map { "#\($0)" } ?? ref }
 
 struct CompactRow: View {
     @ObservedObject var runner: RunnerModel

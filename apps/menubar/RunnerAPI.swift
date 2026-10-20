@@ -124,6 +124,8 @@ struct InboxItem: Codable, Identifiable, Hashable {
     let action_defs: [TaskActionDef]?
     let priority: Int?
     let reasons: [String]?
+    /// Cuántas tareas destraba si se cierra (el runner no dice cuáles).
+    var unlocks: Int? = nil
 
     var id: String { ref }
     /// `#123` (el repo va en la ayuda del botón).

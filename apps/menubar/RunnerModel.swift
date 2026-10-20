@@ -607,6 +607,11 @@ final class RunnerModel: ObservableObject {
 
     func openTask(_ ref: String) { NSWorkspace.shared.open(githubURL(ref)) }
 
+    /// Una tarea por su ref: su detalle si está en la bandeja (como la web), si no el issue en GitHub.
+    func goTo(_ ref: String) {
+        if let item = inbox?.items.first(where: { $0.ref == ref }) { watch(item) } else { openTask(ref) }
+    }
+
     // MARK: login de GitHub (device flow, por server)
 
     /// La sesión del server, renovada si venció; sin sesión o sin poder renovarla, nil.
