@@ -49,7 +49,8 @@ La configuración del runner (`.config/`, variables de entorno) está en
 
 ```
 apps/runner-v2/     Runner headless: definición en YAML (.config/), ejecuciones en SQLite
-apps/web/           SPA Vue 3 + Vite + Pinia (PWA instalable: public/manifest.webmanifest + sw.js)
+apps/web/           SPA Vue 3 + Vite + Pinia (PWA instalable: public/manifest.webmanifest + sw.js; bajo
+                    julianjab.link muestra lo copiado en la Mac, de mac-pulse: features/mac-clipboard)
 apps/desktop/       Visor Electron de la SPA
 packages/agent-engine/  core, definitions, datasources/{sqlite,yaml}
 packages/github/        auth, api, webhook, tools
