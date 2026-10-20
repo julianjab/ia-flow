@@ -35,6 +35,10 @@ Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono
   no con el acento lleno.
 - **Una barra fija por pantalla** (R4), y en un detalle es la de sus acciones, con UN primario: el
   detalle tapa la bandeja, así que no compite con «Lo primero».
+- **Filas de lista cortas, acciones al deslizar** (`ui/SwipeRow.vue`): en una columna angosta una
+  fila cerrada dice qué, de qué tarea y hace cuánto —el título en dos líneas, una razón— y su
+  botón no se ve. Deslizarla a la izquierda muestra la acción (primario) y «Detalle»; tocarla la
+  abre con el porqué y el botón. El gesto es un atajo: nunca es el único camino a una acción.
 
 ## Tokens (fuente única: `src/styles/theme.css`)
 
@@ -214,6 +218,10 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
 - `ui/TabBar.vue` — **los destinos bajo `--bp-shell`**: una ruta (`to`) o una acción (`press`,
   el asistente), badge que en cero no se dibuja (R10) y punto de novedad. El ícono va por slot.
   Es LA barra fija de la pantalla (R4): un detalle con su barra de acciones la tapa.
+- `ui/SwipeRow.vue` — **acciones al deslizar una fila** (el dedo, no el mouse): las acciones
+  quedan debajo, a 5.5rem cada una; se suelta pasada la mitad y queda abierta, abrir una cierra
+  la otra y tocar una abierta la cierra. Cerrada, sus botones salen del foco y del lector: quien
+  la usa deja las mismas acciones a un toque dentro de la fila.
 - `ui/BottomSheet.vue` — **el overlay de la capa táctil.** Bajo `--bp-shell` un popover anclado a su
   disparador queda fuera de pantalla en cuanto sube el teclado virtual (R6), así que todo overlay
   es este sheet: `translateY` en 150ms, backdrop al 60% que cierra al tocar, radio superior de
