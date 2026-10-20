@@ -13,6 +13,7 @@ vi.mock('@/features/inbox/api', () => ({
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue'
 import PipelineStrip from '@/features/inbox/pipeline/PipelineStrip.vue'
 import { buildQueue } from '@/features/inbox/queue/build'
+import { recentOf } from '@/features/inbox/queue/recent'
 
 const NOW = Date.parse('2026-01-01T10:12:00.000Z')
 const running = item({
@@ -68,6 +69,63 @@ describe('la franja del pipeline (teléfono)', () => {
     )
     expect(cells).toEqual(['run', 'run', 'free'])
     expect(document.body.textContent).toContain('Cuenta ejecuciones, no tarjetas.')
+    w.unmount()
+  })
+})
+
+describe('lo último que corrió', () => {
+  const recent = recentOf(
+    [
+      {
+        ref: 'acme/api#7',
+        title: 'Filtro por precio',
+        url: 'u',
+        run: execution({ status: 'failed', closed_at: '2026-01-01T10:00:00.000Z' }),
+      },
+      {
+        ref: 'acme/api#8',
+        title: 'Paginación',
+        url: 'u',
+        run: execution({
+          status: 'done',
+          agent_id: 'reviewer',
+          exit: 'changes_requested',
+          closed_at: '2026-01-01T09:00:00.000Z',
+        }),
+      },
+    ],
+    NOW,
+  )
+
+  it('la franja dice cómo terminó la última y hace cuánto, aunque nada corra', () => {
+    setActivePinia(createPinia())
+    const q = buildQueue({
+      items: [],
+      capacity: { ...capacity, running: 0, waiting: 0, free: 3 },
+      now: NOW,
+    })
+    const w = mount(PipelineStrip, {
+      props: { pipeline: q.pipeline, running: [], recent, stream: 'live' },
+    })
+    expect(w.get('[data-test="strip-last"]').text()).toBe('✕ 12 min')
+    expect(w.get('[data-test="strip-last"]').attributes('data-status')).toBe('failed')
+  })
+
+  it('el sheet las lista con quién, cómo salió y hace cuánto; el título abre el detalle', async () => {
+    const w = render()
+    await w.setProps({ recent })
+    await w.get('[data-test="pipeline-strip"]').trigger('click')
+    const rows = [...document.body.querySelectorAll('[data-test="recent"]')].map((r) =>
+      r.textContent?.replace(/\s+/g, ' ').trim(),
+    )
+    expect(rows[0]).toContain('Filtro por precio')
+    expect(rows[0]).toContain('falló')
+    expect(rows[1]).toContain('reviewer')
+    expect(rows[1]).toContain('→ changes_requested')
+    expect(rows[1]).toContain('1 h')
+    document.body.querySelector<HTMLButtonElement>('[data-test="recent-acme/api#8"]')?.click()
+    const { useInboxStore } = await import('@/features/inbox/store')
+    expect(useInboxStore().openRef).toBe('acme/api#8')
     w.unmount()
   })
 })
