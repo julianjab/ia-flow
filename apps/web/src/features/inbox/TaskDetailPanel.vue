@@ -6,7 +6,7 @@ import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import { loadFailure } from '@/features/inbox/queue/advice';
 import { prShortOf, refUrl, shortRef } from '@/features/inbox/queue/shortRef';
-import type { DetailState } from '@/features/inbox/store';
+import { type DetailState, useInboxStore } from '@/features/inbox/store';
 import TaskActions from '@/features/inbox/TaskActions.vue';
 import TaskEvents from '@/features/inbox/TaskEvents.vue';
 import TaskExecutions from '@/features/inbox/TaskExecutions.vue';
@@ -21,6 +21,9 @@ const props = defineProps<{ item: InboxItem; detail?: DetailState }>();
 const emit = defineEmits<{ (e: 'reload'): void }>();
 
 const assistant = useAssistantStore();
+const store = useInboxStore();
+/** Lo que la bloquea y está en el board se abre acá mismo (como el menú); lo demás, en GitHub. */
+const inBoard = (ref: string) => store.inbox?.items.some((i) => i.ref === ref) ?? false;
 
 /** El detalle trae la card más fresca que la lista; mientras carga, la de la lista. */
 const item = computed(() => props.detail?.data?.item ?? props.item);
@@ -62,12 +65,25 @@ function ask() {
       {{ said }}
     </blockquote>
 
-    <p v-if="item.blocked_by?.length" class="td__exec">
-      <span class="uc-label">Bloqueada por</span>
-      <template v-for="ref in item.blocked_by" :key="ref">
-        <RefLink v-if="refUrl(ref)" :short="shortRef(ref)" :url="refUrl(ref) ?? ''" />
-        <span v-else class="mono">{{ shortRef(ref) }}</span>
+    <p v-if="item.blocked_by?.length || item.unlocks" class="td__exec">
+      <template v-if="item.blocked_by?.length">
+        <span class="uc-label">Bloqueada por</span>
+        <template v-for="ref in item.blocked_by" :key="ref">
+          <button
+            v-if="inBoard(ref)"
+            type="button"
+            class="td__goto"
+            :data-test="`goto-${ref}`"
+            :title="`Ver ${ref}`"
+            @click="store.expand(ref)"
+          >
+            {{ shortRef(ref) }} ›
+          </button>
+          <RefLink v-else-if="refUrl(ref)" :short="shortRef(ref)" :url="refUrl(ref) ?? ''" />
+          <span v-else class="mono">{{ shortRef(ref) }}</span>
+        </template>
       </template>
+      <span v-if="item.unlocks" class="td__unlocks">Destraba {{ item.unlocks }}</span>
     </p>
 
     <p class="td__links">
@@ -153,6 +169,9 @@ function ask() {
 .td__ai { color: var(--ai); }
 .td__exec { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 0; font-size: var(--fs-body-sm); }
 .td__dim { color: var(--fg-dim); }
+.td__goto { min-height: var(--tap-h); padding: 0 0.25rem; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.td__goto:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.td__unlocks { color: var(--accent); }
 .td__links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; margin: 0; }
 .td__links .uc-label + :deep(.ref) { margin-right: 0.75rem; }
 .td__desc summary { display: flex; align-items: center; min-height: var(--tap-h); color: var(--fg-dim); font-size: var(--fs-body-sm); cursor: pointer; }
