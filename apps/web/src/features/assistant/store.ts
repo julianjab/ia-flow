@@ -322,6 +322,12 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     'conversation',
   ])
 
+  /** Suma un paso a la respuesta. El mismo dos veces seguidas (una tool que se reintenta) es uno. */
+  function stepped(reply: Reply, summary: string): string[] {
+    if (reply.steps.at(-1) !== summary) reply.steps.push(summary)
+    return [...reply.steps]
+  }
+
   function applyEvent(event: AssistantStreamEvent, reply: Reply, gen: number): void {
     if (event.type === 'proposal') reply.proposed = true
     // Un stream viejo (se cambió de contexto) ya no escribe en la conversación nueva.
@@ -332,9 +338,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
         patch(reply.id, { text: reply.answer })
         break
       case 'tool':
-        // El mismo paso dos veces seguidas (una tool que se reintenta) es un paso.
-        if (reply.steps.at(-1) !== event.summary) reply.steps.push(event.summary)
-        patch(reply.id, { activity: event.summary, steps: [...reply.steps] })
+        patch(reply.id, { activity: event.summary, steps: stepped(reply, event.summary) })
         break
       case 'speech':
         patch(reply.id, { spoken: event.text })
