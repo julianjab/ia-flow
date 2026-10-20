@@ -223,13 +223,39 @@ describe('InboxBoard', () => {
     const panel = document.body.querySelector('[role="dialog"]')
     expect(panel?.getAttribute('aria-label')).toBe('Detalle de acme/api#1')
     expect(panel?.textContent).toContain('fs_read app/models/ability.rb')
-    // La cabecera: tono por TIPO (glifo), sin borde de color por grupo, y el ref como link corto.
+    // La cabecera: ← y el ref como link corto; el caso, una pastilla con el tono por TIPO (glifo),
+    // sin borde de color por grupo.
     expect(panel?.querySelector('[data-group]')).toBeNull()
-    expect(panel?.querySelector('.dd__kind')?.textContent).toContain('✓')
+    expect(panel?.querySelector('.dd__pill')?.textContent).toContain('✓')
     expect(panel?.querySelector('.dd__head a.ref')?.textContent).toBe('api#1 ↗')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('en el detalle, corridas y eventos son pestañas: una a la vez', async () => {
+    getInbox.mockResolvedValue(inbox([merge]))
+    getTaskDetail.mockResolvedValue(
+      detail(merge, { executions: [execution({ id: 'ex1', status: 'done' })] }),
+    )
+    const { wrapper } = await mountBoard()
+    await wrapper.get('[data-test="first"] [data-test="runs"]').trigger('click')
+    await flushPromises()
+    const panel = document.body.querySelector('[role="dialog"]') as HTMLElement
+    const runs = panel.querySelector('[data-test="tab-runs"]') as HTMLElement
+    const events = panel.querySelector('[data-test="tab-events"]') as HTMLElement
+    expect(runs.getAttribute('aria-selected')).toBe('true')
+    expect(runs.textContent).toContain('1')
+    const panes = () =>
+      [...panel.querySelectorAll<HTMLElement>('[role="tabpanel"]')].map(
+        (p) => p.style.display !== 'none',
+      )
+    expect(panes()).toEqual([true, false])
+    events.click()
+    await flushPromises()
+    expect(events.getAttribute('aria-selected')).toBe('true')
+    expect(panes()).toEqual([false, true])
     wrapper.unmount()
   })
 

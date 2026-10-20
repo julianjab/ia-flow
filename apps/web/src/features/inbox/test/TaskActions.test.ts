@@ -44,6 +44,19 @@ describe('TaskActions (el panel de detalle)', () => {
     getInbox.mockReset().mockResolvedValue({ generated_at: 'x', projects: [], items: [] })
   })
 
+  it('en la barra del detalle la principal del caso es primaria; «Detener…» nunca', () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const wrapper = mount(TaskActions, {
+      props: { item: crash, bar: true },
+      global: { plugins: [pinia] },
+    })
+    expect(wrapper.get('.ta').attributes('data-bar')).toBe('true')
+    expect(button(wrapper, 'retry').classes()).toContain('btn--primary')
+    expect(button(wrapper, 'stop').classes()).not.toContain('btn--primary')
+    expect(button(wrapper, 'stop').classes()).toContain('btn--danger')
+  })
+
   it('una card sin acciones no dibuja nada', () => {
     const { wrapper } = mountActions(item({ actions: [] }))
     expect(wrapper.find('.ta').exists()).toBe(false)
@@ -118,7 +131,7 @@ describe('TaskActions (el panel de detalle)', () => {
   it('Responder exige el texto, no confirma y lo manda', async () => {
     postTaskAction.mockResolvedValue({ ok: true, message: 'Comentado' })
     const { wrapper } = mountActions(doubt)
-    expect(wrapper.get('label').text()).toBe('Respuesta')
+    expect(wrapper.get('label').text()).toBe('Tu respuesta')
     expect(button(wrapper, 'answer_and_unblock').attributes('disabled')).toBeDefined()
 
     await wrapper.get('textarea').setValue('  Son 90 días  ')
