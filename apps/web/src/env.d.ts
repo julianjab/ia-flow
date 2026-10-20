@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
 
-type ImportMetaEnv = {}
+type ImportMetaEnv = {
+  /** mac-pulse, de donde sale el portapapeles de la Mac (features/mac-clipboard). */
+  readonly VITE_MAC_PULSE_URL?: string
+}
 
 interface ImportMeta {
   readonly env: ImportMetaEnv
