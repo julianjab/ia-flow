@@ -4,8 +4,8 @@ import { useIsMobile } from '@/composables/useIsMobile';
 import AssistantComposer from '@/features/assistant/AssistantComposer.vue';
 import AssistantConversations from '@/features/assistant/AssistantConversations.vue';
 import AssistantPanel from '@/features/assistant/AssistantPanel.vue';
+import AssistantVoiceSheet from '@/features/assistant/AssistantVoiceSheet.vue';
 import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
-import { scopeSentence } from '@/features/assistant/scope';
 import { useAssistantChatStore } from '@/features/assistant/store';
 import { useReadAloud } from '@/features/assistant/voice/useReadAloud';
 import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
@@ -20,9 +20,9 @@ import { useAssistantStore } from '@/stores/assistant';
 // ocupa la pantalla (R6: en táctil nada flota anclado) y bloquea el scroll de
 // atrás; ahí las conversaciones son un cajón detrás de ☰. Cerrar no corta una
 // respuesta en curso: sigue llegando, y si termina con el chat cerrado la
-// burbuja lo marca como no leído. En la cabecera: 🔊 lee cada respuesta al terminar
-// (el resumen para el oído, si el asistente lo da) y 💬 «Charla» además vuelve a
-// escuchar después de leer. «Detener» también calla la voz.
+// burbuja (o la pestaña, en un teléfono) lo marca como no leído. En la cabecera,
+// una sola línea: ☰ conversaciones, el título, 🔈 la voz (un sheet con leer en voz
+// alta, la charla, la voz y la velocidad) y ✕. «Detener» también calla la voz.
 
 const ui = useAssistantStore();
 const chat = useAssistantChatStore();
@@ -37,6 +37,8 @@ const { isMobile } = useIsMobile();
 
 /** Las conversaciones abiertas como cajón (bajo 768px, donde no hay lugar al costado). */
 const drawer = ref(false);
+/** El sheet de voz: leer, charla, voz y velocidad. Lo abren 🔈 y el chip de voz del composer. */
+const voiceOpen = ref(false);
 
 const history = useAssistantHistoryStore();
 /** El título de la conversación abierta: el guardado, o su primera pregunta, o «Nueva». */
@@ -101,37 +103,29 @@ onUnmounted(() => setLock(false));
 
       <div class="cw__chat">
         <header class="cw__head">
-          <button type="button" class="cw__menu" aria-label="Tus conversaciones" :aria-expanded="drawer" @click="drawer = !drawer">☰</button>
-          <span class="cw__ai" aria-hidden="true">✦</span>
+          <button type="button" class="cw__menu cw__icon" aria-label="Tus conversaciones" :aria-expanded="drawer" @click="drawer = !drawer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
+          </button>
           <span class="cw__heading">
+            <span class="cw__ai" aria-hidden="true">✦</span>
             <span class="cw__title" data-test="title">{{ title }}</span>
-            <span class="cw__sub"><template v-if="agentLabel">{{ agentLabel }} · </template>{{ scopeSentence(chat.scope) }} · propone, vos confirmás</span>
+            <span v-if="agentLabel" class="cw__agent">{{ agentLabel }}</span>
           </span>
           <button
             v-if="voice.supported"
             type="button"
-            class="cw__voice"
+            class="cw__icon"
             data-test="voice"
-            :aria-pressed="voice.read"
-            :aria-label="voice.read ? 'Dejar de leer en voz alta' : 'Leer las respuestas en voz alta'"
-            :title="voice.read ? 'Dejar de leer en voz alta' : 'Leer las respuestas en voz alta'"
-            @click="voice.toggleRead()"
+            :aria-pressed="voice.wantsSpeech"
+            aria-label="Voz del asistente"
+            title="Voz del asistente"
+            @click="voiceOpen = true"
           >
-            <span aria-hidden="true">{{ voice.read ? '🔊' : '🔈' }}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10H4z" /><path v-if="voice.wantsSpeech" d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11" /></svg>
           </button>
-          <button
-            v-if="voice.talkSupported"
-            type="button"
-            class="cw__voice"
-            data-test="talk"
-            :aria-pressed="voice.talk"
-            :aria-label="voice.talk ? 'Terminar la charla' : 'Charla: hablar y escuchar, sin tocar nada'"
-            :title="voice.talk ? 'Terminar la charla' : 'Charla: hablar y escuchar, sin tocar nada'"
-            @click="voice.toggleTalk()"
-          >
-            <span aria-hidden="true">💬</span>
+          <button type="button" class="cw__icon" aria-label="Cerrar el asistente" @click="ui.close()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
           </button>
-          <button type="button" class="cw__close" aria-label="Cerrar el asistente" @click="ui.close()">✕</button>
         </header>
         <div class="cw__body">
           <AssistantPanel />
@@ -146,10 +140,12 @@ onUnmounted(() => setLock(false));
             @send="chat.send($event, { voice: voice.wantsSpeech })"
             @stop="stop"
             @scope="chat.setScope($event)"
+            @voice="voiceOpen = true"
           />
         </footer>
       </div>
     </section>
+    <AssistantVoiceSheet :open="voiceOpen" @close="voiceOpen = false" />
   </Teleport>
 
   <!-- En un teléfono el asistente es una pestaña de la tab bar (AppShell): la burbuja es de desktop. -->
@@ -239,39 +235,36 @@ onUnmounted(() => setLock(false));
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.1rem;
   min-height: var(--tap-h);
-  padding: 0 0.35rem 0 0;
-  border-bottom: 1px solid var(--border);
+  padding: 0 0.25rem;
+  border-bottom: 1px solid var(--border-mute);
 }
-.cw__menu,
-.cw__voice,
-.cw__close {
+.cw__icon {
   flex: none;
+  display: grid;
+  place-items: center;
   width: var(--tap-h);
   height: var(--tap-h);
   border: none;
+  border-radius: var(--radius);
   background: none;
-  color: var(--fg-dim);
-  font-size: var(--fs-body);
+  color: var(--fg-mute);
   cursor: pointer;
 }
-.cw__close { font-family: var(--font-mono); font-size: var(--fs-body-sm); }
-.cw__menu:hover,
-.cw__voice:hover,
-.cw__close:hover { color: var(--fg); }
-.cw__voice { opacity: 0.55; }
-.cw__voice[aria-pressed='true'] { opacity: 1; }
+.cw__icon svg { width: 1.2rem; height: 1.2rem; }
+.cw__icon:hover { background: var(--panel-hi); color: var(--fg); }
+.cw__icon[aria-pressed='true'] { color: var(--accent); }
+/* Una línea: ✦ y el título (el contexto ya está en el chip de la caja de pregunta). */
+.cw__heading { display: flex; flex: 1; align-items: baseline; gap: 0.4rem; min-width: 0; padding-left: 0.25rem; }
 .cw__ai { flex: none; color: var(--ai); }
-.cw__heading { display: flex; flex: 1; flex-direction: column; min-width: 0; }
-.cw__title { overflow: hidden; color: var(--fg); font-size: var(--fs-body-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.cw__sub { overflow: hidden; color: var(--fg-dim); font-size: var(--fs-micro); text-overflow: ellipsis; white-space: nowrap; }
+.cw__title { min-width: 0; overflow: hidden; color: var(--fg); font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.cw__agent { flex: none; color: var(--fg-dim); font-size: var(--fs-chrome); }
 /* Sólo la conversación scrollea: la cabecera y la caja de pregunta quedan quietas. */
 .cw__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 0.5rem; }
 .cw__foot {
   flex: 0 0 auto;
-  padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
-  border-top: 1px solid var(--border);
+  padding: 0.5rem 0.6rem calc(0.6rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Sobre --bp-shell: flota sobre la burbuja, abajo a la derecha, con las conversaciones al

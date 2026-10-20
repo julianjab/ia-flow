@@ -5,6 +5,7 @@ import { useAssistantHistoryStore } from '@/features/assistant/historyStore';
 import AssistantProposalCard from '@/features/assistant/AssistantProposalCard.vue';
 import AssistantStart from '@/features/assistant/AssistantStart.vue';
 import AssistantTaskList from '@/features/assistant/AssistantTaskList.vue';
+import CopyButton from '@/ui/CopyButton.vue';
 import { parseInline } from '@/features/assistant/format';
 import { type ProposalChoice, useAssistantChatStore } from '@/features/assistant/store';
 import { useVoiceStore } from '@/features/assistant/voice/voiceStore';
@@ -27,6 +28,11 @@ function listen(turn: { id: number; text: string; spoken?: string }) {
   const key = `reply:${turn.id}`;
   if (voice.speaking === key) voice.cancel();
   else voice.say(turn.spoken ?? turn.text, key);
+}
+
+/** Los pasos de una respuesta. Una conversación retomada no los trae: queda el último que se vio. */
+function stepsOf(turn: { steps?: string[]; activity: string | null }): string[] {
+  return turn.steps ?? (turn.activity ? [turn.activity] : []);
 }
 
 const end = ref<HTMLElement | null>(null);
@@ -92,29 +98,47 @@ async function run(id: number, choice?: ProposalChoice) {
         <p v-if="turn.kind === 'user'" class="ap__msg ap__msg--user">{{ turn.text }}</p>
 
         <div v-else-if="turn.kind === 'assistant'" class="ap__msg ap__msg--assistant">
-          <p v-if="turn.activity" class="ap__activity mono">· {{ turn.activity }}</p>
-          <p v-if="turn.text" class="ap__bubble ap__text">
-            <template v-for="(seg, i) in parseInline(turn.text)" :key="i">
-              <code v-if="seg.kind === 'code'" class="ap__code">{{ seg.text }}</code>
-              <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
-              <template v-else>{{ seg.text }}</template>
-            </template>
-          </p>
-          <button
-            v-if="turn.text && !turn.streaming && voice.supported"
-            type="button"
-            class="btn btn--ghost ap__listen"
-            data-test="listen"
-            :aria-pressed="voice.speaking === `reply:${turn.id}`"
-            :aria-label="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
-            :title="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
-            @click="listen(turn)"
-          >
-            <span aria-hidden="true">{{ voice.speaking === `reply:${turn.id}` ? '■' : '🔊' }}</span>
-          </button>
-          <p v-if="!turn.text && turn.streaming" class="ap__bubble ap__typing" aria-label="Pensando…">
-            <span /><span /><span />
-          </p>
+          <span class="ap__mark" aria-hidden="true">✦</span>
+          <div class="ap__body">
+            <!-- Lo que fue haciendo: ✓ lo terminado, y el paso actual girando mientras responde. -->
+            <ol v-if="stepsOf(turn).length" class="ap__steps" data-test="steps">
+              <li
+                v-for="(step, i) in stepsOf(turn)"
+                :key="i"
+                class="ap__step mono"
+                :data-now="turn.streaming && i === stepsOf(turn).length - 1"
+              >
+                {{ step }}
+              </li>
+            </ol>
+            <p v-if="turn.text" class="ap__text">
+              <template v-for="(seg, i) in parseInline(turn.text)" :key="i">
+                <code v-if="seg.kind === 'code'" class="ap__code">{{ seg.text }}</code>
+                <strong v-else-if="seg.kind === 'bold'">{{ seg.text }}</strong>
+                <template v-else>{{ seg.text }}</template>
+              </template>
+            </p>
+            <!-- Mientras no llega texto: el lugar de la respuesta, en vez de tres puntos. -->
+            <span v-else-if="turn.streaming" class="ap__typing" role="status" aria-label="Pensando…">
+              <span /><span /><span />
+            </span>
+            <div v-if="turn.text && !turn.streaming" class="ap__acts">
+              <button
+                v-if="voice.supported"
+                type="button"
+                class="ap__act"
+                data-test="listen"
+                :aria-pressed="voice.speaking === `reply:${turn.id}`"
+                :aria-label="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
+                :title="voice.speaking === `reply:${turn.id}` ? 'Dejar de leer' : 'Leer en voz alta'"
+                @click="listen(turn)"
+              >
+                <svg v-if="voice.speaking === `reply:${turn.id}`" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /></svg>
+                <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10H4z" /><path d="M16.5 9a4 4 0 0 1 0 6" /></svg>
+              </button>
+              <CopyButton :value="turn.text" label="la respuesta" />
+            </div>
+          </div>
         </div>
 
         <AssistantProposalCard
@@ -145,7 +169,7 @@ async function run(id: number, choice?: ProposalChoice) {
 <style scoped>
 .ap { display: flex; flex-direction: column; min-height: 100%; }
 
-.ap__thread { display: flex; flex-direction: column; gap: 0.6rem; padding: 0.5rem 1rem; }
+.ap__thread { display: flex; flex-direction: column; gap: 1rem; padding: 0.75rem 1rem; }
 .ap__msg { margin: 0; max-width: 88%; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body-sm); line-height: 1.5; }
 /* Burbujas de chat: el radio es el del sistema ×3 y la esquina de donde "sale" el
    mensaje queda en `--radius-sm`. Quien pregunta, a la derecha; el asistente, a
@@ -158,30 +182,53 @@ async function run(id: number, choice?: ProposalChoice) {
   color: var(--fg);
   white-space: pre-wrap;
 }
-.ap__msg--assistant { display: flex; flex-direction: column; gap: 0.2rem; align-self: flex-start; }
+/* El asistente no va en burbuja: es prosa, con ✦ en el margen (R16: `--ai` sólo como marca). */
+.ap__msg--assistant { display: grid; grid-template-columns: 1rem minmax(0, 1fr); gap: 0 0.5rem; align-self: stretch; max-width: none; }
 .ap__msg--assistant p { margin: 0; }
-.ap__bubble {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--ai);
-  border-radius: calc(var(--radius) * 3) calc(var(--radius) * 3) calc(var(--radius) * 3) var(--radius-sm);
-  background: var(--panel-alt);
-}
-.ap__text { color: var(--fg); white-space: pre-wrap; }
+.ap__mark { color: var(--ai); font-size: var(--fs-chrome); line-height: 1.5rem; }
+.ap__body { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.ap__text { color: var(--fg); font-size: var(--fs-body); white-space: pre-wrap; }
 .ap__code { padding: 0 0.25rem; border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg); font-family: var(--font-mono); font-size: 0.92em; }
-/* El 🔊 de cada respuesta: leerla (otra vez), o callarla mientras se lee. */
-.ap__listen { align-self: flex-start; min-width: var(--tap-h); min-height: var(--tap-h-sm); padding: 0; font-size: var(--fs-body-sm); opacity: 0.6; }
-.ap__listen:hover,
-.ap__listen[aria-pressed='true'] { opacity: 1; }
-.ap__activity { padding-left: 0.25rem; color: var(--fg-dim); font-size: var(--fs-micro); }
-/* «Escribiendo…»: tres puntos, en lugar de un texto que parpadea. */
-.ap__typing { display: inline-flex; gap: 0.3rem; align-self: flex-start; padding: 0.7rem 0.85rem; }
-.ap__typing span { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: var(--fg-dim); animation: ap-dot 1.2s ease-in-out infinite; }
-.ap__typing span:nth-child(2) { animation-delay: 0.15s; }
-.ap__typing span:nth-child(3) { animation-delay: 0.3s; }
-@keyframes ap-dot {
-  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-0.15rem); }
+.ap__steps { display: flex; flex-direction: column; gap: 0.15rem; margin: 0; padding: 0; list-style: none; }
+.ap__step { display: flex; align-items: center; gap: 0.45rem; color: var(--fg-dim); font-size: var(--fs-chrome); }
+.ap__step::before { content: '✓'; flex: none; width: 0.75rem; color: var(--fg-dimmer); }
+.ap__step[data-now='true'] { color: var(--fg-mute); }
+.ap__step[data-now='true']::before {
+  content: '';
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-inline: 0.075rem;
+  border: 1.5px solid var(--border-hi);
+  border-top-color: var(--ai);
+  border-radius: 50%;
+  animation: ap-spin 0.9s linear infinite;
+}
+/* Pensando: tres líneas con la forma de la respuesta que va a llegar. */
+.ap__typing { display: flex; flex-direction: column; gap: 0.4rem; padding-top: 0.2rem; }
+.ap__typing span { height: 0.55rem; border-radius: 2px; background: linear-gradient(90deg, var(--panel-alt) 0%, var(--panel-hi) 50%, var(--panel-alt) 100%); background-size: 200% 100%; animation: ap-shimmer 1.4s ease-in-out infinite; }
+.ap__typing span:nth-child(1) { width: 92%; }
+.ap__typing span:nth-child(2) { width: 76%; }
+.ap__typing span:nth-child(3) { width: 52%; }
+.ap__acts { display: flex; gap: 0.15rem; margin-left: -0.6rem; }
+.ap__act {
+  display: grid;
+  place-items: center;
+  width: var(--tap-h);
+  height: var(--tap-h);
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+.ap__act svg { width: 1.05rem; height: 1.05rem; }
+.ap__act:hover,
+.ap__act[aria-pressed='true'] { background: var(--panel-hi); color: var(--fg); }
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+@keyframes ap-shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ap__step[data-now='true']::before,
+  .ap__typing span { animation: none; }
 }
 .ap__note { margin: 0; color: var(--danger); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 </style>

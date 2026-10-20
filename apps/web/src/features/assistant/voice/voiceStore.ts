@@ -138,6 +138,14 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     if (reading) speak(reading.parts.slice(reading.at), reading.done)
   }
 
+  /** Una velocidad elegida de la lista (el sheet de voz las muestra todas). */
+  function setRate(next: (typeof RATES)[number]): void {
+    if (next === rate.value) return
+    rate.value = next
+    save(RATE_KEY, String(next))
+    if (reading) speak(reading.parts.slice(reading.at), reading.done)
+  }
+
   return {
     supported,
     talkSupported,
@@ -156,5 +164,6 @@ export const useVoiceStore = defineStore('assistant-voice', () => {
     toggleTalk,
     chooseVoice,
     nextRate,
+    setRate,
   }
 })

@@ -39,6 +39,8 @@ export type Turn =
       kind: 'assistant'
       text: string
       activity: string | null
+      /** Lo que fue haciendo mientras respondía (cada `tool`), en orden: los pasos que se ven. */
+      steps?: string[]
       streaming: boolean
       /** Lo que se dice en voz alta en vez de `text` (el resumen para el oído), si llegó. */
       spoken?: string
@@ -308,6 +310,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   interface Reply {
     id: number
     answer: string
+    steps: string[]
     proposed: boolean
     failed: string | null
   }
@@ -329,7 +332,9 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
         patch(reply.id, { text: reply.answer })
         break
       case 'tool':
-        patch(reply.id, { activity: event.summary })
+        // El mismo paso dos veces seguidas (una tool que se reintenta) es un paso.
+        if (reply.steps.at(-1) !== event.summary) reply.steps.push(event.summary)
+        patch(reply.id, { activity: event.summary, steps: [...reply.steps] })
         break
       case 'speech':
         patch(reply.id, { spoken: event.text })
@@ -385,7 +390,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     history.push({ role: 'user', content: [...notes, question].join('\n') })
     notes = []
     const turn = push({ kind: 'assistant', text: '', activity: null, streaming: true })
-    const reply: Reply = { id: turn.id, answer: '', proposed: false, failed: null }
+    const reply: Reply = { id: turn.id, answer: '', steps: [], proposed: false, failed: null }
     streaming.value = true
     const gen = generation
     const controller = new AbortController()
