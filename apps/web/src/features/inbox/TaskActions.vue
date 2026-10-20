@@ -14,12 +14,15 @@ import { actionOf, primaryOf, type QueueAction } from '@/features/inbox/queue/ki
 // Neutras salvo «Detener…», riesgosa, en contorno `--danger` (DESIGN_SYSTEM «Botones»). La
 // principal del caso va primero y «Detener…» al final. En el detalle (`bar`) los botones son la
 // barra fija al pie (R3: la acción principal no scrollea), y ahí la principal sí es primaria: el
-// detalle tapa la bandeja, así que no compite con «Lo primero».
+// detalle tapa la bandeja, así que no compite con «Lo primero». La barra ocupa una sola fila: la
+// principal y «Más», que despliega el resto encima (en un teléfono, tres filas de botones le
+// comían un tercio de la pantalla al detalle).
 
 const props = defineProps<{ item: InboxItem; bar?: boolean }>();
 const primaryId = computed(() => primaryOf(props.item));
 
 const comment = ref('');
+const more = ref(false);
 
 const actions = computed<QueueAction[]>(() => {
   const primary = primaryOf(props.item);
@@ -30,11 +33,24 @@ const actions = computed<QueueAction[]>(() => {
 });
 const takesText = computed(() => actions.value.some((a) => a.comment !== undefined));
 const replyId = computed(() => `reply-${props.item.ref}`);
+const moreId = computed(() => `more-${props.item.ref}`);
+/** En la barra: la primera (la principal, si hay) va a la vista; el resto, tras «Más». */
+const main = computed(() => (props.bar ? actions.value.slice(0, 1) : actions.value));
+const rest = computed(() => (props.bar ? actions.value.slice(1) : []));
 const blocked = (action: QueueAction) => action.comment === 'required' && !comment.value.trim();
 
 function sent(action: QueueAction) {
   if (action.comment) comment.value = '';
 }
+
+const bind = (action: QueueAction) => ({
+  action,
+  item: props.item,
+  comment: comment.value,
+  blocked: blocked(action),
+  danger: action.id === 'stop',
+  primary: props.bar && action.id === primaryId.value,
+});
 </script>
 
 <template>
@@ -46,17 +62,21 @@ function sent(action: QueueAction) {
     </div>
 
     <div class="ta__row">
-      <ActionButton
-        v-for="action in actions"
-        :key="action.id"
-        :action="action"
-        :item="item"
-        :comment="comment"
-        :blocked="blocked(action)"
-        :danger="action.id === 'stop'"
-        :primary="bar && action.id === primaryId"
-        @done="sent(action)"
-      />
+      <div v-if="rest.length" v-show="more" :id="moreId" class="ta__more" data-test="more">
+        <ActionButton v-for="action in rest" :key="action.id" v-bind="bind(action)" @done="sent(action)" />
+      </div>
+      <ActionButton v-for="action in main" :key="action.id" v-bind="bind(action)" @done="sent(action)" />
+      <button
+        v-if="rest.length"
+        type="button"
+        class="btn ta__toggle"
+        :aria-expanded="more"
+        :aria-controls="moreId"
+        data-test="more-toggle"
+        @click="more = !more"
+      >
+        {{ more ? 'Menos' : `Más · ${rest.length}` }}
+      </button>
     </div>
   </div>
 </template>
@@ -80,4 +100,6 @@ function sent(action: QueueAction) {
   background: var(--panel);
 }
 .ta[data-bar='true'] .ta__row :deep(.btn) { flex: 1 1 auto; min-height: var(--tap-h-lg); }
+.ta__more { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ta[data-bar='true'] .ta__row > .ta__toggle { flex: none; color: var(--fg-mute); }
 </style>
