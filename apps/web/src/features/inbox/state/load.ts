@@ -130,9 +130,10 @@ export function createBoardLoad() {
     await runnerReq.sent()?.catch(() => undefined)
   }
 
-  const { dashboard, view, saveDashboard, resetDashboard } = override
+  const { dashboard, view, facts, saveDashboard, resetDashboard } = override
   return {
     inbox,
+    facts,
     runner,
     dashboard,
     view,

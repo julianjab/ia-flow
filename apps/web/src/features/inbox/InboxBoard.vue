@@ -93,6 +93,7 @@ watch(
             :pipeline="queue.pipeline"
             :running="queue.running"
             :blocked="queue.blocked"
+            :recent="queue.recent"
             :stream="store.streamState"
           />
         </template>
@@ -107,7 +108,7 @@ watch(
 
         <template v-if="!isSplit && !isMobile">
           <SectionSkeleton v-if="s.pipeline === 'loading'" shape="pipeline-line" label="cargando el pipeline…" />
-          <PipelineLine v-else-if="s.pipeline === 'ready'" :class="rv(1)" :pipeline="queue.pipeline" :running="queue.running" :blocked="queue.blocked" />
+          <PipelineLine v-else-if="s.pipeline === 'ready'" :class="rv(1)" :pipeline="queue.pipeline" :running="queue.running" :blocked="queue.blocked" :recent="queue.recent" />
         </template>
 
         <SectionSkeleton v-if="s.decisions === 'loading'" shape="queue" label="cargando las decisiones…" />
@@ -158,6 +159,7 @@ watch(
           :running="queue.running"
           :queued="queue.queued"
           :blocked="queue.blocked"
+          :recent="queue.recent"
           :feed="queue.feed"
           feed-anchor="pipeline-feed"
         />

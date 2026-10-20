@@ -22,6 +22,16 @@ export function createQueue(load: BoardLoad) {
     return project ? items.filter((i) => i.project_id === project) : items
   })
   const total = computed(() => scoped.value.length)
+  /** Cada card del board con su última corrida, tras el filtro de proyecto; con un runner viejo
+   *  (sin `/api/tasks`), ausente: la cola usa las corridas de los items. */
+  const runs = computed(() => {
+    const tasks = load.facts.value?.tasks
+    if (!tasks) return undefined
+    const project = load.project.value
+    return tasks
+      .filter((t) => !project || t.project_id === project)
+      .map((t) => ({ ref: t.ref, title: t.title, url: t.url, run: t.last_run }))
+  })
 
   /** El filtro por tipo de la cola (`null` = todas). */
   const queueFilter = ref<QueueType | null>(null)
@@ -35,6 +45,7 @@ export function createQueue(load: BoardLoad) {
       runner: load.runner.value,
       hygiene: view?.hygiene ?? [],
       filter: queueFilter.value,
+      ...(runs.value ? { runs: runs.value } : {}),
       now: load.now.value,
     })
   })

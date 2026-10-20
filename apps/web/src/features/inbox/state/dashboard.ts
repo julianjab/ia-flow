@@ -1,5 +1,5 @@
 import type { Inbox, Tasks } from '@ia-flow/shared'
-import { type Ref, ref } from 'vue'
+import { type Ref, ref, shallowRef } from 'vue'
 import { serverTarget } from '@/composables/useServerTarget'
 import { DashboardError, parseDashboard } from '@/features/inbox/view/dashboard'
 import { buildView, type DashboardView } from '@/features/inbox/view/decide'
@@ -14,11 +14,12 @@ export function createDashboardOverride(inbox: Ref<Inbox | null>) {
   /** El dashboard de este runner y lo que sale de aplicarlo; `null` con un runner viejo. */
   const dashboard = ref<ResolvedDashboard | null>(null)
   const view = ref<DashboardView | null>(null)
-  let lastTasks: Tasks | null = null
+  /** Los hechos de la última carga: de ahí sale también «lo último que corrió». */
+  const facts = shallowRef<Tasks | null>(null)
 
   /** Hechos + dashboard → la bandeja que se dibuja. */
   function apply(tasks: Tasks): Inbox {
-    lastTasks = tasks
+    facts.value = tasks
     const resolved = resolveDashboard(serverKey(serverTarget().base))
     dashboard.value = resolved
     view.value = buildView(tasks, resolved.dashboard)
@@ -34,13 +35,13 @@ export function createDashboardOverride(inbox: Ref<Inbox | null>) {
 
   /** Un runner sin `/api/tasks` clasifica él: sin dashboard. */
   function clear(): void {
-    lastTasks = null
+    facts.value = null
     dashboard.value = null
     view.value = null
   }
 
   function reapply(): void {
-    if (lastTasks && inbox.value) inbox.value = apply(lastTasks)
+    if (facts.value && inbox.value) inbox.value = apply(facts.value)
   }
 
   /** Guarda el dashboard editado para ESTE runner y lo aplica ya. Inválido: devuelve por qué. */
@@ -61,7 +62,7 @@ export function createDashboardOverride(inbox: Ref<Inbox | null>) {
     reapply()
   }
 
-  return { dashboard, view, apply, clear, panels, saveDashboard, resetDashboard }
+  return { dashboard, view, facts, apply, clear, panels, saveDashboard, resetDashboard }
 }
 
 export type DashboardOverride = ReturnType<typeof createDashboardOverride>

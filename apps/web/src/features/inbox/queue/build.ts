@@ -26,6 +26,7 @@ import {
   TYPE_META,
   TYPE_ORDER,
 } from '@/features/inbox/queue/kinds'
+import { type RecentRun, type RunSource, recentOf } from '@/features/inbox/queue/recent'
 import {
   type BlockedEntry,
   type Blocker,
@@ -118,6 +119,8 @@ export interface InboxQueue {
   queued: RunningEntry[]
   /** Tarjetas que esperan a otra tarea (`dep`): no son «en cola». */
   blocked: BlockedEntry[]
+  /** Lo último que corrió y ya cerró, de lo más nuevo a lo más viejo. */
+  recent: RecentRun[]
   feed: FeedSummary | null
   hygiene: HygieneLine[]
   /** «Dónde se traba cada épica»: vacío si ninguna decisión trae épica. */
@@ -133,6 +136,8 @@ export interface QueueInput {
   runner?: { feed?: InboxFeed; pipeline?: InboxPipeline } | null
   hygiene?: readonly HygieneLine[]
   filter?: QueueType | null
+  /** Cada card con su última corrida (`/api/tasks`); sin ella, las de los items. */
+  runs?: readonly RunSource[]
   now: number
 }
 
@@ -267,6 +272,7 @@ export function buildQueue(input: QueueInput): InboxQueue {
     running: runningOf(items, now),
     queued: queuedOf(items, now),
     blocked: blockedOf(items),
+    recent: recentOf(input.runs ?? items.map((i) => ({ ...i, run: i.execution })), now),
     feed: feedOf(pickFeed(input.feed, input.runner?.feed), capacity),
     hygiene: [...(input.hygiene ?? [])],
     epics: epicsOf(decisions),

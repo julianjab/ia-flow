@@ -3,8 +3,10 @@ import { computed, ref } from 'vue';
 import BlockedList from '@/features/inbox/pipeline/BlockedList.vue';
 import FreeSlots from '@/features/inbox/pipeline/FreeSlots.vue';
 import PipelineCell from '@/features/inbox/pipeline/PipelineCell.vue';
+import RecentRuns from '@/features/inbox/pipeline/RecentRuns.vue';
 import RunningList from '@/features/inbox/pipeline/RunningList.vue';
 import type { FeedSummary, PipelineSummary, RunningEntry } from '@/features/inbox/queue/build';
+import type { RecentRun } from '@/features/inbox/queue/recent';
 import type { BlockedEntry } from '@/features/inbox/queue/runnerFeed';
 
 // «El pipeline», al costado desde 1100 px: tres números (corriendo · en cola · libres de max).
@@ -20,6 +22,7 @@ const props = defineProps<{
   running: RunningEntry[];
   queued?: RunningEntry[];
   blocked?: readonly BlockedEntry[];
+  recent?: readonly RecentRun[];
   feed?: FeedSummary | null;
   /** El id de la sección del feed, para «y N más en…». */
   feedAnchor?: string;
@@ -92,6 +95,7 @@ const note = computed(() =>
       <FreeSlots :feed="feed ?? null" :anchor="feedAnchor" />
     </div>
     <BlockedList :blocked="blocked ?? []" />
+    <RecentRuns class="pc__recent" :runs="recent ?? []" />
     <p class="pc__note">{{ note }}</p>
   </section>
 </template>
@@ -102,5 +106,6 @@ const note = computed(() =>
 .pc__hd { display: flex; align-items: center; gap: 0.5rem; }
 .pc__cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.35rem; }
 .pc__list { margin: 0; border-top: 1px solid var(--border-mute); }
+.pc__recent { padding-top: 0.5rem; border-top: 1px solid var(--border-mute); }
 .pc__note { margin: 0; color: var(--fg-dim); font-size: var(--fs-micro); line-height: 1.45; }
 </style>
