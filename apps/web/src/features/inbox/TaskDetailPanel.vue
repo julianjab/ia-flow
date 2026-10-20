@@ -30,8 +30,10 @@ const executionIds = computed(() => data.value?.executions.map((e) => e.id) ?? [
 /** La ejecución que un evento pidió abrir; `at` hace que el mismo pedido dos veces vuelva a saltar. */
 const focus = ref<{ id: string; at: number } | null>(null);
 const openExecution = (id: string) => {
+  tab.value = 'runs';
   focus.value = { id, at: Date.now() };
 };
+const tab = ref<'runs' | 'events'>('runs');
 const agent = computed(() => execution.value?.agent_id);
 /** Cuándo lo pensó el agente: al cerrar su corrida (o al arrancarla, si sigue). */
 const saidAt = computed(() => execution.value?.closed_at ?? execution.value?.started_at);
@@ -61,7 +63,7 @@ function ask() {
     </blockquote>
 
     <p v-if="item.blocked_by?.length" class="td__exec">
-      <span class="uc-label">bloqueada por</span>
+      <span class="uc-label">Bloqueada por</span>
       <template v-for="ref in item.blocked_by" :key="ref">
         <RefLink v-if="refUrl(ref)" :short="shortRef(ref)" :url="refUrl(ref) ?? ''" />
         <span v-else class="mono">{{ shortRef(ref) }}</span>
@@ -69,7 +71,7 @@ function ask() {
     </p>
 
     <p class="td__links">
-      <span class="uc-label">issue</span>
+      <span class="uc-label">Issue</span>
       <RefLink :short="shortRef(item.ref)" :url="item.url" />
       <template v-if="item.pr">
         <span class="uc-label">PR</span>
@@ -85,27 +87,51 @@ function ask() {
     <p v-if="detail?.loading" class="td__dim">· cargando el detalle…</p>
     <ActionError v-else-if="failure" :failure="failure" @retry="emit('reload')" />
 
-    <TaskExecutions
-      v-if="data"
-      :task-ref="item.ref"
-      :executions="data.executions"
-      :live-trace="data.trace"
-      :focus="focus"
-    />
-    <TaskEvents
-      v-if="data"
-      :task-ref="item.ref"
-      :events="data.events"
-      :limit="Infinity"
-      :execution-ids="executionIds"
-      @open-execution="openExecution"
-    />
+    <!-- Corridas o eventos, uno a la vez: en un teléfono eran dos pantallas de scroll apiladas. -->
+    <template v-if="data">
+      <div class="td__tabs" role="tablist" aria-label="Historia de la tarea">
+        <button
+          type="button"
+          role="tab"
+          class="td__tab"
+          data-test="tab-runs"
+          :aria-selected="tab === 'runs'"
+          @click="tab = 'runs'"
+        >
+          Corridas <span class="td__n">{{ data.executions.length }}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          class="td__tab"
+          data-test="tab-events"
+          :aria-selected="tab === 'events'"
+          @click="tab = 'events'"
+        >
+          Eventos <span class="td__n">{{ data.events.length }}</span>
+        </button>
+      </div>
+      <!-- v-show y no v-if: un evento abre su ejecución, y la lista tiene que estar montada para saltar. -->
+      <div v-show="tab === 'runs'" class="td__pane" role="tabpanel">
+        <TaskExecutions :task-ref="item.ref" :executions="data.executions" :live-trace="data.trace" :focus="focus" />
+        <p v-if="!data.executions.length" class="td__dim">Todavía no corrió ningún agente.</p>
+      </div>
+      <div v-show="tab === 'events'" class="td__pane" role="tabpanel">
+        <TaskEvents
+          :task-ref="item.ref"
+          :events="data.events"
+          :limit="Infinity"
+          :execution-ids="executionIds"
+          @open-execution="openExecution"
+        />
+      </div>
+    </template>
 
-    <TaskActions :item="item" />
-
-    <button type="button" class="btn btn--ghost td__ask" @click="ask">
-      ◆ Preguntarle al asistente sobre {{ shortRef(item.ref) }}
+    <button type="button" class="td__ask" @click="ask">
+      <span aria-hidden="true">✦</span> Preguntarle al asistente sobre {{ shortRef(item.ref) }}
     </button>
+
+    <TaskActions :item="item" bar />
   </div>
 </template>
 
@@ -123,7 +149,7 @@ function ask() {
   overflow-wrap: anywhere;
 }
 /* R16: `--ai` sólo marca (✦ y quién); el texto inferido va en --fg-mute, con su hora. */
-.td__who { margin: 0 0 0.25rem; color: var(--fg-dim); font-family: var(--font-mono); font-size: var(--fs-micro); }
+.td__who { margin: 0 0 0.25rem; color: var(--fg-dim); font-size: var(--fs-chrome); }
 .td__ai { color: var(--ai); }
 .td__exec { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 0; font-size: var(--fs-body-sm); }
 .td__dim { color: var(--fg-dim); }
@@ -131,6 +157,16 @@ function ask() {
 .td__links .uc-label + :deep(.ref) { margin-right: 0.75rem; }
 .td__desc summary { display: flex; align-items: center; min-height: var(--tap-h); color: var(--fg-dim); font-size: var(--fs-body-sm); cursor: pointer; }
 .td__text { margin: 0; color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
-.td__ask { align-self: flex-start; padding: 0; color: var(--info); }
-.td__ask:hover { border-color: transparent; color: var(--fg); text-decoration: underline; }
+.td__ask { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.4rem; min-height: var(--tap-h); padding: 0; border: 0; background: none; color: var(--info); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
+.td__ask span { color: var(--ai); }
+.td__ask:hover { color: var(--fg); text-decoration: underline; }
+.td__tabs { display: flex; gap: 1.25rem; margin: 0 -1rem; padding: 0 1rem; border-bottom: 1px solid var(--border); }
+.td__tab { min-height: var(--tap-h); margin-bottom: -1px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-dim); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
+.td__tab:hover { color: var(--fg); }
+.td__tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--fg); }
+.td__n { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.td__pane { min-width: 0; }
+/* La pestaña ya dice qué es y cuántas hay: el título de la lista sobra. */
+.td__pane :deep(.tx__head),
+.td__pane :deep(.ev__label) { display: none; }
 </style>

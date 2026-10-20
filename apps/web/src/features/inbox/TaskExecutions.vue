@@ -105,7 +105,7 @@ watch(
 
 <template>
   <section v-if="executions.length" class="tx" aria-labelledby="tx-head">
-    <span id="tx-head" class="uc-label">ejecuciones · {{ executions.length }}</span>
+    <span id="tx-head" class="uc-label tx__head">Ejecuciones · {{ executions.length }}</span>
     <ul ref="list" class="tx__list">
       <ExecutionRow
         v-for="execution in executions"

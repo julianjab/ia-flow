@@ -56,7 +56,7 @@ async function why() {
 <template>
   <section class="ev" aria-label="Eventos y decisiones">
     <div class="ev__head">
-      <span class="uc-label">eventos recientes</span>
+      <span class="uc-label ev__label">Eventos recientes</span>
       <button type="button" class="btn btn--ghost ev__why" :disabled="explaining" @click="why">
         {{ explaining ? 'evaluando…' : '¿Por qué no corrió?' }}
       </button>

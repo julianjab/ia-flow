@@ -16,6 +16,8 @@ const props = defineProps<{
   ghost?: boolean;
   /** Riesgosa («Detener…»): contorno `--danger`, pesa más que una neutra. */
   danger?: boolean;
+  /** La acción del caso en una pantalla donde no hay otro primario (la barra del detalle). */
+  primary?: boolean;
   /** El texto que acompaña la acción (lo escribe el detalle). */
   comment?: string;
   /** Deshabilitado por quien lo usa (p. ej. falta el texto que la acción exige). */
@@ -52,7 +54,7 @@ async function confirm() {
       v-else
       type="button"
       class="btn"
-      :class="{ 'btn--ghost': ghost, 'btn--danger': danger && !ghost }"
+      :class="{ 'btn--ghost': ghost, 'btn--danger': danger && !ghost, 'btn--primary': primary && !ghost && !danger }"
       :disabled="act.busy.value || blocked"
       @click="press"
     >
