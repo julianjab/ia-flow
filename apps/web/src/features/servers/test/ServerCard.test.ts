@@ -32,7 +32,7 @@ describe('ServerCard', () => {
 
   it('el server elegido se marca y no se puede quitar', () => {
     const wrapper = mountCard(probed(), { current: true })
-    expect(wrapper.text()).toContain('estás acá')
+    expect(wrapper.text()).toContain('Estás acá')
     expect(wrapper.find('[aria-label="Quitar de la lista"]').exists()).toBe(false)
   })
 
@@ -43,17 +43,17 @@ describe('ServerCard', () => {
 
     const down = mountCard(probed({ reachable: false }))
     expect(down.find('.card__enter').attributes('disabled')).toBeDefined()
-    expect(down.text()).toContain('no responde')
+    expect(down.text()).toContain('No responde')
   })
 
   it('un 401 se dice distinto de "no responde" y abre el campo del token', () => {
     const wrapper = mountCard(probed({ reachable: false, needsToken: true, kind: 'unknown' }))
-    expect(wrapper.text()).toContain('pide token')
+    expect(wrapper.text()).toContain('Pide token')
     expect(wrapper.find('input[type="password"]').exists()).toBe(true)
   })
 
   it('algo que no es un runner lo dice', () => {
-    expect(mountCard(probed({ kind: 'unknown' })).text()).toContain('no es un runner-v2')
+    expect(mountCard(probed({ kind: 'unknown' })).text()).toContain('No es un runner-v2')
   })
 
   it('guardar el token emite el valor recortado', async () => {
@@ -71,6 +71,6 @@ describe('ServerCard', () => {
     await withLogin.find('.card__ghbtn').trigger('click')
     expect(withLogin.emitted('github-logout')?.[0]).toEqual(['http://localhost:3011'])
 
-    expect(mountCard(probed()).text()).toContain('sin sesión de GitHub')
+    expect(mountCard(probed()).text()).toContain('Sin sesión de GitHub')
   })
 })

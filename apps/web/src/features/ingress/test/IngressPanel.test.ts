@@ -57,13 +57,17 @@ describe('IngressPanel', () => {
       )
   })
 
-  it('una tarjeta por entrada: cómo se conecta, si está configurada y cuánto le llegó', async () => {
+  it('una fila por entrada: cómo se conecta, si está configurada y cuánto le llegó', async () => {
     const w = mount(IngressPanel)
     await flushPromises()
-    const github = w.get('[data-test="source-github"]').text()
+    const row = w.get('[data-test="source-github"]')
+    const github = row.text()
     expect(github).toContain('POST /api/webhooks/github')
-    expect(github).toContain('✓ configurada')
+    // Configurada lo dice el punto de estado; sin configurar, lo dice en palabras.
+    expect(row.attributes('data-ok')).toBe('true')
     expect(github).toContain('3 en 24 h')
+    expect(w.get('[data-test="source-slack"]').attributes('data-ok')).toBe('false')
+    expect(w.get('[data-test="source-slack"]').text()).toContain('Sin configurar')
     expect(w.get('[data-test="source-slack"]').text()).toContain('falta SLACK_APP_TOKEN')
   })
 

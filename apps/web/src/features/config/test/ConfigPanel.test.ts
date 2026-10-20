@@ -97,6 +97,7 @@ describe('ConfigPanel', () => {
   it('muestra agentes con sus salidas, providers y MCP', async () => {
     const w = mount(ConfigPanel)
     await flushPromises()
+    await w.get('[data-test="tab-catalog"]').trigger('click')
     const text = w.text()
     expect(text).toContain('claude-tmux → anthropic-api')
     expect(text).toContain('changes → implementer')
@@ -108,6 +109,7 @@ describe('ConfigPanel', () => {
   it('cada agente dice su modelo, sus MCP (y cuál no quedó montado), sus tools y su prompt plegado', async () => {
     const w = mount(ConfigPanel)
     await flushPromises()
+    await w.get('[data-test="tab-catalog"]').trigger('click')
     expect(w.get('[data-test="models"]').text()).toBe('claude-sonnet-5-5 · claude-opus-5-5')
     expect(w.text()).toContain('1 MCP sin montar')
     expect(w.get('[data-test="mcp-figma"]').text()).toBe('figma (sin montar)')
@@ -119,6 +121,17 @@ describe('ConfigPanel', () => {
     // El runner mandó un recorte: se dice dónde está el completo.
     expect(prompt.text()).toContain('Recortado')
     expect(prompt.text()).toContain('Revisá {{task.ref}}')
+  })
+
+  it('pipelines y catálogo son pestañas: arranca en pipelines, una a la vez', async () => {
+    const w = mount(ConfigPanel)
+    await flushPromises()
+    expect(w.get('[data-test="tab-pipelines"]').attributes('aria-selected')).toBe('true')
+    expect(w.find('.cp__hd').exists()).toBe(true)
+    expect(w.find('.cc__hd').exists()).toBe(false)
+    await w.get('[data-test="tab-catalog"]').trigger('click')
+    expect(w.find('.cp__hd').exists()).toBe(false)
+    expect(w.find('.cc__hd').exists()).toBe(true)
   })
 
   it('un error se muestra con Reintentar', async () => {

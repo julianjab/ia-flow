@@ -86,7 +86,7 @@ describe('GithubLoginSheet', () => {
 
     startDeviceFlow.mockClear()
     const retry = [...document.body.querySelectorAll('button')].find(
-      (b) => b.textContent === 'Reintentar',
+      (b) => b.textContent === 'Pedir otro código',
     )
     retry?.click()
     await flushPromises()
