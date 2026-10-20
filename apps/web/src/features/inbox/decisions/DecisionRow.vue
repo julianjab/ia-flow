@@ -151,16 +151,19 @@ async function confirm() {
 .dr__title { margin: 0; color: var(--fg-mute); line-height: 1.4; overflow-wrap: anywhere; }
 .dr__why { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
 /* Teléfono: dos columnas, sin el número de rango (el orden ya se ve). La antigüedad arriba a la
-   derecha, en la línea del verbo, y el toggle abajo, en la del link. Cerrada, la fila no trae el
-   botón (se llega deslizándola o abriéndola), el título va en dos líneas y sólo la primera razón.
-   `.dr__side` se disuelve en la grilla para ubicar cada pieza. */
+   derecha, en la línea del verbo. Cerrada, la fila no trae el botón (se llega deslizándola o
+   abriéndola), el título va en dos líneas y sólo la primera razón. El toggle no se ve: tocar la
+   fila ya la abre y la cierra; queda para el lector de pantalla y aparece si le llega el foco del
+   teclado. `.dr__side` se disuelve en la grilla para ubicar cada pieza. */
 .dr__head { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer; }
 .dr__rank { display: none; }
 .dr__side { display: contents; }
 .dr__what { grid-column: 1; grid-row: 1 / span 2; }
 .dr__side .age { grid-column: 2; grid-row: 1; line-height: var(--row-h); text-align: right; }
-.dr__toggle { position: relative; grid-column: 2; grid-row: 2; align-self: end; width: var(--tap-h); height: var(--row-h); min-height: 0; padding: 0; color: var(--fg-dim); }
-.dr__toggle::before { content: ''; position: absolute; inset: -0.6rem 0; }
+.dr__toggle { grid-column: 2; grid-row: 2; align-self: end; color: var(--fg-dim); }
+@container decisions (width < 36rem) {
+  .dr__toggle:not(:focus-visible) { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); border: 0; }
+}
 .dr__act { display: none; grid-column: 1 / span 2; grid-row: 3; justify-self: stretch; }
 .dr[data-open] .dr__act { display: inline-flex; justify-content: center; }
 .dr:not([data-open]) .dr__title {
@@ -183,8 +186,7 @@ async function confirm() {
   .dr__head { grid-template-columns: 1.4rem minmax(0, 1fr) auto; gap: 0.5rem 1rem; cursor: auto; }
   .dr:not([data-open]) .dr__title { display: block; overflow: visible; }
   .dr:not([data-open]) .dr__why :deep(.why ~ .why) { display: inline-block; }
-  .dr__toggle { position: static; height: auto; min-height: var(--tap-h); align-self: auto; }
-  .dr__toggle::before { display: none; }
+  .dr__toggle { align-self: auto; }
   .dr__rank { display: block; grid-column: 1; grid-row: 1; }
   .dr__what { grid-column: 2; }
   .dr__in,
