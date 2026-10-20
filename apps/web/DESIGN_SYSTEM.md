@@ -17,6 +17,25 @@ v4 nace del mockup de rediseño del editor de agentes (`src/features/agents/`). 
 
 Si estás mirando un componente con `border-radius: 0`, hex hardcodeados o `'SF Mono'` escrito a mano, es v3 sin migrar.
 
+### v4.1 — la voz y la capa táctil
+
+Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono.
+
+- **Sin caja alta sostenida.** Ni `text-transform: uppercase` ni tracking en títulos, labels o
+  rótulos: `.uc-label`, `.sec-hd`, `.panel__header` y `.settings-section h2` se escriben como se
+  dicen («Lo primero», «Ejecuciones · 3»). La jerarquía la da el tamaño y el peso; un dato con
+  nombre ya no grita igual que un encabezado de sección. `.uc-label` conserva el nombre por
+  historia, pero es Sans.
+- **Mono sólo para lo copiable**, como dice «Tipografía», y ahora en serio: las razones, las
+  antigüedades, los estados y los agentes van en Sans; refs, ids, rutas y códigos, en mono.
+- **Tab bar al pie bajo 768px** (`ui/TabBar.vue`): Bandeja, Asistente, Webhooks, Config. El
+  asistente es una pestaña (en desktop, la burbuja ✦); el runner se cambia desde el chip de la
+  barra; la cuenta de GitHub es un avatar que abre un sheet. No hay ☰.
+- **Filtros como píldoras** (`.filter-chip`, radio 999px); el elegido se marca con `--panel-hi`,
+  no con el acento lleno.
+- **Una barra fija por pantalla** (R4), y en un detalle es la de sus acciones, con UN primario: el
+  detalle tapa la bandeja, así que no compite con «Lo primero».
+
 ## Tokens (fuente única: `src/styles/theme.css`)
 
 ### Superficies
@@ -119,7 +138,7 @@ Escribir el número suelto está bien. Inventar un cuarto ancho, no.
 
 Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son globales:
 
-- `.panel` / `.panel__header` (`--dim`) — card con header en caja alta.
+- `.panel` / `.panel__header` (`--dim`) — card con header en display (v4.1: sin caja alta).
 - `.link` — **el link de texto dentro de una fila, card o panel**: `--info`, al hover `--fg` subrayado sin fondo, foco con contorno. El `<a>` sin clase (texto corrido) usa el video inverso global; ver «Trampas conocidas».
 - `.settings-section` + `.section-header` / `.section-head-text` / `.section-head-actions` / `.section-desc` — **la caja de una pantalla de configuración.** Es la que usan Tareas, Board, Agentes, Pipeline, Acciones, Tools, System Prompts y Repos, y por eso las ocho tienen el mismo alto de caja, el mismo `h2` y el mismo espacio hasta la primera fila. Vivía copiada `scoped` en nueve componentes hasta que las copias derivaron (radios de 8/10px que el reset pisa, dos tamaños de `h2`, tres márgenes de descripción distintos): **no la vuelvas a declarar en un componente.**
 - `ui/ScopeGroup.vue` — el grupo por ámbito dentro de una de esas secciones (ver abajo).
@@ -139,7 +158,8 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   difícil ver dónde terminaba un grupo y empezaba el otro.
 - `.btn` + `.btn--primary` / `.btn--danger` / `.btn--destructive` / `.btn--ghost` — **usá esto en vez de reinventar `.btn-save`/`.btn-cancel` por componente.** Ver "Botones" más abajo para cuál va en cada caso.
 - `.uc-label` — **el label de un campo**, y de cualquier dato con nombre (celda de tile, fila de
-  meta). Caja alta, mono, con tracking, en `--fg-dim`. Ocho componentes se declaraban su propia
+  meta). Sans, `--fs-chrome`, 500, en `--fg-dim`, escrito como se dice (v4.1; antes, caja alta
+  mono con tracking). Ocho componentes se declaraban su propia
   copia idéntica (`.af-lbl`, `.cre-lbl`, `.wce-lbl`, `.na-lbl`, `.rse-lbl`, `.ts-lbl`…) porque la
   global estaba un escalón más apagada (`--fg-dimmer`, la ranura de los placeholders); se corrigió
   el token y se borraron las copias. **No la vuelvas a declarar.**
@@ -191,6 +211,9 @@ Antes de escribir CSS nuevo, buscá acá — todas viven en `theme.css` y son gl
   - `decisions/AgeStamp.vue` + `queue/age.ts` — **la antigüedad**: mono, cifras tabulares, en
     `--warn` desde las 24 h. Toda card o fila con fecha la usa.
   - `section.css` (`.sec-hd`) — el encabezado de sección de la bandeja, importado `scoped`.
+- `ui/TabBar.vue` — **los destinos bajo `--bp-shell`**: una ruta (`to`) o una acción (`press`,
+  el asistente), badge que en cero no se dibuja (R10) y punto de novedad. El ícono va por slot.
+  Es LA barra fija de la pantalla (R4): un detalle con su barra de acciones la tapa.
 - `ui/BottomSheet.vue` — **el overlay de la capa táctil.** Bajo `--bp-shell` un popover anclado a su
   disparador queda fuera de pantalla en cuanto sube el teclado virtual (R6), así que todo overlay
   es este sheet: `translateY` en 150ms, backdrop al 60% que cierra al tocar, radio superior de
@@ -419,8 +442,8 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
 
 ## Patrones de vista
 
-- **Header de sección:** título en `--font-display`, caja alta, `letter-spacing: var(--tracking-hd)`, mismo tamaño que el cuerpo — la jerarquía la da la caja alta y el tracking, no el tamaño. Sub-copy en `--fg-dim`. Usá `.section-header` con `.section-head-text` (el texto, que se encoge) y `.section-head-actions` (los botones, que no): sin eso un título largo empuja el botón primario fuera de la caja.
-- **Sub-navegación:** en el sidebar (`SettingsSidebar.vue`, prop `children`). **No** tab strips arriba del contenido.
+- **Header de sección:** título en `--font-display`, en minúscula normal; la jerarquía la da el tamaño (`--fs-num` en una pantalla de configuración, el del cuerpo con 600 dentro de la bandeja), no la caja alta. Sub-copy en `--fg-dim`. Usá `.section-header` con `.section-head-text` (el texto, que se encoge) y `.section-head-actions` (los botones, que no): sin eso un título largo empuja el botón primario fuera de la caja.
+- **Sub-navegación:** dos o tres listas hermanas de UNA pantalla (corridas y eventos de una tarea; pipelines y catálogo en Config) son pestañas subrayadas arriba del contenido, una a la vez, con su cuenta al lado. Más destinos que eso son pantallas, no pestañas.
 - **Tabla:** grid con `grid-template-columns` en `ch`, filas de `--row-h`, hairline `--border-mute` entre filas.
 - **Card de lista:** borde `--border`, hover que cambia superficie a `--panel-hi` y marca el borde izquierdo con la ranura del dominio (`--info` para algo navegable). El foco lo pone `[data-kbd-item]`.
 - **Chip / tag:** una sola caja para todos los tipos — `line-height: var(--row-h)`, mono, `--radius-sm`, borde hairline. Lo que varía entre tipos es **el color del glifo**, no la caja: así una fila de tags heterogéneos se lee como una unidad.
