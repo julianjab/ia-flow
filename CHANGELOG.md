@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.22.0](https://github.com/julianjab/ia-flow/compare/v2.21.3...v2.22.0) (2026-10-20)
+
+
+### Features
+
+* **web:** la web se instala como PWA (manifest, service worker e íconos) ([7f5e762](https://github.com/julianjab/ia-flow/commit/7f5e7624e537fdbacc78fe2b3ce847d39711d15d))
+* **web:** pastilla con lo copiado en la Mac, en todas las pantallas ([ed1fb3b](https://github.com/julianjab/ia-flow/commit/ed1fb3b16e5ca7fecfed0f6bbe18bfbf6b002ab3))
+* **web:** reenvía runners remotos bajo /&lt;nombre&gt; (IA_FLOW_PROXY_RUNNERS) ([74f01b5](https://github.com/julianjab/ia-flow/commit/74f01b52f96d6362cd4279968d74159138b5a1e6))
+
+
+### Bug Fixes
+
+* **agent-engine:** un objeto anidado que llega como string se repara antes de rechazar ([6e4db55](https://github.com/julianjab/ia-flow/commit/6e4db55c306fa1bfdd069e8e876613f55bdadc8f))
+
 ## [2.21.3](https://github.com/julianjab/ia-flow/compare/v2.21.2...v2.21.3) (2026-10-19)
 
 
