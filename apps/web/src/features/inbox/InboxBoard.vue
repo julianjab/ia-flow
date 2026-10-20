@@ -6,6 +6,7 @@ import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import DecisionQueue from '@/features/inbox/decisions/DecisionQueue.vue';
 import FirstDecision from '@/features/inbox/decisions/FirstDecision.vue';
 import InboxHeadline from '@/features/inbox/decisions/InboxHeadline.vue';
+import InboxSearch from '@/features/inbox/InboxSearch.vue';
 import InboxToolbar from '@/features/inbox/InboxToolbar.vue';
 import SectionSkeleton from '@/features/inbox/loading/SectionSkeleton.vue';
 import EpicsPanel from '@/features/inbox/pipeline/EpicsPanel.vue';
@@ -16,6 +17,7 @@ import PipelineLine from '@/features/inbox/pipeline/PipelineLine.vue';
 import PipelineStrip from '@/features/inbox/pipeline/PipelineStrip.vue';
 import { loadFailure } from '@/features/inbox/queue/advice';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
+import SearchResults from '@/features/inbox/SearchResults.vue';
 import { useInboxStore } from '@/features/inbox/store';
 import TaskDetailDrawer from '@/features/inbox/TaskDetailDrawer.vue';
 import { useTaskFocusStore } from '@/stores/taskFocus';
@@ -29,6 +31,9 @@ import { useTaskFocusStore } from '@/stores/taskFocus';
 // Cada sección pinta en cuanto llega SU dato (`store.sections`): mientras tanto, su esqueleto con
 // la misma forma. Lo que llega aparece con un fade corto, escalonado en el orden real de llegada;
 // sólo en la primera carga: un refresco mantiene lo pintado, sin esqueleto ni animación.
+//
+// Bajo el título, el buscador (el del menubar): con algo escrito, los resultados reemplazan a la
+// bandeja.
 
 const store = useInboxStore();
 const { isSplit } = useIsSplit();
@@ -79,12 +84,16 @@ watch(
         @project="store.project = $event"
         @refresh="store.refresh()"
       />
+      <InboxSearch class="board__search" />
     </header>
 
     <ActionError v-if="loadError" :failure="loadError" :busy="store.loading" @retry="store.refresh()" />
 
     <div class="board__cols">
       <div class="board__main">
+        <!-- Buscando, los resultados reemplazan a la bandeja: lo demás vuelve al vaciar el campo. -->
+        <SearchResults v-if="store.search" />
+        <template v-else>
         <template v-if="isMobile">
           <SectionSkeleton v-if="s.pipeline === 'loading'" shape="pipeline-line" label="cargando el pipeline…" />
           <PipelineStrip
@@ -148,6 +157,7 @@ watch(
             <RulesLegend />
           </div>
         </section>
+        </template>
       </div>
 
       <aside v-if="isSplit" class="board__aside" aria-label="El pipeline, las épicas y el board">
@@ -178,7 +188,8 @@ watch(
 <style scoped>
 .board { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
 .board__top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; }
-.board__top > :last-child { flex: 1 1 auto; }
+.board__top > .tb { flex: 1 1 auto; }
+.board__search { flex: 1 1 100%; }
 /* El título de la pantalla: display, en minúscula normal. Los bloques de abajo son h2. */
 .board__title { margin: 0; font-size: var(--fs-display); }
 .board__more { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }

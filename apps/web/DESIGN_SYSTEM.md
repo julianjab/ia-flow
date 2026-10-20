@@ -39,6 +39,9 @@ Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono
   fila cerrada dice qué, de qué tarea y hace cuánto —el título en dos líneas, una razón— y su
   botón no se ve. Deslizarla a la izquierda muestra la acción (primario); tocarla abre la tarea
   en grande, con su barra de acciones. El gesto es un atajo: nunca es el único camino a una acción.
+- **Un buscador bajo el título de la bandeja** (`InboxSearch.vue`, el mismo del menubar): un
+  número, `repo#n`, un link o texto del título. Con algo escrito, los resultados reemplazan a la
+  bandeja —cada card con dónde está— y al pie va la misma búsqueda en GitHub.
 
 ## Tokens (fuente única: `src/styles/theme.css`)
 

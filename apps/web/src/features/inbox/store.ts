@@ -6,6 +6,7 @@ import { createBoardLoad } from '@/features/inbox/state/load'
 import { createMoves } from '@/features/inbox/state/moves'
 import { createQueue } from '@/features/inbox/state/queue'
 import { createRest } from '@/features/inbox/state/rest'
+import { createSearch } from '@/features/inbox/state/search'
 import { useImprovementsSignalStore } from '@/stores/improvementsSignal'
 
 export type { ActionState } from '@/features/inbox/state/actions'
@@ -27,6 +28,14 @@ export const useInboxStore = defineStore('inbox', () => {
     if (detail.openRef.value === ref) void detail.loadDetail(ref, { silent: true })
   })
   const moves = createMoves(() => load.refresh())
+  const search = createSearch({
+    scoped: queue.scoped,
+    inbox: load.inbox,
+    runner: load.runner,
+    rest: board.rest,
+    loadRest: board.loadRest,
+    restLoading: board.restLoading,
+  })
   const live = createLive({
     refresh: load.refresh,
     openRef: () => detail.openRef.value,
@@ -53,6 +62,7 @@ export const useInboxStore = defineStore('inbox', () => {
     ...moves,
     ...live,
     ...queue,
+    ...search,
     openRef,
     expanded,
     details,
