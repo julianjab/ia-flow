@@ -75,6 +75,42 @@ describe('AssistantLauncher', () => {
     wrapper.unmount()
   })
 
+  it('con una respuesta en curso, la pregunta escrita afuera espera a que termine y no se pierde', async () => {
+    let finish = () => {}
+    const pending = new Promise<void>((resolve) => (finish = resolve))
+    script = async function* () {
+      await pending
+      yield { type: 'done', text: 'Listo.' }
+    }
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const wrapper = mount(AssistantLauncher, {
+      global: { plugins: [pinia] },
+      attachTo: document.body,
+    })
+    const ui = useAssistantStore()
+    const chat = useAssistantChatStore()
+    ui.open({ kind: 'task', ref: 'acme/api#7' }, 'primera')
+    await flushPromises()
+    expect(chat.streaming).toBe(true)
+
+    ui.open({ kind: 'task', ref: 'acme/api#7' }, 'segunda')
+    await flushPromises()
+    expect(ui.message).toBe('segunda')
+
+    script = async function* () {
+      yield { type: 'done', text: 'Ok.' }
+    }
+    finish()
+    await flushPromises()
+    expect(ui.message).toBeNull()
+    expect(chat.turns.filter((t) => t.kind === 'user').map((t) => t.text)).toEqual([
+      'primera',
+      'segunda',
+    ])
+    wrapper.unmount()
+  })
+
   it('la burbuja es el único punto de entrada: abre y cierra una ventana, sin backdrop', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
