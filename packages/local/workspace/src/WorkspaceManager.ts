@@ -420,9 +420,14 @@ export class WorkspaceManager {
    * vez sobre la misma task). Compartir el de la task los haría pisarse — `yarn install` a la vez,
    * artefactos, puertos —, así que cada carril tiene el suyo: `<worktree de la task>--<carril>`.
    *
-   * Primero asegura el de la task (la branch creada y al día con el remoto), y después crea o
-   * refresca el del carril sobre esa branch en `--detach`: git no deja la misma branch en dos
-   * worktrees. Por eso es de LECTURA — sirve para verificar, no para commitear y pushear. Al
+   * Primero asegura el de la task (la branch creada, y el `fetch` hecho), y después crea o
+   * refresca el del carril en `--detach`: git no deja la misma branch en dos worktrees. Por eso
+   * es de LECTURA — sirve para verificar, no para commitear y pushear —, y por eso se para en lo
+   * PUBLICADO (`origin/<branch>`, el HEAD del PR) cuando existe, no en la branch local: la local
+   * puede haber quedado atrás con commits que el remoto no tiene (los que el agente publicó con
+   * otro SHA, p. ej. por el MCP), y entonces no se sincroniza — el reviewer de
+   * lh-seller-v2-frontend#4470 arrancó en `ed4600c` con el PR en `9fc2c55`. Sin branch remota
+   * (nada publicado todavía) usa la local. Al
    * refrescarlo se descartan los cambios trackeados (`checkout --force`), pero no lo ignorado: un
    * `node_modules` sobrevive entre rondas.
    */
@@ -1082,19 +1087,38 @@ export class WorkspaceManager {
   ): Promise<{ path: string; branch: string }> {
     const path = this.laneWorktreePath(task, repoBasePath, lane)
     const exists = await this.#worktreeExists(repoBasePath, path)
+    const ref = await this.#publishedRef(task.id, repoBasePath, branch)
     const r = exists
-      ? await this.#shell.run(['git', 'checkout', '--detach', '--force', branch], path)
-      : await this.#shell.run(['git', 'worktree', 'add', '--detach', path, branch], repoBasePath)
+      ? await this.#shell.run(['git', 'checkout', '--detach', '--force', ref], path)
+      : await this.#shell.run(['git', 'worktree', 'add', '--detach', path, ref], repoBasePath)
     if (r.exitCode !== 0) {
       throw new Error(
         `worktree del carril "${lane}" en "${path}": ${(r.stderr || r.stdout).trim()}`,
       )
     }
     this.#log.info(
-      { taskId: task.id, worktree: path, lane, branch, reused: exists },
+      { taskId: task.id, worktree: path, lane, branch, ref, reused: exists },
       'lane worktree',
     )
     return { path, branch }
+  }
+
+  /** `origin/<branch>` si está publicada (lo que ve el PR), si no la branch local. Avisa cuando
+   *  la local apunta a otro commit: es lo que antes dejaba al carril en un SHA viejo. */
+  async #publishedRef(taskId: string, repoBasePath: string, branch: string): Promise<string> {
+    const remote = `origin/${branch}`
+    const head = (ref: string) =>
+      this.#shell.run(['git', 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoBasePath)
+    const published = await head(`refs/remotes/${remote}`)
+    if (published.exitCode !== 0) return branch
+    const local = await head(`refs/heads/${branch}`)
+    if (local.exitCode === 0 && local.stdout.trim() !== published.stdout.trim()) {
+      this.#log.warn(
+        { taskId, branch, local: local.stdout.trim(), remote: published.stdout.trim() },
+        `lane: la branch local no es ${remote}; el carril usa lo publicado`,
+      )
+    }
+    return remote
   }
 
   /** Los worktrees de carril de `worktree` (`<worktree>--<carril>`), registrados en el repo. */
