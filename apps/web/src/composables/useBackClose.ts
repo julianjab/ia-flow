@@ -59,6 +59,10 @@ function onPopState() {
   // La entrada en la que se aterrizó (lo mismo que `event.state`).
   const depth = depthOf(window.history.state)
   while (stack.length && (stack.at(-1) as Entry).depth > depth) (stack.pop() as Entry).close()
+  // Huérfana: la dejó un overlay que se desmontó abierto (se cambió de pantalla). No hay nada que
+  // cerrar ahí, así que se sigue de largo hasta lo que sigue abierto (o la pantalla misma).
+  const floor = Math.max(0, ...stack.map((e) => e.depth))
+  if (depth > floor) chain = chain.then(() => back(depth - floor))
 }
 
 function listen() {
