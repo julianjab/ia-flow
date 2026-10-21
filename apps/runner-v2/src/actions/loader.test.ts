@@ -10,6 +10,7 @@ import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { Boards } from '../board/Boards.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
 import { TaskDesk } from '../inbox/TaskDesk.js'
+import { UserCommentLedger } from '../intake/heldComments.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
 import { BUILTIN_ACTIONS } from './builtin/index.js'
 import type { RunnerServices } from './defineAction.js'
@@ -53,6 +54,7 @@ const services: RunnerServices = {
   boards: new Boards([]),
   assistant: new AssistantDesk(),
   tasks: new TaskDesk(),
+  userComments: new UserCommentLedger(),
   log: () => {},
 }
 
