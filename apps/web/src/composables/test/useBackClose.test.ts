@@ -51,11 +51,22 @@ async function settle() {
   await flushPromises()
 }
 
+// Cada módulo nuevo escucha `popstate`; el del test anterior se saca (en la app hay uno solo).
+let listeners: EventListenerOrEventListenerObject[] = []
 beforeEach(async () => {
   vi.resetModules()
+  const add = window.addEventListener.bind(window)
+  vi.spyOn(window, 'addEventListener').mockImplementation((type, listener, options) => {
+    if (type === 'popstate') listeners.push(listener)
+    add(type, listener, options)
+  })
   ;({ useBackClose, historySettled } = await import('../useBackClose'))
 })
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => {
+  for (const listener of listeners) window.removeEventListener('popstate', listener)
+  listeners = []
+  vi.restoreAllMocks()
+})
 
 describe('useBackClose', () => {
   it('abrir suma una entrada; el «atrás» la cierra sin salir de la pantalla', async () => {
@@ -150,5 +161,19 @@ describe('useBackClose', () => {
     await settle()
     expect(depth()).toBe(0)
     w.unmount()
+  })
+
+  it('la entrada de un overlay que se desmontó abierto (otra pantalla) se pasa de largo', async () => {
+    const go = fakeHistory()
+    const open = ref(true)
+    const w = overlay(open)
+    await settle()
+    w.unmount()
+    // El router empuja la otra pantalla y el usuario vuelve: cae en la entrada huérfana.
+    entries.push(null)
+    pressBack()
+    await settle()
+    expect(go).toHaveBeenCalledWith(-1)
+    expect(depth()).toBe(0)
   })
 })
