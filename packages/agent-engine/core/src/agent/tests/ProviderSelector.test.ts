@@ -1,3 +1,4 @@
+import { createLogger } from '@ia-flow/telemetry'
 import { describe, expect, it } from 'vitest'
 import { Condition } from '../../condition/Condition.js'
 import { ConcurrencyLimits } from '../../engine/ConcurrencyLimits.js'
@@ -7,6 +8,8 @@ import type { PipelineExecutionContext } from '../../pipeline/Runnable.js'
 import { Agent } from '../Agent.js'
 import type { Provider, ProviderRunContext } from '../Provider.js'
 import { ProviderRegistry } from '../Provider.js'
+import { ProviderCandidate } from '../ProviderCandidate.js'
+import { ProviderSelector } from '../ProviderSelector.js'
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -217,6 +220,72 @@ describe('Agent with several provider candidates', () => {
       await tick()
       await tick()
       expect(chosen).toBe('remote:laptop')
+    })
+
+    describe('falling to the next candidate, the trace says which host was missing', () => {
+      const select = (registry: ProviderRegistry, ids: string[]) =>
+        new ProviderSelector(
+          'frontend-implementer',
+          undefined,
+          ids.map((id) => new ProviderCandidate({ id })),
+          registry,
+          createLogger('test'),
+        ).select(ctx())
+
+      it('names a host that went away, and how long ago', async () => {
+        const registry = new ProviderRegistry()
+          .register(provider('remote:front-end-developer').provider)
+          .register(provider('anthropic-api').provider)
+        registry.unregister('remote:front-end-developer', Date.now() - 12 * 60_000)
+
+        const selected = await select(registry, ['remote:*', 'anthropic-api'])
+
+        expect(selected.candidate.id).toBe('anthropic-api')
+        expect(selected.skipped).toEqual([
+          'remote:front-end-developer: no está suscrito (se fue hace 12 min)',
+        ])
+      })
+
+      it('next to the hosts that declined, says there was no other one', async () => {
+        const registry = new ProviderRegistry()
+          .register(
+            provider('remote:e2e', {
+              canAccept: async () => ({ accept: false, reason: 'no toma esto' }),
+            }).provider,
+          )
+          .register(provider('anthropic-api').provider)
+
+        const selected = await select(registry, ['remote:*', 'anthropic-api'])
+
+        expect(selected.skipped).toEqual([
+          'remote:e2e: no toma esto',
+          'remote:*: ningún otro host suscrito (sólo remote:e2e)',
+        ])
+      })
+
+      it('with no host at all, says so', async () => {
+        const registry = new ProviderRegistry().register(provider('anthropic-api').provider)
+        const selected = await select(registry, ['remote:*', 'anthropic-api'])
+        expect(selected.skipped).toEqual(['remote:*: ningún host suscrito'])
+      })
+
+      it('a host that came back is not reported', async () => {
+        const host = provider('remote:front-end-developer').provider
+        const registry = new ProviderRegistry().register(host)
+        registry.unregister(host.id)
+        registry.register(host)
+        const selected = await select(registry, ['remote:*', 'anthropic-api'])
+        expect(selected.candidate.id).toBe('remote:front-end-developer')
+        expect(selected.skipped).toEqual([])
+      })
+
+      it('a named dynamic host before the chosen one is reported', async () => {
+        const registry = new ProviderRegistry()
+          .expectDynamic('remote:')
+          .register(provider('anthropic-api').provider)
+        const selected = await select(registry, ['remote:e2e', 'anthropic-api'])
+        expect(selected.skipped).toEqual(['remote:e2e: no está suscrito'])
+      })
     })
 
     it('a provider that unregisters stops being a candidate', async () => {
