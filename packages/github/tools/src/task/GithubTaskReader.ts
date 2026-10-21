@@ -42,12 +42,13 @@ const ISSUE_OF_ITEM = `query($id: ID!) {
 
 // La sección "Development" del issue: las ramas vinculadas (`createLinkedBranch`) y los PRs
 // abiertos que lo cierran. Una rama que subió el agente sin vincular sólo aparece por su PR.
+// `state`: `includeClosedPrs: false` no saca a los mergeados, y la rama de uno ya no es la de la task.
 const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
       linkedBranches(first: 10) { nodes { ref { name } } }
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-        nodes { number headRefName isCrossRepository createdAt repository { nameWithOwner } }
+        nodes { number state headRefName isCrossRepository createdAt repository { nameWithOwner } }
       }
     }
   }
@@ -229,9 +230,9 @@ export class GithubTaskReader {
   }
 
   /**
-   * Las ramas de la task según su sección "Development": primero las vinculadas al issue y después
-   * las de los PRs abiertos del mismo repo que lo cierran, el más viejo primero (el que tiene el
-   * historial y el review). Sin las de los PRs, una rama que subió el agente sin vincular no se
+   * Las ramas de la task según su sección "Development": primero las de los PRs abiertos del mismo
+   * repo que lo cierran, el más viejo primero (el que tiene el historial y el review), y después las
+   * vinculadas al issue. Sin las de los PRs, una rama que subió el agente sin vincular no se
    * encontraba, y la task terminaba con otra rama y otro PR.
    */
   async linkedBranches(owner: string, repo: string, number: number): Promise<string[]> {
@@ -241,6 +242,7 @@ export class GithubTaskReader {
           linkedBranches?: { nodes?: Array<{ ref?: { name: string } | null }> }
           closedByPullRequestsReferences?: {
             nodes?: Array<{
+              state?: string
               headRefName?: string
               isCrossRepository?: boolean
               createdAt?: string
@@ -253,12 +255,22 @@ export class GithubTaskReader {
     const issue = data.repository?.issue
     const linked = (issue?.linkedBranches?.nodes ?? []).map((node) => node.ref?.name)
     const fromPrs = (issue?.closedByPullRequestsReferences?.nodes ?? [])
-      // Del repo del issue y con la rama en ese repo: un PR de otro repo (`Closes o/r#n`) o de un
-      // fork no da una rama que la task pueda usar.
-      .filter((pr) => pr && !pr.isCrossRepository && sameRepo(pr.repository, owner, repo))
+      // Abierto, del repo del issue y con la rama en ese repo: un PR mergeado, de otro repo
+      // (`Closes o/r#n`) o de un fork no da una rama que la task pueda usar.
+      .filter(
+        (pr) =>
+          pr &&
+          (pr.state ?? 'OPEN') === 'OPEN' &&
+          !pr.isCrossRepository &&
+          sameRepo(pr.repository, owner, repo),
+      )
       .sort((a, b) => (a?.createdAt ?? '').localeCompare(b?.createdAt ?? ''))
       .map((pr) => pr?.headRefName)
-    return [...new Set([...linked, ...fromPrs].filter((name): name is string => Boolean(name)))]
+    // El PR primero: es donde están los commits y el review. Una rama vinculada sin PR puede ser
+    // una que `link_branch` creó vacía en una reentrada anterior; si ganaba, la task cambiaba de
+    // rama, `ensure_pull_request` no encontraba commits y la card quedaba blocked
+    // (subscriptions#1775: tres nombres de rama en una task con el PR #1778 abierto).
+    return [...new Set([...fromPrs, ...linked].filter((name): name is string => Boolean(name)))]
   }
 
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
