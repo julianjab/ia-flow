@@ -22,7 +22,9 @@ function fakeGithub() {
       auth: new Headers(init.headers).get('authorization'),
       body: JSON.parse(init.body as string),
     })
-    return new Response(JSON.stringify({ html_url: 'https://github.com/c/1' }), { status: 201 })
+    return new Response(JSON.stringify({ id: 99, html_url: 'https://github.com/c/1' }), {
+      status: 201,
+    })
   })
   const client = new GithubClient({
     auth: new GithubTokenAuth('gho_person'),
@@ -32,6 +34,15 @@ function fakeGithub() {
 }
 
 describe('PostUserCommentAction', () => {
+  it('tells who posted it the id of the new comment', async () => {
+    const { client } = fakeGithub()
+    const posted: number[] = []
+    await new PostUserCommentAction({ client, onPosted: (id) => posted.push(id) }).run(ctx(), {
+      body: 'Sólo upgrades.',
+    })
+    expect(posted).toEqual([99])
+  })
+
   it("posts the person's text as is, with their token, and without the engine marker", async () => {
     const { client, calls } = fakeGithub()
 

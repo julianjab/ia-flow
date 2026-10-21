@@ -10,6 +10,9 @@
 //   • `getOrCreateLaneWorktree`: un worktree `--detach` por carril de un grupo `parallel`
 //     (`<worktree>--<carril>`), que `#doRemove` borra con el de la task.
 //   • Defaults de identidad de ia-tools.
+//   • `node_modules`: un worktree de un repo Node que nace sin él lo copia de la semilla del repo
+//     o de otro checkout con el mismo lockfile, y al borrarse deja el suyo como semilla
+//     (`nodeDeps.ts`). El estado viaja en `dependencies` del resultado.
 //
 // Responsibilities:
 //   • Own the mapping "task ↔ worktree" for a single repo (multi-repo tasks are rejected).
@@ -35,7 +38,7 @@
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
-import { existsSync, mkdirSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   branchNameFor,
@@ -48,6 +51,7 @@ import {
   worktreePathFor,
 } from './layout.js'
 import { noopLogger, type WorkspaceLogger } from './logger.js'
+import { type DependencyStatus, NodeDependencies } from './nodeDeps.js'
 import type { ShellRunner } from './shell.js'
 
 /**
@@ -96,9 +100,23 @@ export interface ResolvedScopes {
   writePaths: string[]
 }
 
+/** Lo que devuelve armar un worktree: dónde, en qué branch y cómo quedaron sus dependencias. */
+export interface PreparedWorktree {
+  path: string
+  branch: string
+  /** El `node_modules` del worktree (ver `nodeDeps.ts`). */
+  dependencies: DependencyStatus
+}
+
 export interface GetOrCreateOptions {
   /** Message-only: used to tag the autosalvage commit on reuse. */
   prevRunId?: string
+  /**
+   * La corrida (el id de su ejecución) que va a usar el worktree. Queda anotada junto al worktree
+   * — en memoria y en su directorio de admin de git, así sobrevive a un reinicio del runner — y
+   * es la que nombra el autosalvage de la próxima vez que se reuse con cambios sin commitear.
+   */
+  runId?: string
   /**
    * Nombre explícito de la branch git a usar. Si viene, gana sobre el default
    * `task/<taskId>`. Fuente típica: `task.branch` (linked branch de GitHub).
@@ -205,6 +223,7 @@ export class WorkspaceManager {
    *  se comporta como antes de existir este guard. */
   readonly #otherLiveRunsOnTask: LiveRunsProbe | undefined
   readonly #log: WorkspaceLogger
+  readonly #deps: NodeDependencies
   /** Ver `opts.syncBranchWithRemote`. */
   readonly #syncBranchWithRemote: boolean
   /** Ver `opts.cloneUrl`. */
@@ -263,6 +282,7 @@ export class WorkspaceManager {
     this.#exists = opts.exists ?? existsSync
     this.#otherLiveRunsOnTask = opts.otherLiveRunsOnTask
     this.#log = opts.log ?? noopLogger
+    this.#deps = new NodeDependencies(shell)
     this.#syncBranchWithRemote = opts.syncBranchWithRemote ?? false
     this.#cloneUrl =
       opts.cloneUrl ?? ((repo) => `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`)
@@ -410,9 +430,17 @@ export class WorkspaceManager {
     task: WorktreeNameSource | string,
     repoBasePath: string,
     opts: GetOrCreateOptions = {},
-  ): Promise<{ path: string; branch: string }> {
+  ): Promise<PreparedWorktree> {
     const source = typeof task === 'string' ? { id: task } : task
-    return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(source, repoBasePath, opts))
+    const { path, branch } = await this.#withRepoLock(repoBasePath, () =>
+      this.#doGetOrCreate(source, repoBasePath, opts),
+    )
+    // Fuera del lock del repo: copiar un node_modules tarda, y no es git.
+    return {
+      path,
+      branch,
+      dependencies: await this.#ensureDependencies(path, repoBasePath, source.id),
+    }
   }
 
   /**
@@ -420,9 +448,14 @@ export class WorkspaceManager {
    * vez sobre la misma task). Compartir el de la task los haría pisarse — `yarn install` a la vez,
    * artefactos, puertos —, así que cada carril tiene el suyo: `<worktree de la task>--<carril>`.
    *
-   * Primero asegura el de la task (la branch creada y al día con el remoto), y después crea o
-   * refresca el del carril sobre esa branch en `--detach`: git no deja la misma branch en dos
-   * worktrees. Por eso es de LECTURA — sirve para verificar, no para commitear y pushear. Al
+   * Primero asegura el de la task (la branch creada, y el `fetch` hecho), y después crea o
+   * refresca el del carril en `--detach`: git no deja la misma branch en dos worktrees. Por eso
+   * es de LECTURA — sirve para verificar, no para commitear y pushear —, y por eso se para en lo
+   * PUBLICADO (`origin/<branch>`, el HEAD del PR) cuando existe, no en la branch local: la local
+   * puede haber quedado atrás con commits que el remoto no tiene (los que el agente publicó con
+   * otro SHA, p. ej. por el MCP), y entonces no se sincroniza — el reviewer de
+   * lh-seller-v2-frontend#4470 arrancó en `ed4600c` con el PR en `9fc2c55`. Sin branch remota
+   * (nada publicado todavía) usa la local. Al
    * refrescarlo se descartan los cambios trackeados (`checkout --force`), pero no lo ignorado: un
    * `node_modules` sobrevive entre rondas.
    */
@@ -431,12 +464,34 @@ export class WorkspaceManager {
     repoBasePath: string,
     lane: string,
     opts: GetOrCreateOptions = {},
-  ): Promise<{ path: string; branch: string }> {
+  ): Promise<PreparedWorktree> {
     const source = typeof task === 'string' ? { id: task } : task
-    const { branch } = await this.getOrCreateWorktree(source, repoBasePath, opts)
-    return this.#withRepoLock(repoBasePath, () =>
+    // El de la task sin sus dependencias: quien corre es el carril, y copiarlas dos veces es plata.
+    const { branch } = await this.#withRepoLock(repoBasePath, () =>
+      this.#doGetOrCreate(source, repoBasePath, opts),
+    )
+    const { path } = await this.#withRepoLock(repoBasePath, () =>
       this.#doLaneWorktree(source, repoBasePath, lane, branch),
     )
+    return {
+      path,
+      branch,
+      dependencies: await this.#ensureDependencies(path, repoBasePath, source.id),
+    }
+  }
+
+  /**
+   * Antes de borrar un worktree: su `node_modules` queda como semilla del repo para ese lockfile,
+   * si todavía no hay una (ver `nodeDeps.ts`). Best-effort: nunca tira. Lo llama quien borra
+   * worktrees por su cuenta (`HostWorktrees`); `removeWorktree` ya lo hace.
+   */
+  harvestDependencies(worktree: string, repoBasePath: string): void {
+    try {
+      const seed = this.#deps.harvest(worktree, repoBasePath)
+      if (seed) this.#log.info({ worktree, seed }, 'node_modules guardado como semilla')
+    } catch (err) {
+      this.#log.warn({ worktree, err: String(err) }, 'node_modules: no se pudo guardar la semilla')
+    }
   }
 
   /** `<worktree de la task>--<carril>`. */
@@ -838,10 +893,27 @@ export class WorkspaceManager {
 
     if (!exists) {
       await this.#createFreshWorktree(task, repoBasePath, worktree, branch)
+      this.#recordRun(taskId, worktree, opts.runId)
       return { path: worktree, branch }
     }
 
-    return this.#reuseWorktree(taskId, worktree, branch, opts)
+    const reused = await this.#reuseWorktree(taskId, worktree, branch, opts)
+    this.#recordRun(taskId, worktree, opts.runId)
+    return reused
+  }
+
+  /** Anota qué corrida usa el worktree (ver `GetOrCreateOptions.runId`). Best-effort: sin el
+   *  archivo, el próximo autosalvage cae al registro en memoria. */
+  #recordRun(taskId: string, worktree: string, runId: string | undefined): void {
+    if (!runId) return
+    this.#lastRunIds.set(taskId, runId)
+    const marker = runMarkerPath(worktree)
+    if (!marker) return
+    try {
+      writeFileSync(marker, `${runId}\n`)
+    } catch (error) {
+      this.#log.warn({ taskId, worktree, error: String(error) }, 'run marker write failed')
+    }
   }
 
   /**
@@ -928,7 +1000,8 @@ export class WorkspaceManager {
     this.#log.info({ taskId, worktree, branch }, 'reuse')
 
     if (await this.#statusDirty(worktree)) {
-      const prevRunId = opts.prevRunId ?? this.#lastRunIds.get(taskId) ?? 'unknown'
+      const prevRunId =
+        opts.prevRunId ?? this.#lastRunIds.get(taskId) ?? readRunMarker(worktree) ?? 'unknown'
       this.#log.warn({ taskId, worktree, prevRunId }, 'autosalvage')
       await this.#commitAll(worktree, `WIP autosalvage from run ${prevRunId}`)
     }
@@ -1082,19 +1155,80 @@ export class WorkspaceManager {
   ): Promise<{ path: string; branch: string }> {
     const path = this.laneWorktreePath(task, repoBasePath, lane)
     const exists = await this.#worktreeExists(repoBasePath, path)
+    const ref = await this.#publishedRef(task.id, repoBasePath, branch)
     const r = exists
-      ? await this.#shell.run(['git', 'checkout', '--detach', '--force', branch], path)
-      : await this.#shell.run(['git', 'worktree', 'add', '--detach', path, branch], repoBasePath)
+      ? await this.#shell.run(['git', 'checkout', '--detach', '--force', ref], path)
+      : await this.#shell.run(['git', 'worktree', 'add', '--detach', path, ref], repoBasePath)
     if (r.exitCode !== 0) {
       throw new Error(
         `worktree del carril "${lane}" en "${path}": ${(r.stderr || r.stdout).trim()}`,
       )
     }
     this.#log.info(
-      { taskId: task.id, worktree: path, lane, branch, reused: exists },
+      { taskId: task.id, worktree: path, lane, branch, ref, reused: exists },
       'lane worktree',
     )
     return { path, branch }
+  }
+
+  /** `origin/<branch>` si está publicada (lo que ve el PR), si no la branch local. Avisa cuando
+   *  la local apunta a otro commit: es lo que antes dejaba al carril en un SHA viejo. */
+  async #publishedRef(taskId: string, repoBasePath: string, branch: string): Promise<string> {
+    const remote = `origin/${branch}`
+    const head = (ref: string) =>
+      this.#shell.run(['git', 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`], repoBasePath)
+    const published = await head(`refs/remotes/${remote}`)
+    if (published.exitCode !== 0) return branch
+    const local = await head(`refs/heads/${branch}`)
+    if (local.exitCode === 0 && local.stdout.trim() !== published.stdout.trim()) {
+      this.#log.warn(
+        { taskId, branch, local: local.stdout.trim(), remote: published.stdout.trim() },
+        `lane: la branch local no es ${remote}; el carril usa lo publicado`,
+      )
+    }
+    return remote
+  }
+
+  /**
+   * Deja el `node_modules` de `worktree` si falta y hay de dónde copiarlo (ver `nodeDeps.ts`), y lo
+   * deja en la traza. Nunca tira: sin dependencias, el agente igual corre (y se le avisa).
+   */
+  async #ensureDependencies(
+    worktree: string,
+    repoBasePath: string,
+    taskId: string,
+  ): Promise<DependencyStatus> {
+    try {
+      const status = await this.#deps.ensure(
+        worktree,
+        repoBasePath,
+        await this.#worktreePaths(repoBasePath),
+      )
+      if (status.kind === 'reused') {
+        this.#log.info(
+          { taskId, worktree, from: status.from, ms: status.ms },
+          `node_modules copiado (mismo ${status.lockfile})`,
+        )
+      } else if (status.kind === 'missing') {
+        this.#log.warn({ taskId, worktree }, `sin node_modules: ${status.reason}`)
+      }
+      return status
+    } catch (err) {
+      this.#log.warn({ taskId, worktree, err: String(err) }, 'node_modules: falló el reuso')
+      return { kind: 'missing', lockfile: '', reason: `falló el reuso: ${String(err)}` }
+    }
+  }
+
+  /** Los checkouts registrados del repo (el clone y sus worktrees), en el orden de git. */
+  async #worktreePaths(repoBasePath: string): Promise<string[]> {
+    const r = await this.#shell
+      .run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
+      .catch(() => undefined)
+    if (r?.exitCode !== 0) return []
+    return r.stdout
+      .split('\n')
+      .map((line) => line.trim().match(/^worktree (.+)$/)?.[1])
+      .filter((p): p is string => p !== undefined)
   }
 
   /** Los worktrees de carril de `worktree` (`<worktree>--<carril>`), registrados en el repo. */
@@ -1127,6 +1261,7 @@ export class WorkspaceManager {
     const branch = branchNameFor(taskId, explicitBranch)
     const worktree = explicitPath ?? this.worktreePath(task, repoBasePath)
     this.#log.info({ taskId, worktree, branch }, 'remove')
+    this.harvestDependencies(worktree, repoBasePath)
     // Best-effort: remove worktree first (unlocks the branch), then the branch.
     // Non-zero exits are surfaced so the caller can decide (e.g. worktree missing).
     const rmWt = await this.#shell.run(
@@ -1141,6 +1276,7 @@ export class WorkspaceManager {
     }
     // Los de carril son copias de lectura de esta misma task: se van con ella.
     for (const lane of await this.#laneWorktrees(repoBasePath, worktree)) {
+      this.harvestDependencies(lane, repoBasePath)
       const rmLane = await this.#shell.run(
         ['git', 'worktree', 'remove', '--force', lane],
         repoBasePath,
@@ -1356,5 +1492,30 @@ export class WorkspaceManager {
     if (r.exitCode !== 0) {
       throw new Error(`git merge --ff-only origin/${base} failed: ${r.stderr || r.stdout}`)
     }
+  }
+}
+
+/**
+ * Dónde anota un worktree qué corrida lo usó último: en su directorio de admin de git
+ * (`<clone>/.git/worktrees/<nombre>`, el que nombra su `.git`), fuera del árbol — `git status` no
+ * lo ve, el agente no lo commitea, y sobrevive a un reinicio del runner (el caso del autosalvage:
+ * la corrida que murió con el proceso dejó cambios sin commitear).
+ */
+function runMarkerPath(worktree: string): string | undefined {
+  try {
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(worktree, '.git'), 'utf8'))?.[1]
+    return gitdir ? join(resolve(worktree, gitdir.trim()), 'ia-flow-run-id') : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function readRunMarker(worktree: string): string | undefined {
+  const marker = runMarkerPath(worktree)
+  if (!marker) return undefined
+  try {
+    return readFileSync(marker, 'utf8').trim() || undefined
+  } catch {
+    return undefined
   }
 }

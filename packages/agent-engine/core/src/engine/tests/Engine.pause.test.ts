@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Agent } from '../../agent/Agent.js'
 import { ProviderRegistry } from '../../agent/Provider.js'
 import { Condition } from '../../condition/Condition.js'
+import type { TextClassifier } from '../../condition/TextClassifier.js'
 import { createEvent, type DomainEvent } from '../../events/DomainEvent.js'
 import { EventBus } from '../../events/EventBus.js'
 import { FunctionAction } from '../../pipeline/actions/FunctionAction.js'
@@ -37,7 +38,14 @@ const action = (id: string, ran: string[]) =>
   new FunctionAction({ id, fn: (ctx) => ran.push(`${id}:${ctx.event.type}`) })
 
 /** El gate de CI: el implementer termina, se asegura el PR y espera el CI. Verde → Review. */
-function ciGate(options: { timeoutMs?: number; maxConcurrent?: number; extra?: Pipeline[] } = {}) {
+function ciGate(
+  options: {
+    timeoutMs?: number
+    maxConcurrent?: number
+    extra?: Pipeline[]
+    textClassifier?: TextClassifier
+  } = {},
+) {
   const ran: string[] = []
   const review = action('review', ran)
   const expiredNote = action('expired-note', ran)
@@ -79,6 +87,7 @@ function ciGate(options: { timeoutMs?: number; maxConcurrent?: number; extra?: P
       },
     },
     executions: store,
+    ...(options.textClassifier ? { textClassifier: options.textClassifier } : {}),
   })
   return { engine, store, ran, broken }
 }
@@ -763,6 +772,134 @@ describe('Pipeline: where a pause can go', () => {
         }),
     ).not.toThrow()
     expect(() => new Pipeline({ id: 'q', on: ['x'], do: [pause(), notify()] })).not.toThrow()
+  })
+})
+
+describe('an exclusive rule whose steps all say no (ia-flow#330)', () => {
+  /** La regla de comentarios: exclusive, y su único paso —un agente— pasa por un `whenText`. */
+  function commentRule(ran: string[]) {
+    return new Pipeline({
+      id: 'comment',
+      on: ['issue_comment'],
+      exclusive: true,
+      do: [
+        new Agent(
+          {
+            id: 'implementer',
+            provider: 'done',
+            prompt: 'p',
+            whenText: { text: 'pide un cambio de código' },
+          },
+          new ProviderRegistry().register({
+            id: 'done',
+            run: async (ctx) => {
+              ran.push(`comment:${ctx.ctx.event.type}`)
+              await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({})
+              return { outcome: 'success' }
+            },
+          }),
+        ),
+      ],
+    })
+  }
+  const says = (matches: boolean): TextClassifier => ({
+    classify: vi.fn(async () => ({ matches, reason: matches ? 'pide algo' : 'es un reporte' })),
+  })
+
+  it('a comment the classifier rejects does not supersede the pause, and the green CI resumes it', async () => {
+    const ran: string[] = []
+    const classifier = says(false)
+    const {
+      engine,
+      store,
+      ran: gate,
+    } = ciGate({
+      extra: [commentRule(ran)],
+      textClassifier: classifier,
+    })
+    await engine.dispatch(event('build'))
+    const paused = store.current(KEY)
+
+    expect(await engine.dispatch(event('issue_comment', { author: 'infracost[bot]' }))).toBe(
+      'skipped',
+    )
+    expect(paused?.status).toBe('paused')
+    expect(ran).toEqual([])
+    // Una sola pregunta al clasificador por evento: la del planner.
+    expect(classifier.classify).toHaveBeenCalledTimes(1)
+
+    expect(await engine.dispatch(ci('success'))).toBe('resumed')
+    expect(gate).toContain('review:check_suite')
+    expect(paused?.status).toBe('done')
+  })
+
+  it('records why it did not run: no step runs', async () => {
+    const ran: string[] = []
+    const { engine } = ciGate({ extra: [commentRule(ran)], textClassifier: says(false) })
+    expect(await engine.explain(event('issue_comment'))).toContainEqual(
+      expect.objectContaining({
+        pipelineId: 'comment',
+        verdict: 'mismatch',
+        reason: expect.stringMatching(
+          /ningún paso corre — implementer: whenText: no — es un reporte/,
+        ),
+      }),
+    )
+  })
+
+  it('a comment the classifier accepts still supersedes the pause and runs, asking once', async () => {
+    const ran: string[] = []
+    const classifier = says(true)
+    const { engine, store } = ciGate({ extra: [commentRule(ran)], textClassifier: classifier })
+    await engine.dispatch(event('build'))
+    const paused = store.current(KEY)
+
+    expect(await engine.dispatch(event('issue_comment'))).toBe('dispatched')
+    expect(paused?.status).toBe('superseded')
+    expect(ran).toEqual(['comment:issue_comment'])
+    // El planner preguntó y el paso reusó el veredicto: una sola llamada.
+    expect(classifier.classify).toHaveBeenCalledTimes(1)
+  })
+
+  it('a step `when` that does not match counts the same as a whenText that says no', async () => {
+    const ran: string[] = []
+    const rule = new Pipeline({
+      id: 'comment',
+      on: ['issue_comment'],
+      exclusive: true,
+      do: [
+        new FunctionAction({
+          id: 'implementer',
+          when: [new Condition({ field: 'status', op: 'eq', value: 'Build' })],
+          fn: () => ran.push('comment'),
+        }),
+      ],
+    })
+    const { engine, store } = ciGate({ extra: [rule] })
+    await engine.dispatch(event('build'))
+    const paused = store.current(KEY)
+
+    expect(await engine.dispatch(event('issue_comment', { status: 'Review' }))).toBe('skipped')
+    expect(paused?.status).toBe('paused')
+    expect(ran).toEqual([])
+  })
+
+  it('a step whose `when` reads `steps.*` cannot be judged ahead: the rule runs', async () => {
+    const ran: string[] = []
+    const rule = new Pipeline({
+      id: 'chain',
+      on: ['issue_comment'],
+      do: [
+        new FunctionAction({
+          id: 'second',
+          when: [new Condition({ field: 'steps.first.output', op: 'exists' })],
+          fn: () => ran.push('second'),
+        }),
+      ],
+    })
+    const { engine } = ciGate({ extra: [rule] })
+    expect(await engine.dispatch(event('issue_comment'))).toBe('dispatched')
+    expect(ran).toEqual([])
   })
 })
 

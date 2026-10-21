@@ -45,9 +45,10 @@ interface TaskRef {
  * La rama de cada task:
  *
  * - con `branchPrefix` en el proyecto: `<prefijo><número>`, siempre (se la encuentra por nombre);
- * - sin prefijo, como ia-flow: la que ya tiene en su sección "Development" —la rama vinculada al
- *   issue o, si no hay, la de su PR abierto más viejo: una rama que subió el agente sin vincular
- *   sólo se ve por su PR—; si no tiene ninguna, la que propone la capacidad `branchName`
+ * - sin prefijo, como ia-flow: la que ya tiene en su sección "Development" —la de su PR abierto
+ *   más viejo (donde están los commits y el review; una rama que subió el agente sin vincular
+ *   sólo se ve por su PR) o, si no hay PR, la vinculada al issue—; si no tiene ninguna, la que
+ *   propone la capacidad `branchName`
  *   (recordada por issue mientras el proceso vive: hasta que `link_branch` la vincula o se abre el
  *   PR, cada evento de la task ve la misma); sin la capacidad, `task/<n>`.
  *

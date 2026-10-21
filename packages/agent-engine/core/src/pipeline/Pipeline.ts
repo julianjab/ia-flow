@@ -80,6 +80,12 @@ export type StepRun =
     }
   | { error: Error; handledBy: 'onError' | 'continueOnError' }
 
+/** Si una condición lee lo que dejaron otros pasos (`steps.*`): no se puede evaluar antes de correr. */
+const readsSteps = (condition: { field: string; valueFrom?: string }) =>
+  [condition.field, condition.valueFrom].some(
+    (path) => path === 'steps' || path?.startsWith('steps.'),
+  )
+
 export type IfRunning = 'wait' | 'skip' | 'interrupt'
 export type IfPaused = 'supersede' | 'wait'
 export type IfQueued = 'replace' | 'keep'
@@ -230,6 +236,32 @@ export class Pipeline {
   explainText(event: DomainEvent<any>, classifier: TextClassifier | undefined) {
     const payload = typeof event.payload === 'object' && event.payload !== null ? event.payload : {}
     return this.trigger.explainText(payload, classifier, event)
+  }
+
+  /**
+   * Por qué NINGÚN paso de `do` correría para `event` (su `when` y su `whenText`), o `undefined` si
+   * alguno corre — o si no se puede saber antes de correr: un `when` que lee `steps.*` depende de
+   * lo que dejen los pasos anteriores y cuenta como que corre. Lo usa el planner para que una
+   * pipeline sin nada que hacer no cuente como que corrió: si no, una `exclusive` reemplazaba la
+   * pausa de la task (`ifPaused: supersede`) antes de que su paso dijera que no (ia-flow#330).
+   * El veredicto del `whenText` queda en la cache del evento: el `StepRunner` no vuelve a preguntar.
+   */
+  async explainSteps(
+    event: DomainEvent<any>,
+    classifier: TextClassifier | undefined,
+  ): Promise<string | undefined> {
+    const payload = typeof event.payload === 'object' && event.payload !== null ? event.payload : {}
+    const subject = { ...payload, steps: {} }
+    const reasons: string[] = []
+    for (const step of this.do) {
+      if (this.graph.routed.has(step)) continue
+      if (step.when.some(readsSteps)) return undefined
+      const reason =
+        step.explainConditions(subject) ?? (await step.explainText(payload, classifier, event))
+      if (!reason) return undefined
+      reasons.push(`${step.id ?? 'paso'}: ${reason}`)
+    }
+    return reasons.length > 0 ? `ningún paso corre — ${reasons.join(' · ')}` : undefined
   }
 
   /** Si `event` interrumpe a la ejecución que corre en su task (`ifRunning` + `interruptOn`). */

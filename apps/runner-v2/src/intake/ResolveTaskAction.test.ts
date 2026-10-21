@@ -17,8 +17,13 @@ const project = {
   reposText: '- r (o/r)',
 }
 
-/** GitHub de mentira: el issue o/r#7, en Build en el board de `project`, con `labels`. */
-function reader(labels: string[], calls: string[] = []): GithubTaskReader {
+/** GitHub de mentira: el issue o/r#7, en Build en el board de `project`, con `labels`. `extra`
+ *  pisa lo que haga falta (los comentarios del issue, cuándo se puso un label). */
+function reader(
+  labels: string[],
+  calls: string[] = [],
+  extra: Record<string, unknown> = {},
+): GithubTaskReader {
   const fake = {
     withItemCache: () => fake,
     itemsOfIssue: async () => [
@@ -37,6 +42,7 @@ function reader(labels: string[], calls: string[] = []): GithubTaskReader {
       blockers: [],
       issueComments: [],
     }),
+    ...extra,
   }
   return fake as unknown as GithubTaskReader
 }
@@ -88,7 +94,8 @@ describe('resolve_task when', () => {
   it('a task that does not meet the when publishes nothing, and says which row failed', async () => {
     const when = [{ field: 'item.labels', op: 'notContains', value: 'blocked' }]
     const { result, published, branchNamer } = await run({ when }, ['blocked'])
-    expect(published).toEqual([])
+    // Ningún evento de la task: sólo la constancia de que el comentario quedó retenido.
+    expect(published.map((event) => event.type)).toEqual(['issue_comment.held'])
     expect('skipped' in result && result.skipped).toMatch(/o\/r#7 no cumple el when del intake/)
     expect('skipped' in result && result.skipped).toMatch(/item\.labels/)
     // Se descarta antes de proponer la rama: el branch-namer (un modelo) no corre.
@@ -549,5 +556,126 @@ describe('resolve_task notifyParentOfStatus', () => {
     const { result, published } = await notify(toRefined, null)
     expect(published).toEqual([])
     expect(result).toEqual({ skipped: 'p: o/r#12 no es sub-issue de nada' })
+  })
+})
+
+describe('resolve_task held comments (ia-flow#331)', () => {
+  const when = [{ field: 'item.labels', op: 'notContains', value: 'blocked' }]
+  const BLOCKED_AT = '2026-10-20T20:43:47Z'
+  /** `blocked` se le saca a o/r#7: la card vuelve a ser del runner. */
+  const unblocked = createEvent('github.issues', {
+    action: 'unlabeled',
+    label: { name: 'blocked' },
+    issue: { number: 7, title: 't', labels: [] },
+    repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+    sender: { login: 'julian' },
+  })
+  const human = (id: number, at: string, body = `pedido ${id}`, login = 'julian') => ({
+    id,
+    body,
+    created_at: at,
+    user: { login, type: login.endsWith('[bot]') ? 'Bot' : 'User' },
+  })
+
+  async function resolve(
+    event: DomainEvent<unknown>,
+    labels: string[],
+    comments: ReturnType<typeof human>[],
+    ledger: number[] = [],
+  ) {
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (event) => {
+      published.push(event)
+    })
+    const ctx = {
+      event,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const fake = reader(labels, [], {
+      labeledAt: async (_o: string, _r: string, _n: number, label: string) =>
+        label === 'blocked' ? BLOCKED_AT : undefined,
+      context: async () => ({
+        issue: { title: 't', body: '', html_url: 'https://github.com/o/r/issues/7', labels },
+        blockers: [],
+        issueComments: comments,
+      }),
+    })
+    const action = new ResolveTaskAction(() => [project], fake, undefined, {
+      has: (id) => ledger.includes(id),
+    })
+    const result = await action.execute(action.input.parse({ when }), ctx)
+    return { result, published }
+  }
+
+  it('a human comment on a blocked task is held: on record with the reason, not lost in silence', async () => {
+    const { result, published } = await resolve(comment, ['blocked'], [])
+    expect('skipped' in result && result.skipped).toMatch(/no cumple el when del intake/)
+    expect(published).toHaveLength(1)
+    expect(published[0]?.type).toBe('issue_comment.held')
+    expect(published[0]?.payload).toMatchObject({
+      author: 'julian',
+      commentId: 1,
+      body: 'hola',
+      reason: expect.stringMatching(/item\.labels notContains "blocked"/),
+    })
+    expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it('a bot comment on a blocked task is not held: nobody asked for anything', async () => {
+    const bot = createEvent('github.issue_comment', {
+      ...(comment.payload as Record<string, unknown>),
+      sender: { login: 'sonarqubecloud[bot]' },
+    })
+    const { published } = await resolve(bot, ['blocked'], [])
+    expect(published).toEqual([])
+  })
+
+  it('unblocking replays, in order, the human comments written while blocked', async () => {
+    const { published } = await resolve(
+      unblocked,
+      [],
+      [
+        human(10, '2026-10-20T20:30:00Z', 'antes de trabarse'),
+        human(12, '2026-10-20T21:10:00Z', 'el segundo'),
+        human(11, '2026-10-20T20:52:06Z', 'Ajusta el texto'),
+        human(
+          13,
+          '2026-10-20T21:00:00Z',
+          'reporte <!-- ia-flow:report -->',
+          'ai-lh-developer[bot]',
+        ),
+        human(14, '2026-10-20T21:05:00Z', 'Quality Gate passed', 'sonarqubecloud[bot]'),
+      ],
+    )
+    expect(published.map((event) => event.type)).toEqual([
+      'issue.unlabeled',
+      'issue_comment',
+      'issue_comment',
+    ])
+    expect(published.slice(1).map((event) => event.payload)).toMatchObject([
+      { body: 'Ajusta el texto', author: 'julian', commentId: 11, replayed: true },
+      { body: 'el segundo', author: 'julian', commentId: 12, replayed: true },
+    ])
+  })
+
+  it('a comment the runner posted for someone (answer and unblock) is not replayed', async () => {
+    const { published } = await resolve(
+      unblocked,
+      [],
+      [human(11, '2026-10-20T20:52:06Z', 'la respuesta')],
+      [11],
+    )
+    expect(published.map((event) => event.type)).toEqual(['issue.unlabeled'])
+  })
+
+  it('removing a label that never kept the task out replays nothing', async () => {
+    const reviewedOff = createEvent('github.issues', {
+      ...(unblocked.payload as Record<string, unknown>),
+      label: { name: 'reviewed' },
+    })
+    const { published } = await resolve(reviewedOff, [], [human(11, '2026-10-20T20:52:06Z')])
+    expect(published.map((event) => event.type)).toEqual(['issue.unlabeled'])
   })
 })

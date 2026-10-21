@@ -2,6 +2,7 @@ import { createLogger, traced } from '@ia-flow/telemetry'
 import type { AgentRunResult } from '../agent/Agent.js'
 import { type ErrorRoute, type ExitDefaults, routeTargets } from '../routing/ExitRoutes.js'
 import type { Pause } from './actions/Pause.js'
+import { GroupProgressTracker } from './groupProgress.js'
 import type { GroupResult, MemberVerdict, ParallelGroup } from './ParallelGroup.js'
 import type { StepRun, StepVia } from './Pipeline.js'
 import type { PipelineGraph } from './PipelineGraph.js'
@@ -141,9 +142,19 @@ export class StepRunner {
     group: ParallelGroup,
     ctx: PipelineExecutionContext,
   ): Promise<GroupResult> {
+    // Su progreso por miembro: si el proceso muere a mitad, la ejecución lo retoma (no queda
+    // `failed`) — cada miembro sigue su conversación, y el que ya había votado no corre de nuevo.
+    const tracker = new GroupProgressTracker(group, ctx)
+    tracker.start()
     const settled = await Promise.allSettled(
-      group.members.map((member) => this.runMember(member, group, { ...ctx, lane: member.id })),
-    )
+      group.members.map(async (member): Promise<MemberRun> => {
+        const start = tracker.begin(member)
+        if (start.kind === 'done') return { ran: true, verdict: start.verdict }
+        const run = await this.runMember(member, group, start.ctx)
+        if (run.verdict && !start.ctx.execution?.interruption) tracker.done(member, run.verdict)
+        return run
+      }),
+    ).finally(() => tracker.finish())
     const interrupted = ctx.execution?.interruption !== undefined
     const { members, progress, failures, advisoryFailures } = collectMembers(
       group,

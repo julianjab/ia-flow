@@ -38,7 +38,10 @@ export class WorkspaceToolAction<S extends ToolInputSchema> extends Action<S, st
   }
 
   async execute(input: unknown, ctx: PipelineExecutionContext): Promise<string> {
-    return this.build(await this.session.dirFor(ctx), ctx).handler(input)
+    const out = await this.build(await this.session.dirFor(ctx), ctx).handler(input)
+    // La primera tool de disco de la corrida arma el worktree: ahí se entera de sus dependencias.
+    const notice = await this.session.takeNotice(ctx)
+    return notice ? `${notice}\n\n${out}` : out
   }
 }
 

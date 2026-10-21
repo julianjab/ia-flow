@@ -91,6 +91,28 @@ describe('HostWorktrees', () => {
       expect(checked).toEqual(['/wt/task-7@task/7'])
     })
 
+    it('antes de borrarlo deja su node_modules como semilla del repo', async () => {
+      const git = fakeGit({ '/wt/task-7': { branch: 'task/7' } })
+      const harvested: string[] = []
+      const w = new HostWorktrees({
+        shell: git.shell,
+        workspace: {
+          isWorktreeSafeToRemove: async () => true,
+          harvestDependencies: (path, repo) => {
+            // Antes del `git worktree remove`: después ya no hay node_modules que mover.
+            expect(git.removed).toEqual([])
+            harvested.push(`${path}@${repo}`)
+          },
+        },
+        log: { info: () => {}, warn: () => {}, error: () => {} },
+        ledgerPath: join(dir, 'host-worktrees.json'),
+        exists: () => true,
+      })
+      const path = await w.begin(async () => '/wt/task-7')
+      expect(await w.end(path, 'done')).toBe('removed')
+      expect(harvested).toEqual(['/wt/task-7@/repos/eks'])
+    })
+
     it('terminó OK pero dejó trabajo afuera del remoto: queda en disco y es un error', async () => {
       const git = fakeGit({ '/wt/task-7': { branch: 'task/7' } })
       const { w, lines } = worktrees(git, { safe: () => false })

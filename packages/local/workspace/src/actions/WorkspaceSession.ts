@@ -1,5 +1,6 @@
 import type { DomainEvent, PipelineExecutionContext } from '@ia-flow/agent-engine'
 import type { WorktreeNameSource } from '../layout.js'
+import { type DependencyStatus, dependencyNotice } from '../nodeDeps.js'
 import type { CloneableRepo, WorkspaceManager } from '../WorkspaceManager.js'
 
 /** Qué checkout necesita una corrida. Lo arma la app desde su evento — este paquete no conoce la
@@ -23,6 +24,8 @@ export interface PreparedWorkspace {
   branch: string
   /** El clone del que cuelga el worktree. */
   repoBasePath: string
+  /** Cómo quedó su `node_modules` (`not-node` si no es un repo de Node). */
+  dependencies: DependencyStatus
 }
 
 /**
@@ -40,6 +43,8 @@ export class WorkspaceSession {
   /** Por evento y, dentro de él, por carril (`ctx.lane`; `''` = sin carril). Los miembros de un
    *  grupo `parallel` comparten el evento: sin el carril se llevarían el mismo worktree. */
   private readonly byEvent = new WeakMap<DomainEvent, Map<string, Promise<PreparedWorkspace>>>()
+  /** Los workspaces cuyo aviso de dependencias ya leyó el agente: se dice una vez por corrida. */
+  private readonly noticed = new WeakSet<PreparedWorkspace>()
 
   constructor(
     readonly manager: WorkspaceManager,
@@ -73,15 +78,32 @@ export class WorkspaceSession {
     return (await this.prepare(ctx)).path
   }
 
+  /**
+   * Lo que el agente tiene que saber de las dependencias de su worktree (copiadas de otro
+   * checkout, o que no hay y que instalar puede no terminar), la PRIMERA vez que se pide en la
+   * corrida; después, nada. `undefined` también si la corrida todavía no armó su workspace.
+   */
+  async takeNotice(ctx: PipelineExecutionContext): Promise<string | undefined> {
+    const pending = this.prepared(ctx)
+    const prepared = pending ? await pending.catch(() => undefined) : undefined
+    if (!prepared || this.noticed.has(prepared)) return undefined
+    this.noticed.add(prepared)
+    return dependencyNotice(prepared.dependencies)
+  }
+
   private async create(ctx: PipelineExecutionContext): Promise<PreparedWorkspace> {
     const target = this.resolveTarget(ctx)
     const repoBasePath = await this.manager.ensureLocalClone(target.repo)
-    const opts = { branch: target.branch }
+    // `runId`: el autosalvage de la próxima corrida dice de cuál vienen los cambios que dejó ésta.
+    const opts = {
+      branch: target.branch,
+      ...(ctx.execution ? { runId: ctx.execution.id } : {}),
+    }
     // Un miembro de un grupo `parallel` trabaja en su propio worktree (de lectura): ver
     // `WorkspaceManager.getOrCreateLaneWorktree`.
-    const { path, branch } = ctx.lane
+    const { path, branch, dependencies } = ctx.lane
       ? await this.manager.getOrCreateLaneWorktree(target.task, repoBasePath, ctx.lane, opts)
       : await this.manager.getOrCreateWorktree(target.task, repoBasePath, opts)
-    return { target, path, branch, repoBasePath }
+    return { target, path, branch, repoBasePath, dependencies }
   }
 }

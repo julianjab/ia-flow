@@ -36,12 +36,13 @@ export function closesIssue(body: string, issue: IssueRef): boolean {
   return new RegExp(`\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+${ref}\\b`, 'i').test(body)
 }
 
-/** Los PRs abiertos que cierran el issue (sección "Development"), vengan de la rama que vengan. */
+/** Los PRs abiertos que cierran el issue (sección "Development"), vengan de la rama que vengan.
+ *  `state`: `includeClosedPrs: false` no saca a los mergeados. */
 const OPEN_CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-        nodes { number url headRefName isCrossRepository repository { nameWithOwner } }
+        nodes { number state url headRefName isCrossRepository repository { nameWithOwner } }
       }
     }
   }
@@ -49,6 +50,7 @@ const OPEN_CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) 
 
 interface ClosingPr {
   number: number
+  state?: string
   url: string
   headRefName: string
   isCrossRepository?: boolean
@@ -177,6 +179,7 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
     return (data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []).find(
       (pr): pr is ClosingPr =>
         !!pr &&
+        (pr.state ?? 'OPEN') === 'OPEN' &&
         !pr.isCrossRepository &&
         sameRepo(pr.repository, issue.owner, issue.repo) &&
         pr.headRefName !== branch,

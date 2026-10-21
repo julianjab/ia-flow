@@ -45,6 +45,7 @@ import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
 import { assertTaskActionsRegistered } from './inbox/TaskActionRunner.js'
 import { TaskDesk } from './inbox/TaskDesk.js'
+import { UserCommentLedger } from './intake/heldComments.js'
 import { resolveMcpCatalog } from './mcp/mcpCatalog.js'
 import type { McpHost } from './mcp/mcpHost.js'
 import { agentConfigValidator, validateProviderDefaults } from './providers/providers.js'
@@ -183,6 +184,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     slackUsers: cfg.slack.users,
     assistant: new AssistantDesk(),
     tasks: new TaskDesk(),
+    userComments: new UserCommentLedger(),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)

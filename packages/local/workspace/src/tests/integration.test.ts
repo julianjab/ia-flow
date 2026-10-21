@@ -4,7 +4,7 @@
  * funciona de verdad contra git.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -123,6 +123,45 @@ describe('WorkspaceManager + NodeShellRunner against real git', () => {
     await wm.getOrCreateWorktree(task, clone, { branch: 'ia-flow/7' })
     expect(git(path, 'rev-parse', 'HEAD')).toBe(localTip)
   })
+
+  it('node_modules: la segunda task copia el de la primera, y al borrarse queda como semilla', async () => {
+    // El repo pasa a ser de Node: package.json + yarn.lock en main.
+    writeFileSync(join(remote.seed, 'package.json'), '{"name":"app"}')
+    writeFileSync(join(remote.seed, 'yarn.lock'), '# lock v1\n')
+    writeFileSync(join(remote.seed, '.gitignore'), 'node_modules\n')
+    git(remote.seed, 'checkout', '-q', 'main')
+    git(remote.seed, 'add', '.')
+    git(remote.seed, 'commit', '-q', '-m', 'node')
+    git(remote.seed, 'push', '-q', 'origin', 'HEAD:main')
+    const wm = manager(remote.bare)
+    const clone = await wm.ensureLocalClone(repo)
+
+    const first = await wm.getOrCreateWorktree({ id: 'o/r#1', issueNumber: 1 }, clone)
+    expect(first.dependencies).toMatchObject({ kind: 'missing', lockfile: 'yarn.lock' })
+    mkdirSync(join(first.path, 'node_modules', 'vue'), { recursive: true })
+    writeFileSync(join(first.path, 'node_modules', 'vue', 'index.js'), 'ok')
+
+    const second = await wm.getOrCreateWorktree({ id: 'o/r#2', issueNumber: 2 }, clone)
+    // `git worktree list` da paths canónicos (en macOS, `/private/var/…`).
+    expect(second.dependencies.kind === 'reused' && second.dependencies.from).toMatch(
+      /task-1\/node_modules$/,
+    )
+    expect(readFileSync(join(second.path, 'node_modules', 'vue', 'index.js'), 'utf8')).toBe('ok')
+    // Ignorado por git: el worktree sigue limpio.
+    expect(git(second.path, 'status', '--porcelain')).toBe('')
+
+    // Un carril del primero también lo recibe, sin copiárselo de nuevo al de su task.
+    const lane = await wm.getOrCreateLaneWorktree({ id: 'o/r#2', issueNumber: 2 }, clone, 'e2e')
+    expect(lane.dependencies.kind).toBe('reused')
+
+    await wm.removeWorktree({ id: 'o/r#1', issueNumber: 1 }, clone)
+    expect(existsSync(first.path)).toBe(false)
+    const third = await wm.getOrCreateWorktree({ id: 'o/r#3', issueNumber: 3 }, clone)
+    expect(third.dependencies.kind).toBe('reused')
+    expect(third.dependencies.kind === 'reused' && third.dependencies.from).toContain(
+      join('.git', 'ia-flow-deps'),
+    )
+  })
 })
 
 describe('WorkspaceManager — worktree por carril (grupo parallel)', () => {
@@ -150,7 +189,9 @@ describe('WorkspaceManager — worktree por carril (grupo parallel)', () => {
     pushV2(remote.seed)
     const again = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', { branch: 'ia-flow/7' })
     expect(again.path).toBe(reviewer.path)
-    expect(git(again.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
+    // Lo publicado, aunque la branch local (sin sync) siga en v1.
+    expect(git(again.path, 'rev-parse', 'HEAD')).toBe(git(clone, 'rev-parse', 'origin/ia-flow/7'))
+    expect(readFileSync(join(again.path, 'feature.txt'), 'utf8')).toBe('v2\n')
 
     await wm.removeWorktree(task, clone, 'ia-flow/7')
     const listed = git(clone, 'worktree', 'list', '--porcelain')
@@ -171,5 +212,34 @@ describe('NodeShellRunner', () => {
 
   it('throws only when the binary does not exist', async () => {
     await expect(new NodeShellRunner().run(['no-such-binary-xyz'], tmpdir())).rejects.toThrow()
+  })
+
+  it('con la branch local divergida (commits que el remoto no tiene), el carril usa el HEAD del PR', async () => {
+    const remote = fakeRemote()
+    const wm = manager(remote.bare, { syncBranchWithRemote: true })
+    const clone = await wm.ensureLocalClone(repo)
+    const { path: main } = await wm.getOrCreateWorktree(task, clone, { branch: 'ia-flow/7' })
+    writeFileSync(join(main, 'local.txt'), 'publicado con otro SHA\n')
+    git(main, 'add', '.')
+    git(main, 'commit', '-q', '-m', 'local')
+    pushV2(remote.seed)
+
+    const reviewer = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', {
+      branch: 'ia-flow/7',
+    })
+    expect(git(reviewer.path, 'rev-parse', 'HEAD')).toBe(
+      git(clone, 'rev-parse', 'origin/ia-flow/7'),
+    )
+    expect(git(reviewer.path, 'rev-parse', 'HEAD')).not.toBe(git(main, 'rev-parse', 'HEAD'))
+  })
+
+  it('sin branch publicada, el carril se para en la local', async () => {
+    const remote = fakeRemote()
+    const wm = manager(remote.bare)
+    const clone = await wm.ensureLocalClone(repo)
+    const t = { id: 'la-haus/subscriptions#8', issueNumber: 8 }
+    const lane = await wm.getOrCreateLaneWorktree(t, clone, 'reviewer', { branch: 'ia-flow/8' })
+    const { path: main } = await wm.getOrCreateWorktree(t, clone, { branch: 'ia-flow/8' })
+    expect(git(lane.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
   })
 })

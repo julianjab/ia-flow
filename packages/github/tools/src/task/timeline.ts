@@ -13,10 +13,15 @@ interface Comment {
   body: string
 }
 
-type User = { login?: string } | null | undefined
+type User = { login?: string; type?: string } | null | undefined
 
 /** Un comentario del issue o del PR, como lo devuelve `GET /issues/{n}/comments`. */
-export type RawComment = { body?: string | null; created_at: string; user?: User }
+export type RawComment = {
+  id?: number
+  body?: string | null
+  created_at: string
+  user?: User
+}
 
 /** Una review, como la devuelve `GET /pulls/{n}/reviews`. */
 export type RawReview = { body?: string | null; submitted_at?: string; user?: User; state: string }

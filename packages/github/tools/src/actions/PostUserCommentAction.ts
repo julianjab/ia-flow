@@ -14,6 +14,9 @@ export interface PostUserCommentActionOptions {
   client: GithubClient
   issue?: IssueRefResolver
   id?: string
+  /** Con el id del comentario recién publicado: quien despacha la task puede reconocerlo después
+   *  (el intake no lo re-despacha al destrabar la card, ver `UserCommentLedger` del runner). */
+  onPosted?: (commentId: number) => void
 }
 
 /**
@@ -27,19 +30,22 @@ export class PostUserCommentAction extends Action<typeof PostUserCommentInput> {
   readonly input = PostUserCommentInput
   private readonly client: GithubClient
   private readonly resolveIssue: IssueRefResolver
+  private readonly onPosted?: (commentId: number) => void
 
   constructor(options: PostUserCommentActionOptions) {
     super({ id: options.id ?? 'post_user_comment' })
     this.client = options.client
     this.resolveIssue = options.issue ?? issueFromPayload
+    if (options.onPosted) this.onPosted = options.onPosted
   }
 
   async execute(input: PostUserCommentInput, ctx: PipelineExecutionContext): Promise<string> {
     const issue = this.resolveIssue(ctx)
-    const comment = await this.client.requestJson<{ html_url: string }>(
+    const comment = await this.client.requestJson<{ id?: number; html_url: string }>(
       issuePath(issue.owner, issue.repo, issue.number, '/comments'),
       { method: 'POST', body: JSON.stringify({ body: input.body }) },
     )
+    if (comment.id !== undefined) this.onPosted?.(comment.id)
     return `Comentario publicado: ${comment.html_url}`
   }
 }

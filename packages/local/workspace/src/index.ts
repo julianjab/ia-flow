@@ -10,11 +10,19 @@ export {
   worktreePathFor,
 } from './layout.js'
 export { noopLogger, type WorkspaceLogger } from './logger.js'
+export {
+  type DependencyStatus,
+  dependencyNotice,
+  LOCKFILES,
+  lockfileOf,
+  NodeDependencies,
+} from './nodeDeps.js'
 export { NodeShellRunner, type ShellResult, type ShellRunner } from './shell.js'
 export {
   type CloneableRepo,
   type GetOrCreateOptions,
   type LiveRunsProbe,
+  type PreparedWorktree,
   type ResolvedScopes,
   type ResolveScopesContext,
   TaskLockedError,

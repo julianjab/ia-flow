@@ -36,7 +36,8 @@ import type { ShellRunner, WorkspaceManager } from '@ia-flow/workspace'
 
 export interface HostWorktreesOptions {
   shell: ShellRunner
-  workspace: Pick<WorkspaceManager, 'isWorktreeSafeToRemove'>
+  workspace: Pick<WorkspaceManager, 'isWorktreeSafeToRemove'> &
+    Partial<Pick<WorkspaceManager, 'harvestDependencies'>>
   log: { info: (line: string) => void; warn: (line: string) => void; error: (line: string) => void }
   /** El registro de los worktrees que armó el host (JSON, una lista de paths). */
   ledgerPath: string
@@ -182,6 +183,8 @@ export class HostWorktrees {
     // Los chequeos de arriba tardan: otra corrida pudo tomarlo, o estar armando el suyo (que
     // podría ser éste), en el medio. Pasado este punto, la que empiece espera a este borrado.
     if (this.#busy(path)) return 'kept-in-use'
+    // Su node_modules queda como semilla del repo: la próxima corrida no instala de cero.
+    this.#opts.workspace.harvestDependencies?.(path, repo)
     const r = await shell.run(['git', 'worktree', 'remove', path], repo)
     if (r.exitCode !== 0) {
       log.warn(`[workspace] no se pudo borrar ${path}: ${(r.stderr || r.stdout).trim()}`)

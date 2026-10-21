@@ -74,7 +74,11 @@ export default [
   // del engine: cuenta como un comentario humano.
   withClient(
     'post_user_comment',
-    (ctx) => new PostUserCommentAction({ client: ctx.services.github }),
+    (ctx) =>
+      new PostUserCommentAction({
+        client: ctx.services.github,
+        onPosted: (id) => ctx.services.userComments.note(id),
+      }),
   ),
   // Mergear el PR de la tarea (la bandeja): primero se verifica con GitHub que se puede.
   withClient(
