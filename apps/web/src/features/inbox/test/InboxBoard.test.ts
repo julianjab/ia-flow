@@ -81,7 +81,8 @@ describe('InboxBoard', () => {
 
     const headline = wrapper.get('[data-test="headline"]').text()
     expect(headline).toContain('2 decisiones te esperan')
-    expect(headline).toContain('2 tareas')
+    // Tantas tareas como decisiones: el número no se repite.
+    expect(headline).not.toContain('tareas')
     expect(headline).toContain('✕ 1 falló')
 
     const first = wrapper.get('[data-test="first"]')
