@@ -14,6 +14,11 @@ const HEADER = '# reviewer'
  *  engine con el `report` de la salida. Un body largo es casi siempre ese resumen repetido. */
 const MAX_BODY = 1_500
 
+/** GitHub deja UN review pendiente (borrador sin enviar) por usuario y PR: con otro abierto, crear
+ *  un review da 422. Lo deja, por ejemplo, el MCP de GitHub (`pull_request_review_write` +
+ *  `add_comment_to_pending_review`) de una corrida que se cortó antes de enviarlo. */
+const PENDING_CONFLICT = /422[\s\S]*one pending review/i
+
 const ReviewInput = z.strictObject({
   body: z
     .string()
@@ -61,25 +66,49 @@ export class ReviewPullRequestAction extends Action<typeof ReviewInput> {
     }
     const tag = (body: string) =>
       body.trimStart().startsWith(HEADER) ? body : `${HEADER}\n${body}`
-    const review = await this.client.requestJson<{ html_url?: string }>(
-      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          commit_id: pr.sha,
-          event: 'COMMENT',
-          body: input.body?.trim() ? tag(input.body) : undefined,
-          comments: input.comments.map((c) => ({
-            path: c.path,
-            line: c.line,
-            side: 'RIGHT',
-            body: tag(c.body),
-          })),
-        }),
-      },
-    )
+    const payload = JSON.stringify({
+      commit_id: pr.sha,
+      event: 'COMMENT',
+      body: input.body?.trim() ? tag(input.body) : undefined,
+      comments: input.comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        side: 'RIGHT',
+        body: tag(c.body),
+      })),
+    })
+    const reviews = `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}/reviews`
+    const post = () =>
+      this.client.requestJson<{ html_url?: string }>(reviews, { method: 'POST', body: payload })
+    let discarded = 0
+    let review: { html_url?: string }
+    try {
+      review = await post()
+    } catch (err) {
+      if (!PENDING_CONFLICT.test(err instanceof Error ? err.message : String(err))) throw err
+      discarded = await this.discardPending(reviews)
+      if (discarded === 0) throw err
+      review = await post()
+    }
     return `Review publicado en el PR #${pr.number} con ${input.comments.length} comentario(s) inline${
       review.html_url ? `: ${review.html_url}` : ''
-    }`
+    }${discarded ? ` (descarté ${discarded} review pendiente sin enviar que lo bloqueaba)` : ''}`
+  }
+
+  /**
+   * Descarta los reviews PENDIENTES del PR. La API sólo le muestra a cada usuario SUS pendientes,
+   * así que son de la App: borradores que nadie vio y que ninguna corrida va a enviar (una task
+   * corre un agente a la vez). Descartarlo es más seguro que enviarlo: enviar publicaría
+   * comentarios que nadie revisó. Devuelve cuántos descartó.
+   */
+  private async discardPending(reviews: string): Promise<number> {
+    const list = await this.client.requestJson<Array<{ id: number; state: string }>>(
+      `${reviews}?per_page=100`,
+    )
+    const pending = list.filter((r) => r.state === 'PENDING')
+    for (const r of pending) {
+      await this.client.requestJson(`${reviews}/${r.id}`, { method: 'DELETE' })
+    }
+    return pending.length
   }
 }
