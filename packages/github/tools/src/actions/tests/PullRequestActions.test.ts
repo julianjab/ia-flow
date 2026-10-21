@@ -57,6 +57,52 @@ describe('ReviewPullRequestAction', () => {
     expect(JSON.parse(init.body).commit_id).toBe('def')
   })
 
+  it('discards the App’s own pending review when GitHub answers 422 for it, and posts again', async () => {
+    const conflict = new Error(
+      'GithubClient: GitHub API → 422: {"message":"Unprocessable Entity","errors":["User can only have one pending review per pull request"]}',
+    )
+    const requestJson = vi
+      .fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce([
+        { id: 7, state: 'PENDING' },
+        { id: 8, state: 'COMMENTED' },
+      ])
+      .mockResolvedValueOnce({ id: 7, state: 'PENDING' })
+      .mockResolvedValueOnce({ html_url: 'u' })
+    const action = new ReviewPullRequestAction({ requestJson } as unknown as GithubClient)
+    const out = await action.run(ctx(prEvent), { comments: [{ path: 'a', line: 1, body: 'x' }] })
+    const calls = requestJson.mock.calls as unknown as Array<[string, { method?: string }?]>
+    expect(calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
+      'POST /repos/la-haus/subscriptions/pulls/12/reviews',
+      'GET /repos/la-haus/subscriptions/pulls/12/reviews?per_page=100',
+      'DELETE /repos/la-haus/subscriptions/pulls/12/reviews/7',
+      'POST /repos/la-haus/subscriptions/pulls/12/reviews',
+    ])
+    expect(out).toContain('descarté 1 review pendiente')
+  })
+
+  it('rethrows the 422 when there is no pending review to discard, and any other error as is', async () => {
+    const conflict = new Error(
+      'GithubClient: GitHub API → 422: one pending review per pull request',
+    )
+    const none = vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce([])
+    await expect(
+      new ReviewPullRequestAction({ requestJson: none } as unknown as GithubClient).run(
+        ctx(prEvent),
+        { comments: [{ path: 'a', line: 1, body: 'x' }] },
+      ),
+    ).rejects.toBe(conflict)
+    const other = vi.fn().mockRejectedValueOnce(new Error('GithubClient: GitHub API → 422: line'))
+    await expect(
+      new ReviewPullRequestAction({ requestJson: other } as unknown as GithubClient).run(
+        ctx(prEvent),
+        { comments: [{ path: 'a', line: 1, body: 'x' }] },
+      ),
+    ).rejects.toThrow(/422: line/)
+    expect(other).toHaveBeenCalledTimes(1)
+  })
+
   it('refuses to run without a PR in the event — the model never picks the PR', async () => {
     const action = new ReviewPullRequestAction({ requestJson: vi.fn() } as unknown as GithubClient)
     await expect(
