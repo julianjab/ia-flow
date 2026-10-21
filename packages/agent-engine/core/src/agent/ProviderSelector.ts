@@ -77,7 +77,10 @@ export class ProviderSelector {
         return { ...(await this.queueOn(eligible[0] as ProviderCandidate, ctx)), skipped }
       }
       const picked = await this.tryEach(eligible, ctx)
-      if ('candidate' in picked) return { ...picked, skipped: [...skipped, ...picked.skipped] }
+      if ('candidate' in picked) {
+        const absent = this.absentBefore(picked.candidate)
+        return { ...picked, skipped: [...skipped, ...picked.skipped, ...absent] }
+      }
       this.log.info(
         `${this.agentId}: ningún provider puede tomarlo ahora (${picked.busy.join('; ')})`,
       )
@@ -111,6 +114,42 @@ export class ProviderSelector {
       }
     }
     return out
+  }
+
+  /**
+   * Lo que el agente prefería y no estaba registrado — un `remote:*` o un `remote:<host>` antes
+   * del candidato elegido —, para la traza: `concrete()` los deja afuera sin decir nada, así que
+   * un `remote:*` que caía a la API sólo nombraba a los hosts que dijeron que no, nunca al que
+   * faltaba (lh-seller-v2-frontend#4470: `remote:front-end-developer` redesplegándose).
+   */
+  private absentBefore(picked: ProviderCandidate): string[] {
+    const index = this.candidates.findIndex((candidate) => candidate.covers(picked.id))
+    const preferred = this.candidates.slice(0, index === -1 ? 0 : index)
+    const notes: string[] = []
+    for (const candidate of preferred) {
+      if (!candidate.wildcard && !this.registry.isDynamic(candidate.id)) continue
+      if (!candidate.wildcard && this.registry.resolve(candidate.id)) continue
+      const gone = this.registry
+        .departed()
+        .filter(({ id }) => candidate.covers(id) && !this.registry.resolve(id))
+        .map(({ id, at }) => `${id}: no está suscrito (se fue hace ${ago(Date.now() - at)})`)
+      if (gone.length > 0) notes.push(...gone)
+      else if (candidate.wildcard) notes.push(`${candidate.id}: ${this.subscribedUnder(candidate)}`)
+      else notes.push(`${candidate.id}: no está suscrito`)
+    }
+    return notes
+  }
+
+  /** Para la traza de un comodín sin hosts que falten: quiénes había (los que dijeron que no ya
+   *  están en el motivo) o que no había ninguno. */
+  private subscribedUnder(wildcard: ProviderCandidate): string {
+    const here = this.registry
+      .list()
+      .map((provider) => provider.id)
+      .filter((id) => wildcard.covers(id))
+    return here.length > 0
+      ? `ningún otro host suscrito (sólo ${here.join(', ')})`
+      : 'ningún host suscrito'
   }
 
   /** Hasta que cambie lo registrado, o pase el `DEFAULT_RETRY_AFTER_MS` (o `atMostMs`, si es
@@ -270,6 +309,14 @@ export class ProviderSelector {
     }
     return Promise.race(waits)
   }
+}
+
+/** `45 s`, `12 min`, `3 h`: cuánto hace, para leer en una traza. */
+function ago(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds} s`
+  const minutes = Math.round(seconds / 60)
+  return minutes < 60 ? `${minutes} min` : `${Math.round(minutes / 60)} h`
 }
 
 function delay(ms: number): Promise<void> {

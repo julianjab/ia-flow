@@ -102,6 +102,9 @@ export class ProviderRegistry {
   private readonly providers = new Map<string, Provider>()
   /** Prefijo dinámico → cuánto se espera a un id con nombre de ese prefijo. */
   private readonly dynamicPrefixes = new Map<string, number>()
+  /** Los que se fueron y no volvieron, con cuándo: el motivo de un `remote:*` que cae al
+   *  candidato siguiente nombra al host que falta, no sólo a los que dijeron que no. */
+  private readonly departures = new Map<string, number>()
   private waiters: Array<() => void> = []
 
   /** Declara que los ids con este prefijo van y vienen (`remote:`, los hosts que se suscriben):
@@ -128,15 +131,24 @@ export class ProviderRegistry {
 
   register(provider: Provider): this {
     this.providers.set(provider.id, provider)
+    this.departures.delete(provider.id)
     this.notify()
     return this
   }
 
   /** Lo saca: un provider que va y viene (un host remoto que se suscribe y se va). */
-  unregister(id: string): boolean {
+  unregister(id: string, at = Date.now()): boolean {
     const removed = this.providers.delete(id)
-    if (removed) this.notify()
+    if (removed) {
+      this.departures.set(id, at)
+      this.notify()
+    }
     return removed
+  }
+
+  /** Los que estuvieron registrados y ya no, con cuándo se fueron (en el orden en que se fueron). */
+  departed(): Array<{ id: string; at: number }> {
+    return [...this.departures].map(([id, at]) => ({ id, at }))
   }
 
   resolve(id: string): Provider | undefined {
