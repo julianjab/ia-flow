@@ -52,8 +52,10 @@ export class DispatchPlanner {
    * de sus pipelines se evalúa —, después cada pipeline (`on`, scope, `when`)
    * y, para las que pasaron, su `whenText`. Entre las que
    * pasan, corren TODAS las no-exclusive; si alguna es `exclusive`, sólo la de mayor prioridad
-   * (menor `position`) entre las exclusive, MÁS cualquier otra de prioridad todavía mayor. El
-   * `when` de cada paso se evalúa después, al correr la pipeline.
+   * (menor `position`) entre las exclusive, MÁS cualquier otra de prioridad todavía mayor. Antes
+   * de elegir, también los pasos: una pipeline en la que ninguno corre (`Pipeline.explainSteps`)
+   * no cuenta como que matcheó. Al correr, cada paso vuelve a mirar su `when` (con los `steps.*`
+   * que dejaron los anteriores).
    */
   async plan(event: DomainEvent<any>): Promise<DispatchPlan> {
     const candidates: Candidate[] = []
@@ -71,6 +73,17 @@ export class DispatchPlanner {
         .filter((candidate) => !candidate.mismatch && candidate.pipeline.whenText)
         .map(async (candidate) => {
           const mismatch = await candidate.pipeline.explainText(event, this.classifier)
+          if (mismatch) candidate.mismatch = mismatch
+        }),
+    )
+    // Y que alguno de sus pasos corra: una pipeline cuyos pasos dicen todos que no (un `when` o un
+    // `whenText` de paso) no tiene nada que hacer — ni tapa a otra exclusive, ni reemplaza la
+    // pausa de la task, ni abre una ejecución vacía (ia-flow#330).
+    await Promise.all(
+      candidates
+        .filter((candidate) => !candidate.mismatch)
+        .map(async (candidate) => {
+          const mismatch = await candidate.pipeline.explainSteps(event, this.classifier)
           if (mismatch) candidate.mismatch = mismatch
         }),
     )
