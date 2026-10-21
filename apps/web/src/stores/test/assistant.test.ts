@@ -21,4 +21,13 @@ describe('useAssistantStore (estado de apertura)', () => {
     expect(s.consumeRequest()).toEqual({ kind: 'task', ref: 'a/b#1' })
     expect(s.consumeRequest()).toBeNull()
   })
+
+  it('una pregunta escrita afuera viaja con la apertura y se consume una sola vez', () => {
+    const s = useAssistantStore()
+    s.open({ kind: 'task', ref: 'a/b#1' }, '  ¿qué le falta?  ')
+    expect(s.consumeMessage()).toBe('¿qué le falta?')
+    expect(s.consumeMessage()).toBeNull()
+    s.open(undefined, '   ')
+    expect(s.consumeMessage()).toBeNull()
+  })
 })

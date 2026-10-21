@@ -59,6 +59,22 @@ describe('AssistantLauncher', () => {
     }
   })
 
+  it('abierto con una pregunta escrita afuera (el detalle de una tarea), la manda en ese contexto', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const wrapper = mount(AssistantLauncher, {
+      global: { plugins: [pinia] },
+      attachTo: document.body,
+    })
+    useAssistantStore().open({ kind: 'task', ref: 'acme/api#7' }, '¿por qué falló?')
+    await flushPromises()
+    const chat = useAssistantChatStore()
+    expect(chat.scope).toEqual({ kind: 'task', ref: 'acme/api#7' })
+    expect(chat.turns[0]).toMatchObject({ kind: 'user', text: '¿por qué falló?' })
+    expect($('.ap__msg--user')?.textContent).toBe('¿por qué falló?')
+    wrapper.unmount()
+  })
+
   it('la burbuja es el único punto de entrada: abre y cierra una ventana, sin backdrop', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
