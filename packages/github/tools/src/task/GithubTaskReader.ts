@@ -273,6 +273,29 @@ export class GithubTaskReader {
     return [...new Set([...fromPrs, ...linked].filter((name): name is string => Boolean(name)))]
   }
 
+  /**
+   * Cuándo se le puso `label` al issue por última vez (`labeled` en sus eventos), o `undefined` si
+   * nunca. Los eventos vienen del más viejo al más nuevo y de a 100: se recorren hasta 10 páginas.
+   */
+  async labeledAt(
+    owner: string,
+    repo: string,
+    number: number,
+    label: string,
+  ): Promise<string | undefined> {
+    let last: string | undefined
+    for (let page = 1; page <= 10; page++) {
+      const events = await this.client.requestJson<
+        Array<{ event: string; created_at: string; label?: { name?: string } }>
+      >(`/repos/${owner}/${repo}/issues/${number}/events?per_page=100&page=${page}`)
+      for (const event of events) {
+        if (event.event === 'labeled' && event.label?.name === label) last = event.created_at
+      }
+      if (events.length < 100) break
+    }
+    return last
+  }
+
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
   dependents(owner: string, repo: string, number: number) {
     return this.client.requestJson<

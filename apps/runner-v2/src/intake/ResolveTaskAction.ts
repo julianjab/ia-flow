@@ -22,6 +22,7 @@ import {
 } from '@ia-flow/github-webhook'
 import { z } from 'zod'
 import { TaskBranches } from './branch.js'
+import { heldComments, isHumanComment } from './heldComments.js'
 import { eventMessage } from './message.js'
 import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
@@ -92,6 +93,9 @@ interface TaskRef {
 }
 
 const UNBLOCKED = 'issue.unblocked'
+/** Un comentario humano que el `when` del intake descartó (la task trabada): queda en el journal de
+ *  la task con el motivo, y se vuelve a publicar al destrabarla (ver `replayHeld`). */
+const COMMENT_HELD = 'issue_comment.held'
 const CHILD_CLOSED = 'issue.child_closed'
 const CHILD_STATUS_CHANGED = 'issue.child_status_changed'
 
@@ -104,6 +108,14 @@ function unmet(when: Condition[], payload: unknown): string | undefined {
     .join('; ')
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+/** Si con `label` puesto, la task de `payload` no habría cumplido `when`: el label la dejaba afuera. */
+function excludedBy(when: Condition[], payload: Record<string, unknown>, label: string): boolean {
+  const item = (payload.item ?? {}) as { labels?: unknown }
+  const labels = Array.isArray(item.labels) ? item.labels : []
+  const withLabel = { ...payload, item: { ...item, labels: [...labels, label] } }
+  return unmet(when, withLabel) !== undefined
+}
 
 /**
  * `resolve_task`: el intake entero en un paso, para TODOS los proyectos. De un webhook crudo de
@@ -126,6 +138,8 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     private readonly reader: GithubTaskReader,
     /** Para las respuestas de un hilo de Slack (`slack.message`); sin esto se saltan. */
     private readonly slack?: SlackLocateDeps,
+    /** Los comentarios que el runner publicó a nombre de alguien: no se re-publican al destrabar. */
+    private readonly userComments?: { has(commentId: number): boolean },
   ) {
     super({ id: 'resolve_task' })
   }
@@ -147,7 +161,7 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     const reader = this.reader.withItemCache()
     const results = await Promise.all(
       projects.map((project) =>
-        new ProjectResolver(project, reader).resolve(input, ctx, slackLocation),
+        new ProjectResolver(project, reader, this.userComments).resolve(input, ctx, slackLocation),
       ),
     )
     const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))
@@ -167,6 +181,7 @@ class ProjectResolver {
   constructor(
     private readonly project: ResolveTaskProject,
     private readonly reader: GithubTaskReader,
+    private readonly userComments?: { has(commentId: number): boolean },
   ) {
     this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
   }
@@ -270,8 +285,13 @@ class ProjectResolver {
         branch,
         repos: this.project.reposText,
       })
-    const failed = unmet(options.when ?? [], build(known ?? '').payload)
-    if (failed) return { skip: `${ref} no cumple el when del intake: ${failed}` }
+    const draft = build(known ?? '')
+    const failed = unmet(options.when ?? [], draft.payload)
+    if (failed) {
+      const skip = `${ref} no cumple el when del intake: ${failed}`
+      await this.hold(ctx, fields, draft.scope, skip)
+      return { skip }
+    }
     // Recién acá, con la task ya confirmada de este runner: proponer un nombre puede costar un modelo.
     const built = build(
       known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx)),
@@ -283,7 +303,84 @@ class ProjectResolver {
       ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
     })
     await ctx.bus.publish(event)
+    if (built.type === 'issue.unlabeled') {
+      await this.replayHeld(ctx, task, fields, options.when ?? [], built.payload)
+    }
     return event
+  }
+
+  /**
+   * Un comentario de una persona que el `when` del intake descarta no se pierde callado: queda
+   * como `issue_comment.held` en el journal de la task (ninguna pipeline lo escucha), con el motivo.
+   */
+  private async hold(
+    ctx: PipelineExecutionContext,
+    fields: EventFields,
+    scope: Record<string, unknown> | undefined,
+    reason: string,
+  ): Promise<void> {
+    const comment = fields.comment
+    if (!comment || !isHumanComment(comment.body, comment.author)) return
+    await ctx.bus.publish(
+      deriveEvent(
+        ctx.event,
+        COMMENT_HELD,
+        {
+          author: comment.author,
+          commentId: comment.id,
+          body: comment.body,
+          reason,
+          message: `El comentario de @${comment.author} queda retenido: ${reason}. Se vuelve a publicar cuando la tarea se destrabe.`,
+        },
+        {
+          ...(scope ? { scope } : {}),
+          ...(ctx.execution ? { executionId: ctx.execution.id } : {}),
+        },
+      ),
+    )
+  }
+
+  /**
+   * La task acaba de perder un label que la dejaba fuera del intake (el `blocked`): lo que una
+   * persona comentó mientras tanto no lo vio nadie (ia-flow#331). Se publica ahora, en orden, como
+   * cualquier `issue_comment` —con `replayed: true`—, para que lo atienda la pipeline que toque.
+   */
+  private async replayHeld(
+    ctx: PipelineExecutionContext,
+    task: TaskRef,
+    fields: EventFields,
+    when: Condition[],
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const label = fields.extra.label
+    if (typeof label !== 'string' || !excludedBy(when, payload, label)) return
+    const since = await this.reader.labeledAt(task.owner, task.repo, task.number, label)
+    if (!since) return
+    const context = await this.reader.context(task)
+    const sources = [
+      { comments: context.issueComments },
+      ...(context.openPr
+        ? [{ comments: context.prComments ?? [], pr: context.openPr.number }]
+        : []),
+    ]
+    const held = heldComments(sources, since, (id) => this.userComments?.has(id) ?? false)
+    for (const comment of held) {
+      await this.publish(
+        ctx,
+        {
+          owner: task.owner,
+          repo: task.repo,
+          number: task.number,
+          ...(comment.pr ? { pr: comment.pr } : {}),
+        },
+        {
+          emit: 'issue_comment',
+          extra: { action: 'created', replayed: true },
+          comment: { body: comment.body, author: comment.author, id: comment.id },
+        },
+        { when },
+      )
+    }
   }
 
   /**

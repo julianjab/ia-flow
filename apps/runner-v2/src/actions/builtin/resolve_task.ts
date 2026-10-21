@@ -44,5 +44,6 @@ export default defineAction({
           userName: (userId) => ctx.services.slack.userName(userId),
         },
       },
+      ctx.services.userComments,
     ),
 })

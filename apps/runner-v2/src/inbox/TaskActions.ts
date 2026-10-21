@@ -44,6 +44,9 @@ export interface TaskActionsOptions {
   resumeStage(ref: string): string | undefined
   /** Después de un cambio: que la bandeja relea el board. */
   changed(ref: string): void
+  /** El comentario que la bandeja publicó a nombre de la persona ("Responder y destrabar"): el
+   *  intake no lo re-publica al destrabar la tarea, porque la acción ya la devuelve a su etapa. */
+  noteUserComment?(commentId: number): void
   fetchImpl?: typeof fetch
 }
 
@@ -193,11 +196,14 @@ export class TaskActions {
         issue: () => target,
       }).execute(input, NO_CTX)
     const unblock = () => update({ removeLabels: [labels.blocked] })
-    const postComment = () =>
-      client.requestJson(`/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`, {
-        method: 'POST',
-        body: JSON.stringify({ body: request.comment?.trim() ?? '' }),
-      })
+    const postComment = async () => {
+      const posted = await client.requestJson<{ id?: number }>(
+        `/repos/${target.owner}/${target.repo}/issues/${target.number}/comments`,
+        { method: 'POST', body: JSON.stringify({ body: request.comment?.trim() ?? '' }) },
+      )
+      if (typeof posted?.id === 'number') this.options.noteUserComment?.(posted.id)
+      return posted
+    }
     const action = request.action as BuiltinTaskAction
     switch (action) {
       case 'merge': {

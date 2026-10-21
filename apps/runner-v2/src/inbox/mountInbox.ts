@@ -199,6 +199,7 @@ export function mountInbox(
     taskActions: (projectId) => taskActionsOf(cfg, projectId),
     instantiate: (projectId, name, client) =>
       mounted.instantiateAction(name, projectId, actingAs(mounted.services, client)),
+    noteUserComment: (id) => mounted.services.userComments.note(id),
     redispatch: taskDesk.redispatch,
     rerunReview: taskDesk.rerunReview,
     rerunStage: taskDesk.rerunStage,
