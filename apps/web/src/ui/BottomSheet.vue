@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onUnmounted, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { useBackClose } from '@/composables/useBackClose';
 
 /**
  * El bottom sheet — el overlay de la capa táctil (T9, R6).
@@ -11,6 +12,9 @@ import { onUnmounted, watch } from 'vue';
  * menú de `⋯` y un selector se sientan como el mismo gesto:
  *
  *   translateY en 150ms · backdrop al 60% que cierra al tocar · radio 12px arriba
+ *
+ * Se cierra como cualquier sheet del sistema: ✕, tocar afuera, Escape, el «atrás» del teléfono
+ * (`useBackClose`) o arrastrándolo hacia abajo desde el asa, el título o el cuerpo ya en su tope.
  *
  * Es un contenedor y nada más: no sabe qué muestra. El contenido lo pone quien
  * lo abre, por el slot, y por eso vive en `ui/` — cero conocimiento de dominio.
@@ -50,18 +54,94 @@ function setLock(on: boolean) {
 
 watch(() => props.open, setLock, { immediate: true });
 onUnmounted(() => setLock(false));
+useBackClose(() => props.open, () => emit('close'));
+
+/**
+ * Arrastrar para cerrar. El gesto arranca desde el asa o el título, o desde el cuerpo cuando ya
+ * está scrolleado a su tope (si no, es el scroll de la lista). Se cierra al soltar pasado un
+ * cuarto de su alto o con un tirón rápido; si no, vuelve a su lugar.
+ */
+const DRAG_START_PX = 8;
+const FLING_PX_PER_MS = 0.6;
+const body = ref<HTMLElement | null>(null);
+const offset = ref(0);
+const dragging = ref(false);
+const leaving = ref(false);
+let start: { y: number; t: number; can: boolean } | null = null;
+
+function onTouchStart(e: TouchEvent) {
+  const touch = e.touches[0];
+  if (!touch || e.touches.length > 1 || window.matchMedia?.('(min-width: 768px)').matches) return;
+  const inBody = body.value?.contains(e.target as Node) ?? false;
+  start = { y: touch.clientY, t: e.timeStamp, can: !inBody || (body.value?.scrollTop ?? 0) <= 0 };
+}
+
+function onTouchMove(e: TouchEvent) {
+  const touch = e.touches[0];
+  if (!start || !touch || !start.can) return;
+  const dy = touch.clientY - start.y;
+  if (!dragging.value) {
+    // Hacia arriba es scroll: el gesto ya no es de cierre.
+    if (dy < 0) start.can = false;
+    if (dy < DRAG_START_PX) return;
+    dragging.value = true;
+  }
+  if (e.cancelable) e.preventDefault();
+  offset.value = Math.max(0, dy - DRAG_START_PX);
+}
+
+function onTouchEnd(e: TouchEvent) {
+  const s = start;
+  start = null;
+  if (!dragging.value || !s) return;
+  dragging.value = false;
+  const sheet = (e.currentTarget as HTMLElement | null)?.getBoundingClientRect().height ?? 400;
+  const speed = offset.value / Math.max(1, e.timeStamp - s.t);
+  if (offset.value > sheet / 4 || speed > FLING_PX_PER_MS) {
+    leaving.value = true;
+    offset.value = sheet;
+    setTimeout(() => emit('close'), 150);
+  } else offset.value = 0;
+}
+
+// Cada apertura arranca en su lugar.
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return;
+    offset.value = 0;
+    leaving.value = false;
+  },
+);
+
+const dragStyle = computed(() =>
+  offset.value || dragging.value
+    ? { transform: `translateY(${offset.value}px)`, transition: dragging.value ? 'none' : undefined }
+    : undefined,
+);
 </script>
 
 <template>
   <Teleport to="body">
     <div v-if="open" class="bs-backdrop" @click.self="emit('close')">
-      <div class="bs" role="dialog" aria-modal="true" :aria-label="title">
+      <div
+        class="bs"
+        :class="{ 'bs--settle': !dragging, 'bs--leaving': leaving }"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="title"
+        :style="dragStyle"
+        @touchstart="onTouchStart"
+        @touchmove="onTouchMove"
+        @touchend="onTouchEnd"
+        @touchcancel="onTouchEnd"
+      >
         <span class="bs__grab" aria-hidden="true" />
         <div v-if="showTitle" class="bs__head">
           <h2 class="bs__title">{{ title }}</h2>
           <button type="button" class="bs__close" aria-label="Cerrar" @click="emit('close')">✕</button>
         </div>
-        <div class="bs__body">
+        <div ref="body" class="bs__body">
           <slot />
         </div>
         <div v-if="$slots.footer" class="bs__foot">
@@ -96,8 +176,13 @@ onUnmounted(() => setLock(false));
   from { transform: translateY(100%); }
   to { transform: translateY(0); }
 }
-/* El asa dice «esto se baja»: es la forma del sheet, no un control (cerrar es ✕ o tocar afuera). */
-.bs__grab { flex: none; align-self: center; width: 2.25rem; height: 0.25rem; margin-top: 0.5rem; border-radius: 2px; background: var(--border-hi); }
+/* Al soltar, vuelve a su lugar (o termina de bajar) con el mismo timing con el que entró. */
+.bs--settle { transition: transform 150ms ease; }
+.bs--leaving { pointer-events: none; }
+/* El asa dice «esto se baja», y se baja: arrastrarla (o el título) cierra el sheet. El área que
+   agarra el dedo es más alta que la raya (R1). */
+.bs__grab { flex: none; align-self: stretch; height: 1rem; background: linear-gradient(var(--border-hi), var(--border-hi)) center 0.5rem / 2.25rem 0.25rem no-repeat; touch-action: none; }
+.bs__head { touch-action: none; }
 .bs__head {
   flex: 0 0 auto;
   min-height: var(--tap-h);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import BlockedList from '@/features/inbox/pipeline/BlockedList.vue';
 import RecentRuns from '@/features/inbox/pipeline/RecentRuns.vue';
 import RunningList from '@/features/inbox/pipeline/RunningList.vue';
@@ -7,6 +7,7 @@ import type { PipelineSummary, RunningEntry } from '@/features/inbox/queue/build
 import type { RecentRun } from '@/features/inbox/queue/recent';
 import type { BlockedEntry } from '@/features/inbox/queue/runnerFeed';
 import type { StreamState } from '@/features/inbox/stream';
+import { useInboxStore } from '@/features/inbox/store';
 import BottomSheet from '@/ui/BottomSheet.vue';
 
 // «El pipeline» en un teléfono: una franja arriba de la bandeja con lo que corre, lo que espera y
@@ -24,6 +25,14 @@ const props = defineProps<{
 }>();
 
 const open = ref(false);
+// Tocar una tarea del sheet la abre en grande: el sheet se va, si no taparía el detalle.
+const store = useInboxStore();
+watch(
+  () => store.expanded,
+  (expanded) => {
+    if (expanded) open.value = false;
+  },
+);
 
 const STREAM_COPY: Partial<Record<StreamState, string>> = {
   connecting: 'conectando…',
@@ -46,34 +55,37 @@ const cells = computed(() => {
 </script>
 
 <template>
-  <button type="button" class="ps" data-test="pipeline-strip" :data-stream="stream" @click="open = true">
-    <span v-if="stream === 'live'" class="live-dot" aria-hidden="true" />
-    <span v-else class="ps__off" aria-hidden="true" />
-    <span class="ps__txt">
-      <b>{{ pipeline.running }}</b> corriendo · <b>{{ pipeline.waiting }}</b> en cola<template v-if="pipeline.free !== undefined">
-        · {{ pipeline.free }} {{ pipeline.free === 1 ? 'libre' : 'libres' }}<template v-if="pipeline.max !== undefined"> de {{ pipeline.max }}</template></template>
-    </span>
-    <span v-if="last && last.age.text" class="ps__last" :data-status="last.status" data-test="strip-last" :title="`Lo último: ${last.title}`">
-      {{ GLYPH[last.status] }} {{ last.age.text }}
-    </span>
-    <span v-if="streamCopy" class="ps__stream">{{ streamCopy }}</span>
-    <span class="ps__chev" aria-hidden="true">›</span>
-  </button>
+  <!-- Una raíz: la bandeja le pasa su clase de entrada (`reveal`), y un fragmento la perdía. -->
+  <div class="ps-w">
+    <button type="button" class="ps" data-test="pipeline-strip" :data-stream="stream" @click="open = true">
+      <span v-if="stream === 'live'" class="live-dot" aria-hidden="true" />
+      <span v-else class="ps__off" aria-hidden="true" />
+      <span class="ps__txt">
+        <b>{{ pipeline.running }}</b> corriendo · <b>{{ pipeline.waiting }}</b> en cola<template v-if="pipeline.free !== undefined">
+          · {{ pipeline.free }} {{ pipeline.free === 1 ? 'libre' : 'libres' }}<template v-if="pipeline.max !== undefined"> de {{ pipeline.max }}</template></template>
+      </span>
+      <span v-if="last && last.age.text" class="ps__last" :data-status="last.status" data-test="strip-last" :title="`Lo último: ${last.title}`">
+        {{ GLYPH[last.status] }} {{ last.age.text }}
+      </span>
+      <span v-if="streamCopy" class="ps__stream">{{ streamCopy }}</span>
+      <span class="ps__chev" aria-hidden="true">›</span>
+    </button>
 
-  <BottomSheet :open="open" title="El pipeline" @close="open = false">
-    <div class="ps__sheet">
-      <div v-if="cells.length" class="ps__cap" role="img" :aria-label="`${Math.min(pipeline.running, pipeline.max ?? 0)} de ${pipeline.max} lugares ocupados`">
-        <i v-for="(c, i) in cells" :key="i" :data-cell="c" />
+    <BottomSheet :open="open" title="El pipeline" @close="open = false">
+      <div class="ps__sheet">
+        <div v-if="cells.length" class="ps__cap" role="img" :aria-label="`${Math.min(pipeline.running, pipeline.max ?? 0)} de ${pipeline.max} lugares ocupados`">
+          <i v-for="(c, i) in cells" :key="i" :data-cell="c" />
+        </div>
+        <RunningList v-if="running.length" :running="running" />
+        <p v-else class="ps__empty">Nada corre ahora.</p>
+        <RecentRuns :runs="recent ?? []" />
+        <BlockedList :blocked="blocked ?? []" />
+        <p class="ps__note">
+          {{ pipeline.source === 'capacity' ? 'Cuenta ejecuciones, no tarjetas.' : 'Cuenta tarjetas: este runner no publica su capacidad.' }}
+        </p>
       </div>
-      <RunningList v-if="running.length" :running="running" />
-      <p v-else class="ps__empty">Nada corre ahora.</p>
-      <RecentRuns :runs="recent ?? []" />
-      <BlockedList :blocked="blocked ?? []" />
-      <p class="ps__note">
-        {{ pipeline.source === 'capacity' ? 'Cuenta ejecuciones, no tarjetas.' : 'Cuenta tarjetas: este runner no publica su capacidad.' }}
-      </p>
-    </div>
-  </BottomSheet>
+    </BottomSheet>
+  </div>
 </template>
 
 <style scoped>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onUnmounted, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { useBackClose } from '@/composables/useBackClose';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import { KIND_LABEL } from '@/features/inbox/labels';
 import { TYPE_META, typeOf } from '@/features/inbox/queue/kinds';
@@ -35,15 +36,40 @@ function setLock(on: boolean) {
 
 const meta = computed(() => (item.value ? TYPE_META[typeOf(item.value)] : null));
 const tone = computed(() => (meta.value ? { '--tone': `var(--${meta.value.tone})` } : {}));
-/** El porqué, salvo que sea el mismo error que ya muestra su ejecución (una sola vez). */
+/** El porqué, salvo que repita lo que ya está a la vista: el caso de la pastilla o el error de su
+ *  ejecución (una sola vez). */
 const why = computed(() => {
   const it = item.value;
   if (!it) return '';
-  return it.why === it.execution?.failure?.message ? '' : it.why;
+  return it.why === it.execution?.failure?.message || it.why === KIND_LABEL[it.kind] ? '' : it.why;
 });
 
 watch(() => item.value !== null, setLock, { immediate: true });
 onUnmounted(() => setLock(false));
+// El «atrás» del teléfono (o del navegador) vuelve a la bandeja, no a la pantalla anterior.
+useBackClose(() => item.value !== null, () => store.collapse());
+
+/** De qué tarea se vino al saltar a otra desde el detalle («Bloqueada por»): el «atrás» vuelve a ella. */
+const from = ref<string | null>(null);
+let restoring = false;
+watch(
+  () => (store.expanded ? store.openRef : null),
+  (now, before) => {
+    if (!now) from.value = null;
+    else if (restoring) restoring = false;
+    else if (before && now !== before) from.value = before;
+  },
+);
+useBackClose(
+  () => from.value !== null,
+  () => {
+    const back = from.value;
+    from.value = null;
+    if (!back) return;
+    restoring = true;
+    store.expand(back);
+  },
+);
 </script>
 
 <template>

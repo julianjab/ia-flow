@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
+import { useBackClose } from '@/composables/useBackClose';
 import { useIsMobile } from '@/composables/useIsMobile';
 import AssistantComposer from '@/features/assistant/AssistantComposer.vue';
 import AssistantConversations from '@/features/assistant/AssistantConversations.vue';
@@ -85,6 +86,17 @@ watch(
   { immediate: true },
 );
 onUnmounted(() => setLock(false));
+
+// En un teléfono el asistente tapa la pantalla: el «atrás» lo cierra (y antes, el cajón de
+// conversaciones si está abierto). En desktop flota con la página usable detrás: el «atrás» es de ella.
+useBackClose(() => ui.isOpen, () => ui.close(), () => isMobile.value);
+useBackClose(() => ui.isOpen && drawer.value, () => (drawer.value = false), () => isMobile.value);
+watch(
+  () => ui.isOpen,
+  (open) => {
+    if (!open) drawer.value = false;
+  },
+);
 </script>
 
 <template>

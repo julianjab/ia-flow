@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { historySettled } from '@/composables/useBackClose'
 import { hasChosenServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import ConfigView from '@/views/ConfigView.vue'
@@ -35,7 +36,10 @@ const router = createRouter({
  * Sin server elegido no hay nada que mostrar: todo va a la pantalla de servers.
  * `/servers` queda afuera del corte por lo obvio: es de donde se sale.
  */
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  // Cerrar un overlay y navegar en el mismo toque (una tarea del asistente desde otra pantalla):
+  // primero se consume la entrada del overlay, después se empuja la ruta (ver useBackClose).
+  await historySettled()
   if (to.path === '/servers') return true
   return hasChosenServer() ? true : '/servers'
 })
