@@ -35,7 +35,7 @@
 //     ia-flow config dir; the worktree base is `/tmp/ia-flow` by default and
 //     is overridable via the constructor.
 
-import { existsSync, mkdirSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import {
   branchNameFor,
@@ -99,6 +99,12 @@ export interface ResolvedScopes {
 export interface GetOrCreateOptions {
   /** Message-only: used to tag the autosalvage commit on reuse. */
   prevRunId?: string
+  /**
+   * La corrida (el id de su ejecución) que va a usar el worktree. Queda anotada junto al worktree
+   * — en memoria y en su directorio de admin de git, así sobrevive a un reinicio del runner — y
+   * es la que nombra el autosalvage de la próxima vez que se reuse con cambios sin commitear.
+   */
+  runId?: string
   /**
    * Nombre explícito de la branch git a usar. Si viene, gana sobre el default
    * `task/<taskId>`. Fuente típica: `task.branch` (linked branch de GitHub).
@@ -843,10 +849,27 @@ export class WorkspaceManager {
 
     if (!exists) {
       await this.#createFreshWorktree(task, repoBasePath, worktree, branch)
+      this.#recordRun(taskId, worktree, opts.runId)
       return { path: worktree, branch }
     }
 
-    return this.#reuseWorktree(taskId, worktree, branch, opts)
+    const reused = await this.#reuseWorktree(taskId, worktree, branch, opts)
+    this.#recordRun(taskId, worktree, opts.runId)
+    return reused
+  }
+
+  /** Anota qué corrida usa el worktree (ver `GetOrCreateOptions.runId`). Best-effort: sin el
+   *  archivo, el próximo autosalvage cae al registro en memoria. */
+  #recordRun(taskId: string, worktree: string, runId: string | undefined): void {
+    if (!runId) return
+    this.#lastRunIds.set(taskId, runId)
+    const marker = runMarkerPath(worktree)
+    if (!marker) return
+    try {
+      writeFileSync(marker, `${runId}\n`)
+    } catch (error) {
+      this.#log.warn({ taskId, worktree, error: String(error) }, 'run marker write failed')
+    }
   }
 
   /**
@@ -933,7 +956,8 @@ export class WorkspaceManager {
     this.#log.info({ taskId, worktree, branch }, 'reuse')
 
     if (await this.#statusDirty(worktree)) {
-      const prevRunId = opts.prevRunId ?? this.#lastRunIds.get(taskId) ?? 'unknown'
+      const prevRunId =
+        opts.prevRunId ?? this.#lastRunIds.get(taskId) ?? readRunMarker(worktree) ?? 'unknown'
       this.#log.warn({ taskId, worktree, prevRunId }, 'autosalvage')
       await this.#commitAll(worktree, `WIP autosalvage from run ${prevRunId}`)
     }
@@ -1380,5 +1404,30 @@ export class WorkspaceManager {
     if (r.exitCode !== 0) {
       throw new Error(`git merge --ff-only origin/${base} failed: ${r.stderr || r.stdout}`)
     }
+  }
+}
+
+/**
+ * Dónde anota un worktree qué corrida lo usó último: en su directorio de admin de git
+ * (`<clone>/.git/worktrees/<nombre>`, el que nombra su `.git`), fuera del árbol — `git status` no
+ * lo ve, el agente no lo commitea, y sobrevive a un reinicio del runner (el caso del autosalvage:
+ * la corrida que murió con el proceso dejó cambios sin commitear).
+ */
+function runMarkerPath(worktree: string): string | undefined {
+  try {
+    const gitdir = /^gitdir:\s*(.+)$/m.exec(readFileSync(join(worktree, '.git'), 'utf8'))?.[1]
+    return gitdir ? join(resolve(worktree, gitdir.trim()), 'ia-flow-run-id') : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function readRunMarker(worktree: string): string | undefined {
+  const marker = runMarkerPath(worktree)
+  if (!marker) return undefined
+  try {
+    return readFileSync(marker, 'utf8').trim() || undefined
+  } catch {
+    return undefined
   }
 }

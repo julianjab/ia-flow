@@ -58,7 +58,8 @@ const RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /** Lo que lee el agente que se retoma tras un reinicio. */
 export const RESTART_NOTE =
-  'El runner se reinició mientras trabajabas. Tu conversación sigue acá, pero lo que estaba en curso (un comando, una tool) pudo no terminar: verificá el estado antes de seguir.'
+  'El runner se reinició mientras trabajabas. Tu conversación sigue acá, pero lo que estaba en curso (un comando, una tool) pudo no terminar: verificá el estado antes de seguir. ' +
+  'Si dejaste cambios sin commitear en tu worktree, el runner los guardó en un commit `WIP autosalvage from run <id>` sobre tu branch: miralo con `git log` y `git show` antes de rehacer nada — tu trabajo está ahí, y podés seguirlo o rearmar los commits con tus mensajes.'
 
 /** Quien quiere enterarse de cada cambio de estado de una ejecución (arrancó, se pausó, se
  *  reanudó, cerró) — ej. marcar la task como en curso en un board. */

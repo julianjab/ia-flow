@@ -76,7 +76,11 @@ export class WorkspaceSession {
   private async create(ctx: PipelineExecutionContext): Promise<PreparedWorkspace> {
     const target = this.resolveTarget(ctx)
     const repoBasePath = await this.manager.ensureLocalClone(target.repo)
-    const opts = { branch: target.branch }
+    // `runId`: el autosalvage de la próxima corrida dice de cuál vienen los cambios que dejó ésta.
+    const opts = {
+      branch: target.branch,
+      ...(ctx.execution ? { runId: ctx.execution.id } : {}),
+    }
     // Un miembro de un grupo `parallel` trabaja en su propio worktree (de lectura): ver
     // `WorkspaceManager.getOrCreateLaneWorktree`.
     const { path, branch } = ctx.lane
