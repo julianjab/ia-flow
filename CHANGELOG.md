@@ -1,5 +1,37 @@
 # Changelog
 
+## [2.23.0](https://github.com/julianjab/ia-flow/compare/v2.22.0...v2.23.0) (2026-10-21)
+
+
+### Features
+
+* **menubar:** el PR en el detalle y quién bloquea a cada tarea, navegable ([f4ae2a5](https://github.com/julianjab/ia-flow/commit/f4ae2a5e5f11c672188fd05e1b52a05ab1007b84))
+* **menubar:** filas cortas con acciones al deslizar, lo último que corrió y el pie del detalle en una fila ([ddf3aeb](https://github.com/julianjab/ia-flow/commit/ddf3aeb76e8b94a80857d8b490d3bee80a373a87))
+* **web:** «Bloqueada por» abre esa tarea en el detalle y dice cuántas destraba ([a86e24c](https://github.com/julianjab/ia-flow/commit/a86e24cc5fdd1d24542fe96aeb612c1816d4ad35))
+* **web:** bandeja v4.1 — franja del pipeline, «Del board» y sin caja alta ([29bb4f1](https://github.com/julianjab/ia-flow/commit/29bb4f121a107197c71fbd86884d4457d3cc4005))
+* **web:** buscador en la bandeja, como el del menubar ([d4a5d16](https://github.com/julianjab/ia-flow/commit/d4a5d16785558bfc28a7a99043ab51276320c85e))
+* **web:** Config, Webhooks, Runners y el login en el lenguaje v4.1 ([680c14c](https://github.com/julianjab/ia-flow/commit/680c14cabdec63032cd508fb10105394ff3fb086))
+* **web:** el «atrás» del teléfono cierra lo de encima y los sheets se bajan arrastrando ([2364010](https://github.com/julianjab/ia-flow/commit/23640107f8301841f8cfe47f3acad6ee1e4697f6))
+* **web:** el asistente en una caja, con la voz en un sheet y los pasos a la vista ([287250a](https://github.com/julianjab/ia-flow/commit/287250ad70db7a389e9652a23c7dc94a8d4660e7))
+* **web:** el detalle de una tarea con pestañas y la acción fija al pie ([90c242e](https://github.com/julianjab/ia-flow/commit/90c242eb5a0ff7ef31e397a1f74c444bb53c2510))
+* **web:** filas de «Después» más cortas, con las acciones al deslizar ([1b5a0c2](https://github.com/julianjab/ia-flow/commit/1b5a0c2957f2de7b8398392f338fcd26385a2cc9))
+* **web:** la barra del detalle en una fila, con el resto tras «Más» ([1557068](https://github.com/julianjab/ia-flow/commit/15570685df2848af3a1a3385aa51c83858c63ef4))
+* **web:** la pastilla de la Mac sólo con el portapapeles compartido desde mac-pulse ([992f827](https://github.com/julianjab/ia-flow/commit/992f827aa3dcdbbfee136df2d85c816eade26277))
+* **web:** lo último que corrió en el estado del pipeline ([cbbc711](https://github.com/julianjab/ia-flow/commit/cbbc71121422c4bd99c5a1917d8188496ddefdfd))
+* **web:** preguntarle al asistente desde el pie del detalle de una tarea ([4ce1fa7](https://github.com/julianjab/ia-flow/commit/4ce1fa7458213c5fa33466e77db3bb4e1557fc02))
+* **web:** tab bar en el teléfono y el asistente como pestaña ([e54e3cd](https://github.com/julianjab/ia-flow/commit/e54e3cd0e4fc4430453bdc17fa8d94eb3482edfd))
+* **web:** tocar una card de «Después» abre la tarea en grande ([d42766b](https://github.com/julianjab/ia-flow/commit/d42766b895d105435b35f50fecfaa92f3293f594))
+
+
+### Bug Fixes
+
+* **engine:** las mejoras de la retrospectiva de LaHaus — CI legible, ramas, reanudaciones y comentarios que no se pierden ([#332](https://github.com/julianjab/ia-flow/issues/332)) ([33f381f](https://github.com/julianjab/ia-flow/commit/33f381fa182aa064cc064d3d0980a2b2372c4109))
+* **menubar:** el título del detalle en una línea; la ref y el PR van debajo del nombre ([30a7c43](https://github.com/julianjab/ia-flow/commit/30a7c43729bc79db62f0ee6937ea937f087fa25f))
+* **web:** el «atrás» pasa de largo la entrada de un overlay que se desmontó abierto ([fa01bc2](https://github.com/julianjab/ia-flow/commit/fa01bc2c3b32aeaf1d2c3b0542a0df6c56012fd7))
+* **web:** la bandeja con menos ruido en un teléfono ([7828366](https://github.com/julianjab/ia-flow/commit/7828366c6bbd163dda0a4992ddb923ad656bd975))
+* **web:** la pregunta escrita en el detalle espera a que termine la respuesta en curso ([d4b8089](https://github.com/julianjab/ia-flow/commit/d4b8089a3e11c7838ce06b2937e72e3d1ebe5901))
+* **web:** sin la flecha de detalle en las filas del teléfono ([be4c6c5](https://github.com/julianjab/ia-flow/commit/be4c6c53f10213f4abec77a7ae63d9d04c8359e7))
+
 ## [2.22.0](https://github.com/julianjab/ia-flow/compare/v2.21.3...v2.22.0) (2026-10-20)
 
 
