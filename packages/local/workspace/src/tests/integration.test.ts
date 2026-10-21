@@ -150,7 +150,9 @@ describe('WorkspaceManager — worktree por carril (grupo parallel)', () => {
     pushV2(remote.seed)
     const again = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', { branch: 'ia-flow/7' })
     expect(again.path).toBe(reviewer.path)
-    expect(git(again.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
+    // Lo publicado, aunque la branch local (sin sync) siga en v1.
+    expect(git(again.path, 'rev-parse', 'HEAD')).toBe(git(clone, 'rev-parse', 'origin/ia-flow/7'))
+    expect(readFileSync(join(again.path, 'feature.txt'), 'utf8')).toBe('v2\n')
 
     await wm.removeWorktree(task, clone, 'ia-flow/7')
     const listed = git(clone, 'worktree', 'list', '--porcelain')
@@ -171,5 +173,34 @@ describe('NodeShellRunner', () => {
 
   it('throws only when the binary does not exist', async () => {
     await expect(new NodeShellRunner().run(['no-such-binary-xyz'], tmpdir())).rejects.toThrow()
+  })
+
+  it('con la branch local divergida (commits que el remoto no tiene), el carril usa el HEAD del PR', async () => {
+    const remote = fakeRemote()
+    const wm = manager(remote.bare, { syncBranchWithRemote: true })
+    const clone = await wm.ensureLocalClone(repo)
+    const { path: main } = await wm.getOrCreateWorktree(task, clone, { branch: 'ia-flow/7' })
+    writeFileSync(join(main, 'local.txt'), 'publicado con otro SHA\n')
+    git(main, 'add', '.')
+    git(main, 'commit', '-q', '-m', 'local')
+    pushV2(remote.seed)
+
+    const reviewer = await wm.getOrCreateLaneWorktree(task, clone, 'reviewer', {
+      branch: 'ia-flow/7',
+    })
+    expect(git(reviewer.path, 'rev-parse', 'HEAD')).toBe(
+      git(clone, 'rev-parse', 'origin/ia-flow/7'),
+    )
+    expect(git(reviewer.path, 'rev-parse', 'HEAD')).not.toBe(git(main, 'rev-parse', 'HEAD'))
+  })
+
+  it('sin branch publicada, el carril se para en la local', async () => {
+    const remote = fakeRemote()
+    const wm = manager(remote.bare)
+    const clone = await wm.ensureLocalClone(repo)
+    const t = { id: 'la-haus/subscriptions#8', issueNumber: 8 }
+    const lane = await wm.getOrCreateLaneWorktree(t, clone, 'reviewer', { branch: 'ia-flow/8' })
+    const { path: main } = await wm.getOrCreateWorktree(t, clone, { branch: 'ia-flow/8' })
+    expect(git(lane.path, 'rev-parse', 'HEAD')).toBe(git(main, 'rev-parse', 'HEAD'))
   })
 })
