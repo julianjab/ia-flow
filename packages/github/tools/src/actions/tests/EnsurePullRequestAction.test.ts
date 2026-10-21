@@ -33,6 +33,7 @@ function fakeGithub(
     /** Los PRs abiertos que cierran el issue (GraphQL), de cualquier rama. */
     closingPrs?: Array<{
       number: number
+      state?: string
       url: string
       headRefName: string
       isCrossRepository?: boolean
@@ -201,10 +202,11 @@ describe('EnsurePullRequestAction', () => {
     expect(writes()).toEqual([])
   })
 
-  it('ignores a closing PR from a fork, another repo or the same branch when deciding to open one', async () => {
+  it('ignores a closing PR from a fork, another repo, the same branch or already merged when deciding to open one', async () => {
     const SAME = { nameWithOwner: 'la-haus/subscriptions' }
     const { client, writes } = fakeGithub({
       closingPrs: [
+        { number: 9, state: 'MERGED', url: 'u', headRefName: 'feat/old', repository: SAME },
         { number: 10, url: 'u', headRefName: 'feat/x', isCrossRepository: true, repository: SAME },
         { number: 11, url: 'u', headRefName: 'ia-flow-local/1640', repository: SAME },
         // Otro repo que cierra el issue con `Closes la-haus/subscriptions#1640`.

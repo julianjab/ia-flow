@@ -19,7 +19,7 @@ function readerWith(issue: Record<string, unknown>) {
 }
 
 describe('GithubTaskReader.linkedBranches', () => {
-  it('the linked branches first, then the heads of the open PRs that close the issue, oldest first', async () => {
+  it('the heads of the open PRs that close the issue first, oldest first, then the linked branches', async () => {
     const reader = readerWith({
       linkedBranches: { nodes: [{ ref: { name: 'feat/linked' } }, { ref: null }] },
       closedByPullRequestsReferences: {
@@ -41,10 +41,46 @@ describe('GithubTaskReader.linkedBranches', () => {
     })
 
     expect(await reader.linkedBranches('o', 'r', 1)).toEqual([
-      'feat/linked',
       'feat/add-crm-fields-to-profiling-prompt',
       'feat/crm-fields-in-profiling-prompt',
+      'feat/linked',
     ])
+  })
+
+  it('an open PR beats the empty branches link_branch linked on earlier re-entries (subscriptions#1775)', async () => {
+    const reader = readerWith({
+      linkedBranches: {
+        nodes: [
+          { ref: { name: 'feat/resolve-assignable-stages-weights-pipeline' } },
+          { ref: { name: 'feat/resolve-assignable-stages-against-pipeline' } },
+        ],
+      },
+      closedByPullRequestsReferences: {
+        nodes: [
+          {
+            number: 1778,
+            state: 'OPEN',
+            headRefName: 'feat/core-assignment-motor-resolve-assignable-stages',
+            createdAt: '2026-10-06T22:00:00Z',
+            repository: REPO,
+          },
+        ],
+      },
+    })
+
+    const [branch] = await reader.linkedBranches('o', 'r', 1)
+    expect(branch).toBe('feat/core-assignment-motor-resolve-assignable-stages')
+  })
+
+  it('a merged PR does not give the task its branch', async () => {
+    const reader = readerWith({
+      linkedBranches: { nodes: [{ ref: { name: 'feat/linked' } }] },
+      closedByPullRequestsReferences: {
+        nodes: [{ number: 5, state: 'MERGED', headRefName: 'feat/old', repository: REPO }],
+      },
+    })
+
+    expect(await reader.linkedBranches('o', 'r', 1)).toEqual(['feat/linked'])
   })
 
   it('a branch the agent pushed without linking is found through its PR, never from another repo or a fork', async () => {
