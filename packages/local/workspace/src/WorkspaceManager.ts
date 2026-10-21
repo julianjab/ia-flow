@@ -10,6 +10,9 @@
 //   • `getOrCreateLaneWorktree`: un worktree `--detach` por carril de un grupo `parallel`
 //     (`<worktree>--<carril>`), que `#doRemove` borra con el de la task.
 //   • Defaults de identidad de ia-tools.
+//   • `node_modules`: un worktree de un repo Node que nace sin él lo copia de la semilla del repo
+//     o de otro checkout con el mismo lockfile, y al borrarse deja el suyo como semilla
+//     (`nodeDeps.ts`). El estado viaja en `dependencies` del resultado.
 //
 // Responsibilities:
 //   • Own the mapping "task ↔ worktree" for a single repo (multi-repo tasks are rejected).
@@ -48,6 +51,7 @@ import {
   worktreePathFor,
 } from './layout.js'
 import { noopLogger, type WorkspaceLogger } from './logger.js'
+import { type DependencyStatus, NodeDependencies } from './nodeDeps.js'
 import type { ShellRunner } from './shell.js'
 
 /**
@@ -94,6 +98,14 @@ export interface WorkspaceTask extends WorktreeNameSource {
 export interface ResolvedScopes {
   readPaths: string[]
   writePaths: string[]
+}
+
+/** Lo que devuelve armar un worktree: dónde, en qué branch y cómo quedaron sus dependencias. */
+export interface PreparedWorktree {
+  path: string
+  branch: string
+  /** El `node_modules` del worktree (ver `nodeDeps.ts`). */
+  dependencies: DependencyStatus
 }
 
 export interface GetOrCreateOptions {
@@ -211,6 +223,7 @@ export class WorkspaceManager {
    *  se comporta como antes de existir este guard. */
   readonly #otherLiveRunsOnTask: LiveRunsProbe | undefined
   readonly #log: WorkspaceLogger
+  readonly #deps: NodeDependencies
   /** Ver `opts.syncBranchWithRemote`. */
   readonly #syncBranchWithRemote: boolean
   /** Ver `opts.cloneUrl`. */
@@ -269,6 +282,7 @@ export class WorkspaceManager {
     this.#exists = opts.exists ?? existsSync
     this.#otherLiveRunsOnTask = opts.otherLiveRunsOnTask
     this.#log = opts.log ?? noopLogger
+    this.#deps = new NodeDependencies(shell)
     this.#syncBranchWithRemote = opts.syncBranchWithRemote ?? false
     this.#cloneUrl =
       opts.cloneUrl ?? ((repo) => `https://github.com/${repo.githubOwner}/${repo.githubRepo}.git`)
@@ -416,9 +430,17 @@ export class WorkspaceManager {
     task: WorktreeNameSource | string,
     repoBasePath: string,
     opts: GetOrCreateOptions = {},
-  ): Promise<{ path: string; branch: string }> {
+  ): Promise<PreparedWorktree> {
     const source = typeof task === 'string' ? { id: task } : task
-    return this.#withRepoLock(repoBasePath, () => this.#doGetOrCreate(source, repoBasePath, opts))
+    const { path, branch } = await this.#withRepoLock(repoBasePath, () =>
+      this.#doGetOrCreate(source, repoBasePath, opts),
+    )
+    // Fuera del lock del repo: copiar un node_modules tarda, y no es git.
+    return {
+      path,
+      branch,
+      dependencies: await this.#ensureDependencies(path, repoBasePath, source.id),
+    }
   }
 
   /**
@@ -442,12 +464,34 @@ export class WorkspaceManager {
     repoBasePath: string,
     lane: string,
     opts: GetOrCreateOptions = {},
-  ): Promise<{ path: string; branch: string }> {
+  ): Promise<PreparedWorktree> {
     const source = typeof task === 'string' ? { id: task } : task
-    const { branch } = await this.getOrCreateWorktree(source, repoBasePath, opts)
-    return this.#withRepoLock(repoBasePath, () =>
+    // El de la task sin sus dependencias: quien corre es el carril, y copiarlas dos veces es plata.
+    const { branch } = await this.#withRepoLock(repoBasePath, () =>
+      this.#doGetOrCreate(source, repoBasePath, opts),
+    )
+    const { path } = await this.#withRepoLock(repoBasePath, () =>
       this.#doLaneWorktree(source, repoBasePath, lane, branch),
     )
+    return {
+      path,
+      branch,
+      dependencies: await this.#ensureDependencies(path, repoBasePath, source.id),
+    }
+  }
+
+  /**
+   * Antes de borrar un worktree: su `node_modules` queda como semilla del repo para ese lockfile,
+   * si todavía no hay una (ver `nodeDeps.ts`). Best-effort: nunca tira. Lo llama quien borra
+   * worktrees por su cuenta (`HostWorktrees`); `removeWorktree` ya lo hace.
+   */
+  harvestDependencies(worktree: string, repoBasePath: string): void {
+    try {
+      const seed = this.#deps.harvest(worktree, repoBasePath)
+      if (seed) this.#log.info({ worktree, seed }, 'node_modules guardado como semilla')
+    } catch (err) {
+      this.#log.warn({ worktree, err: String(err) }, 'node_modules: no se pudo guardar la semilla')
+    }
   }
 
   /** `<worktree de la task>--<carril>`. */
@@ -1145,6 +1189,48 @@ export class WorkspaceManager {
     return remote
   }
 
+  /**
+   * Deja el `node_modules` de `worktree` si falta y hay de dónde copiarlo (ver `nodeDeps.ts`), y lo
+   * deja en la traza. Nunca tira: sin dependencias, el agente igual corre (y se le avisa).
+   */
+  async #ensureDependencies(
+    worktree: string,
+    repoBasePath: string,
+    taskId: string,
+  ): Promise<DependencyStatus> {
+    try {
+      const status = await this.#deps.ensure(
+        worktree,
+        repoBasePath,
+        await this.#worktreePaths(repoBasePath),
+      )
+      if (status.kind === 'reused') {
+        this.#log.info(
+          { taskId, worktree, from: status.from, ms: status.ms },
+          `node_modules copiado (mismo ${status.lockfile})`,
+        )
+      } else if (status.kind === 'missing') {
+        this.#log.warn({ taskId, worktree }, `sin node_modules: ${status.reason}`)
+      }
+      return status
+    } catch (err) {
+      this.#log.warn({ taskId, worktree, err: String(err) }, 'node_modules: falló el reuso')
+      return { kind: 'missing', lockfile: '', reason: `falló el reuso: ${String(err)}` }
+    }
+  }
+
+  /** Los checkouts registrados del repo (el clone y sus worktrees), en el orden de git. */
+  async #worktreePaths(repoBasePath: string): Promise<string[]> {
+    const r = await this.#shell
+      .run(['git', 'worktree', 'list', '--porcelain'], repoBasePath)
+      .catch(() => undefined)
+    if (r?.exitCode !== 0) return []
+    return r.stdout
+      .split('\n')
+      .map((line) => line.trim().match(/^worktree (.+)$/)?.[1])
+      .filter((p): p is string => p !== undefined)
+  }
+
   /** Los worktrees de carril de `worktree` (`<worktree>--<carril>`), registrados en el repo. */
   async #laneWorktrees(repoBasePath: string, worktree: string): Promise<string[]> {
     // Best-effort: si no se puede listar, no se limpian los carriles — pero el borrado de la task
@@ -1175,6 +1261,7 @@ export class WorkspaceManager {
     const branch = branchNameFor(taskId, explicitBranch)
     const worktree = explicitPath ?? this.worktreePath(task, repoBasePath)
     this.#log.info({ taskId, worktree, branch }, 'remove')
+    this.harvestDependencies(worktree, repoBasePath)
     // Best-effort: remove worktree first (unlocks the branch), then the branch.
     // Non-zero exits are surfaced so the caller can decide (e.g. worktree missing).
     const rmWt = await this.#shell.run(
@@ -1189,6 +1276,7 @@ export class WorkspaceManager {
     }
     // Los de carril son copias de lectura de esta misma task: se van con ella.
     for (const lane of await this.#laneWorktrees(repoBasePath, worktree)) {
+      this.harvestDependencies(lane, repoBasePath)
       const rmLane = await this.#shell.run(
         ['git', 'worktree', 'remove', '--force', lane],
         repoBasePath,

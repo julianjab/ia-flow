@@ -8,6 +8,8 @@ Ver `README.md` para el contrato de uso; esto es guía específica para trabajar
 src/
 ├── WorkspaceManager.ts   port de @ia-flow/workspace — ciclo de vida, sin engine
 ├── layout.ts             nombres y paths (task-<n>, <base>/<repo>/.worktrees/<name>) — puro
+├── nodeDeps.ts           node_modules de un worktree: copia de la semilla del repo o de un hermano
+│                         con el mismo lockfile, y la semilla al borrar — nunca instala
 ├── shell.ts              ShellRunner (interfaz) + NodeShellRunner
 ├── logger.ts             WorkspaceLogger + noopLogger
 ├── actions/              lo que se enchufa a agent-engine

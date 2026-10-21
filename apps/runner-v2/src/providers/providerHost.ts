@@ -192,6 +192,7 @@ export function providerTaskRunner(opts: {
       const { target, repoBasePath } = await opts.session.prepare(ctx)
       opts.worktrees.adopt(opts.session.manager.worktreePath(target.task, repoBasePath))
     }
+    const prompt = await promptWithNotice(task.prompt, opts.session, ctx)
     const link = new RunnerLink({
       task,
       base: runner.base,
@@ -210,7 +211,7 @@ export function providerTaskRunner(opts: {
       ]
       const output = await opts.provider.run({
         agentId: task.agentId,
-        prompt: task.prompt,
+        prompt,
         systemPrompts: task.systemPrompts,
         variables: task.variables,
         providerConfig: task.providerConfig,
@@ -231,6 +232,17 @@ export function providerTaskRunner(opts: {
       await opts.worktrees?.end(cwd, signal.reason === CLOSED_BY_RUNNER ? undefined : link.ending)
     }
   }
+}
+
+/** El worktree se arma antes de arrancar: lo que el agente tiene que saber de sus dependencias va
+ *  al final del prompt (con la API en el runner, en la primera tool de disco). */
+async function promptWithNotice(
+  prompt: string,
+  session: WorkspaceSession,
+  ctx: PipelineExecutionContext,
+): Promise<string> {
+  const notice = await session.takeNotice(ctx)
+  return notice ? `${prompt}\n\n${notice}` : prompt
 }
 
 /** Las tools de workspace del agente, rearmadas sobre el worktree de esta máquina. Una que el host
