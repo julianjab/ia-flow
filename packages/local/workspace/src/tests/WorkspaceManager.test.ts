@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 // Port de los tests de `@ia-flow/workspace` (bun:test → vitest), sin cambios de comportamiento.
@@ -257,6 +265,56 @@ describe('getOrCreateWorktree — reuse paths', () => {
     const commit = shell.find(['git', 'commit'])
     const msgIdx = (commit?.args ?? []).indexOf('-m')
     expect(commit?.args[msgIdx + 1]).toBe('WIP autosalvage from run run-prev-99')
+  })
+
+  it('el runId anotado sobrevive a un reinicio: el autosalvage nombra la corrida que murió', async () => {
+    // Un worktree real en disco (sólo su `.git` → admin dir), como lo deja `git worktree add`.
+    const base = mkdtempSync(join(tmpdir(), 'ia-flow-ws-run-'))
+    try {
+      const wt = worktreePathFor(REPO, worktreeNameFor({ id: TASK }), base)
+      const admin = join(base, 'admin', 'worktrees', 'task')
+      mkdirSync(wt, { recursive: true })
+      mkdirSync(admin, { recursive: true })
+      writeFileSync(join(wt, '.git'), `gitdir: ${admin}\n`)
+      let dirty = false
+      const shell = () =>
+        new StubShell(
+          router([
+            [exactly(['git', 'fetch', 'origin']), ok()],
+            [exactly(['git', 'worktree', 'prune']), ok()],
+            [['git', 'symbolic-ref'], ok('origin/main\n')],
+            [
+              exactly(['git', 'worktree', 'list', '--porcelain']),
+              ok(`worktree ${REPO}\n\nworktree ${wt}\n`),
+            ],
+            [exactly(['git', 'status', '--porcelain']), () => ok(dirty ? ' M foo.ts\n' : '')],
+            [exactly(['git', 'add', '-A']), ok()],
+            [['git', 'commit'], ok()],
+            [['git', 'merge-base', '--is-ancestor'], ok()],
+            [exactly(['git', 'merge', '--ff-only', 'origin/main']), ok()],
+          ]),
+        )
+
+      // La corrida `exec-1` usa el worktree y el proceso muere con cambios sin commitear.
+      await new WorkspaceManager(shell(), { worktreeBase: base }).getOrCreateWorktree(TASK, REPO, {
+        runId: 'exec-1',
+      })
+      expect(readFileSync(join(admin, 'ia-flow-run-id'), 'utf8').trim()).toBe('exec-1')
+
+      // Otro proceso (sin memoria de la anterior) la retoma: el WIP dice de qué corrida viene.
+      dirty = true
+      const restarted = shell()
+      await new WorkspaceManager(restarted, { worktreeBase: base }).getOrCreateWorktree(
+        TASK,
+        REPO,
+        { runId: 'exec-1' },
+      )
+      const commit = restarted.find(['git', 'commit'])
+      const msgIdx = (commit?.args ?? []).indexOf('-m')
+      expect(commit?.args[msgIdx + 1]).toBe('WIP autosalvage from run exec-1')
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 
   it('divergence (not ff-able) → no merge, no rebase — just leaves tree alone', async () => {
