@@ -81,7 +81,7 @@ function fakeProvider(workspace: Provider['workspace']) {
 }
 
 /** Un workspace de mentira: el worktree de la task, o el de su carril (`<worktree>--<lane>`). */
-function fakeSession() {
+function fakeSession(notice?: string) {
   const asked: PipelineExecutionContext[] = []
   const pathOf = (ctx: PipelineExecutionContext) =>
     ctx.lane ? `/wt/eks-7--${ctx.lane}` : '/wt/eks-7'
@@ -97,6 +97,7 @@ function fakeSession() {
       branch: 'feat/x',
     }),
     manager: { worktreePath: () => '/wt/eks-7' },
+    takeNotice: async () => notice,
   } as unknown as WorkspaceSession
   return { session, asked }
 }
@@ -194,6 +195,22 @@ describe('providerTaskRunner', () => {
     })
     // El modelo cerró con una salida: el worktree se entera.
     expect(ended).toEqual([['/wt/eks-7', 'done']])
+  })
+
+  it('lo que el worktree dice de sus dependencias va al final del prompt', async () => {
+    const { provider, runs } = fakeProvider('native')
+    const { fetchImpl } = fakeRunner()
+    const run = providerTaskRunner({
+      provider,
+      session: fakeSession('[workspace] sin node_modules (x)').session,
+      gitCredential: async () => undefined,
+      log: () => {},
+      fetchImpl,
+    })
+    await run(task(), { base: 'http://runner' }, new AbortController().signal)
+    expect((runs[0] as ProviderRunContext).prompt).toBe(
+      'hacé la tarea\n\n[workspace] sin node_modules (x)',
+    )
   })
 
   it('a provider that works the runner workspace (the Messages API) gets the workspace tools rebuilt here', async () => {

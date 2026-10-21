@@ -94,6 +94,22 @@ describe('WorkspaceSession', () => {
     // Sin carril, el de la task: un paso fuera del grupo no se mezcla con los carriles.
     expect(await s.dirFor(ctx)).toBe(dir)
   })
+
+  it('el aviso de dependencias sale una vez por corrida, en la primera tool de disco', async () => {
+    const manager = fakeManager()
+    manager.getOrCreateWorktree.mockResolvedValue({
+      path: dir,
+      branch: 'ia-flow/7',
+      dependencies: { kind: 'missing', lockfile: 'yarn.lock', reason: 'sin hermanos' },
+    } as never)
+    const { session: s } = session(manager)
+    const ctx = run()
+    expect(await s.takeNotice(ctx)).toBeUndefined() // todavía no armó nada
+    const read = workspaceAction('fs_list', s)
+    expect(await read.execute({ path: '.' }, ctx)).toContain('sin node_modules (sin hermanos)')
+    expect(await read.execute({ path: '.' }, ctx)).not.toContain('node_modules')
+    expect(await s.takeNotice(ctx)).toBeUndefined()
+  })
 })
 
 describe('workspaceAction', () => {

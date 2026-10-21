@@ -4,7 +4,7 @@
  * funciona de verdad contra git.
  */
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -122,6 +122,45 @@ describe('WorkspaceManager + NodeShellRunner against real git', () => {
     pushV2(remote.seed)
     await wm.getOrCreateWorktree(task, clone, { branch: 'ia-flow/7' })
     expect(git(path, 'rev-parse', 'HEAD')).toBe(localTip)
+  })
+
+  it('node_modules: la segunda task copia el de la primera, y al borrarse queda como semilla', async () => {
+    // El repo pasa a ser de Node: package.json + yarn.lock en main.
+    writeFileSync(join(remote.seed, 'package.json'), '{"name":"app"}')
+    writeFileSync(join(remote.seed, 'yarn.lock'), '# lock v1\n')
+    writeFileSync(join(remote.seed, '.gitignore'), 'node_modules\n')
+    git(remote.seed, 'checkout', '-q', 'main')
+    git(remote.seed, 'add', '.')
+    git(remote.seed, 'commit', '-q', '-m', 'node')
+    git(remote.seed, 'push', '-q', 'origin', 'HEAD:main')
+    const wm = manager(remote.bare)
+    const clone = await wm.ensureLocalClone(repo)
+
+    const first = await wm.getOrCreateWorktree({ id: 'o/r#1', issueNumber: 1 }, clone)
+    expect(first.dependencies).toMatchObject({ kind: 'missing', lockfile: 'yarn.lock' })
+    mkdirSync(join(first.path, 'node_modules', 'vue'), { recursive: true })
+    writeFileSync(join(first.path, 'node_modules', 'vue', 'index.js'), 'ok')
+
+    const second = await wm.getOrCreateWorktree({ id: 'o/r#2', issueNumber: 2 }, clone)
+    // `git worktree list` da paths canónicos (en macOS, `/private/var/…`).
+    expect(second.dependencies.kind === 'reused' && second.dependencies.from).toMatch(
+      /task-1\/node_modules$/,
+    )
+    expect(readFileSync(join(second.path, 'node_modules', 'vue', 'index.js'), 'utf8')).toBe('ok')
+    // Ignorado por git: el worktree sigue limpio.
+    expect(git(second.path, 'status', '--porcelain')).toBe('')
+
+    // Un carril del primero también lo recibe, sin copiárselo de nuevo al de su task.
+    const lane = await wm.getOrCreateLaneWorktree({ id: 'o/r#2', issueNumber: 2 }, clone, 'e2e')
+    expect(lane.dependencies.kind).toBe('reused')
+
+    await wm.removeWorktree({ id: 'o/r#1', issueNumber: 1 }, clone)
+    expect(existsSync(first.path)).toBe(false)
+    const third = await wm.getOrCreateWorktree({ id: 'o/r#3', issueNumber: 3 }, clone)
+    expect(third.dependencies.kind).toBe('reused')
+    expect(third.dependencies.kind === 'reused' && third.dependencies.from).toContain(
+      join('.git', 'ia-flow-deps'),
+    )
   })
 })
 
