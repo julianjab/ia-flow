@@ -16,11 +16,14 @@ export const useAssistantStore = defineStore('assistant', () => {
    * a mano no debe volver a fijar el contexto de la última vez.
    */
   const request = ref<AssistantScope | null>(null)
+  /** Una pregunta ya escrita afuera (la caja del detalle de una tarea): el panel la manda al abrir. */
+  const message = ref<string | null>(null)
   /** Una respuesta terminó con el asistente cerrado: la marca quien lo abre (burbuja o pestaña). */
   const unread = ref(false)
 
-  function open(scope?: AssistantScope): void {
+  function open(scope?: AssistantScope, question?: string): void {
     if (scope) request.value = scope
+    if (question?.trim()) message.value = question.trim()
     isOpen.value = true
     unread.value = false
   }
@@ -35,5 +38,11 @@ export const useAssistantStore = defineStore('assistant', () => {
     return scope
   }
 
-  return { isOpen, request, unread, open, close, consumeRequest }
+  function consumeMessage(): string | null {
+    const text = message.value
+    message.value = null
+    return text
+  }
+
+  return { isOpen, request, message, unread, open, close, consumeRequest, consumeMessage }
 })

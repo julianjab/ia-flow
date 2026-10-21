@@ -39,11 +39,15 @@ const end = ref<HTMLElement | null>(null);
 
 // Quien abrió el asistente pidió un contexto (p. ej. «Preguntarle al asistente»
 // de una tarjeta): se fija acá, y una conversación es de UN contexto.
+// Si además trajo la pregunta ya escrita, se manda en ese contexto (antes de retomar la última
+// conversación guardada: con un turno en curso, `resumeLatest` no la pisa).
 watch(
-  () => ui.request,
+  () => [ui.request, ui.message] as const,
   () => {
     const scope = ui.consumeRequest();
     if (scope) chat.setScope(scope);
+    const question = ui.consumeMessage();
+    if (question) void chat.send(question, { voice: voice.wantsSpeech });
   },
   { immediate: true },
 );

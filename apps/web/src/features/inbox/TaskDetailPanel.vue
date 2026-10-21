@@ -8,19 +8,18 @@ import { loadFailure } from '@/features/inbox/queue/advice';
 import { prShortOf, refUrl, shortRef } from '@/features/inbox/queue/shortRef';
 import { type DetailState, useInboxStore } from '@/features/inbox/store';
 import TaskActions from '@/features/inbox/TaskActions.vue';
+import TaskAskBar from '@/features/inbox/TaskAskBar.vue';
 import TaskEvents from '@/features/inbox/TaskEvents.vue';
 import TaskExecutions from '@/features/inbox/TaskExecutions.vue';
-import { useAssistantStore } from '@/stores/assistant';
 
 // El detalle de una tarea en grande (el panel de detalle): lo que dijo el agente, sus
 // ejecuciones —cada una con su traza al abrirla, y su falla, una sola vez—, debajo los eventos,
-// cada uno con el link a la ejecución que arrancó, y las acciones. Cada banda se omite entera
+// cada uno con el link a la ejecución que arrancó, y al pie, fijas, la caja del asistente y las acciones. Cada banda se omite entera
 // cuando el runner no tiene el dato (R13).
 
 const props = defineProps<{ item: InboxItem; detail?: DetailState }>();
 const emit = defineEmits<{ (e: 'reload'): void }>();
 
-const assistant = useAssistantStore();
 const store = useInboxStore();
 /** Lo que la bloquea y está en el board se abre acá mismo (como el menú); lo demás, en GitHub. */
 const inBoard = (ref: string) => store.inbox?.items.some((i) => i.ref === ref) ?? false;
@@ -49,10 +48,6 @@ const said = computed(() =>
 const failure = computed(() =>
   props.detail?.error ? loadFailure('cargar el detalle', props.detail.error) : null,
 );
-
-function ask() {
-  assistant.open({ kind: 'task', ref: props.item.ref });
-}
 </script>
 
 <template>
@@ -143,11 +138,10 @@ function ask() {
       </div>
     </template>
 
-    <button type="button" class="td__ask" @click="ask">
-      <span aria-hidden="true">✦</span> Preguntarle al asistente sobre {{ shortRef(item.ref) }}
-    </button>
-
-    <TaskActions :item="item" bar />
+    <!-- Al pie y fija, con las acciones: preguntar no depende de cuánto se scrolleó. -->
+    <TaskActions :item="item" bar>
+      <template #bar><TaskAskBar :task-ref="item.ref" /></template>
+    </TaskActions>
   </div>
 </template>
 
@@ -176,9 +170,6 @@ function ask() {
 .td__links .uc-label + :deep(.ref) { margin-right: 0.75rem; }
 .td__desc summary { display: flex; align-items: center; min-height: var(--tap-h); color: var(--fg-dim); font-size: var(--fs-body-sm); cursor: pointer; }
 .td__text { margin: 0; color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }
-.td__ask { align-self: flex-start; display: inline-flex; align-items: center; gap: 0.4rem; min-height: var(--tap-h); padding: 0; border: 0; background: none; color: var(--info); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
-.td__ask span { color: var(--ai); }
-.td__ask:hover { color: var(--fg); text-decoration: underline; }
 .td__tabs { display: flex; gap: 1.25rem; margin: 0 -1rem; padding: 0 1rem; border-bottom: 1px solid var(--border); }
 .td__tab { min-height: var(--tap-h); margin-bottom: -1px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-dim); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
 .td__tab:hover { color: var(--fg); }
