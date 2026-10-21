@@ -2,7 +2,8 @@
 import type { Headline } from '@/features/inbox/queue/build';
 
 // El titular: cuántas decisiones te esperan, cuántas tareas hay detrás y si algo falló. Es el
-// resumen de la pantalla y no repite ningún número del pipeline.
+// resumen de la pantalla y no repite ningún número del pipeline (ni el de decisiones: las tareas
+// sólo salen si un grupo junta varias).
 
 defineProps<{ headline: Headline }>();
 </script>
@@ -13,7 +14,8 @@ defineProps<{ headline: Headline }>();
       {{ headline.decisions }} {{ headline.decisions === 1 ? 'decisión te espera' : 'decisiones te esperan' }}
     </h2>
     <span class="hl__sub">
-      {{ headline.tasks }} {{ headline.tasks === 1 ? 'tarea' : 'tareas' }}<span class="hl__order"> · ordenadas por cuánto mueven el trabajo</span> ·
+      <!-- Las tareas sólo si son más que las decisiones (un grupo junta varias): «5 decisiones · 5 tareas» era ruido. -->
+      <template v-if="headline.tasks !== headline.decisions">en {{ headline.tasks }} {{ headline.tasks === 1 ? 'tarea' : 'tareas' }} · </template><span class="hl__order">ordenadas por cuánto mueven el trabajo · </span>
       <span v-if="headline.failed > 0" class="hl__bad">✕ {{ headline.failed }} falló</span>
       <span v-else><span class="hl__ok">✓</span> nada falló</span>
     </span>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FILTER_THRESHOLD, type QueueFilter } from '@/features/inbox/queue/build';
+import type { QueueFilter } from '@/features/inbox/queue/build';
 import type { QueueRow } from '@/features/inbox/queue/entries';
 import type { QueueType } from '@/features/inbox/queue/kinds';
 import DecisionRow from '@/features/inbox/decisions/DecisionRow.vue';
@@ -32,7 +32,6 @@ const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
       >
         {{ f.label }} <span class="dq__n mono">{{ f.count }}</span>
       </button>
-      <span class="dq__hint">aparece con más de {{ FILTER_THRESHOLD }} decisiones</span>
     </div>
 
     <div class="dq__list">
@@ -47,9 +46,14 @@ const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
    la fila cambia de forma según el ancho de la lista, no el de la ventana (DecisionRow). */
 .dq { container: decisions / inline-size; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); min-width: 0; }
 .dq__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.65rem 0.75rem; }
-.dq__filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; padding: 0.6rem 0.75rem; border-top: 1px solid var(--border-mute); }
+/* En una columna angosta los filtros son UNA fila que se desliza de costado (R2: la página no): en
+   tres filas le comían media pantalla a la cola. Con lugar, vuelven a partirse en líneas. */
+.dq__filters { display: flex; flex-wrap: nowrap; align-items: center; gap: 0.4rem; padding: 0.6rem 0.75rem; border-top: 1px solid var(--border-mute); overflow-x: auto; scrollbar-width: none; }
+.dq__filters > * { flex: none; }
+@container decisions (min-width: 36rem) {
+  .dq__filters { flex-wrap: wrap; overflow-x: visible; }
+}
 .dq__n { color: var(--fg); font-weight: 700; }
-.dq__hint { color: var(--fg-dimmer); font-size: var(--fs-micro); }
 @media (min-width: 640px) {
   .dq__head, .dq__filters { padding-left: 1rem; padding-right: 1rem; }
 }
