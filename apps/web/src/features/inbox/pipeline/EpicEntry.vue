@@ -1,17 +1,21 @@
 <script setup lang="ts">
 import type { EpicLine } from '@/features/inbox/queue/epics';
+import { useInboxStore } from '@/features/inbox/store';
 
-// Una épica en «Dónde se traba cada épica»: su nombre (link al issue), done/total, la barra de
-// avance (decorativa: el número ya lo dice) y la decisión tuya que la frena, en --warn.
+// Una épica en «Dónde se traba cada épica»: su nombre (abre la épica con sus sub-issues),
+// done/total, la barra de avance (decorativa: el número ya lo dice) y la decisión tuya que la
+// frena, en --warn.
 
 defineProps<{ epic: EpicLine }>();
+
+const store = useInboxStore();
 </script>
 
 <template>
   <li class="ee">
     <div class="ee__top">
-      <a v-if="epic.url" class="ee__name link" :href="epic.url" :title="epic.title" target="_blank" rel="noopener"
-        ><span class="ee__text">{{ epic.title }}</span></a
+      <button v-if="epic.url" type="button" class="ee__name ee__open link" :title="epic.title" data-test="epic-open" @click="store.openEpic(epic.ref)"
+        ><span class="ee__text">{{ epic.title }}</span></button
       >
       <span v-else class="ee__name" :title="epic.title"><span class="ee__text">{{ epic.title }}</span></span>
       <span class="ee__count mono">{{ epic.done }}/{{ epic.total }}</span>
@@ -36,6 +40,7 @@ defineProps<{ epic: EpicLine }>();
   overflow-wrap: anywhere;
 }
 span.ee__name { color: var(--fg); }
+.ee__open { border: none; background: none; font: inherit; font-weight: 500; text-align: left; cursor: pointer; }
 .ee__count { flex: none; padding-top: 0.6rem; color: var(--fg-dim); font-size: var(--fs-chrome); line-height: 1.35rem; font-variant-numeric: tabular-nums; }
 .ee__bar { height: 0.3rem; overflow: hidden; border-radius: var(--radius-sm); background: var(--panel-hi); }
 .ee__fill { height: 100%; background: var(--accent); }

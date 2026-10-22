@@ -4,6 +4,8 @@ import {
   AddToBoardResultSchema,
   type BoardRest,
   BoardRestSchema,
+  type EpicDetail,
+  EpicDetailSchema,
   type ExplainResult,
   ExplainResultSchema,
   type Inbox,
@@ -63,6 +65,12 @@ export async function getTaskDetail(ref: string, executionId?: string): Promise<
     params: executionId ? { execution: executionId } : undefined,
   })
   return TaskDetailSchema.parse(data)
+}
+
+/** Una épica con todos sus sub-issues (su columna, si están en el board): la que abre su chip. */
+export async function getEpic(ref: string): Promise<EpicDetail> {
+  const { data } = await axios.get<unknown>(`${taskPath(ref)}/epic`)
+  return EpicDetailSchema.parse(data)
 }
 
 /** Un pedido firmado con el token de GitHub del usuario: un 4xx vuelve como respuesta, no se lanza. */

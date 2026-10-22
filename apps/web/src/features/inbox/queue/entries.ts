@@ -28,6 +28,8 @@ export interface Reason {
   tone?: 'hot' | 'warn' | 'bad'
   /** El texto entero cuando `text` va recortado (el título de una épica): su `title`. */
   full?: string
+  /** El chip de una épica: su ref (`owner/repo#n`); tocarlo la abre con sus sub-issues. */
+  epic?: string
 }
 
 /** Lo que se ve al expandir: el porqué, una sola vez cada cosa. */

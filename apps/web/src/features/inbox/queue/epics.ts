@@ -85,13 +85,15 @@ export function clip(text: string, max: number): string {
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line
 }
 
-/** El chip de la épica de una tarea: «épica Filtros del listado 3/5», con el título recortado
- *  (en una línea) y entero en `full`. */
+/** El chip de la épica de una tarea: «épica #4200 Filtros del listado 3/5», con el título
+ *  recortado (en una línea) y entero en `full`. Lleva la ref: tocarlo abre la épica. */
 export function epicReason(epic: TaskEpic): Reason {
   const count = `${epic.done}/${epic.total}`
+  const id = hashOf(epic.ref)
   return {
-    text: `épica ${clip(epic.title, EPIC_CHIP_CHARS)} ${count}`,
-    full: `épica ${epic.title} ${count}`,
+    text: `épica ${id} ${clip(epic.title, EPIC_CHIP_CHARS)} ${count}`,
+    full: `épica ${epic.ref} ${epic.title} ${count}`,
+    epic: epic.ref,
   }
 }
 

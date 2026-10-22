@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { createActions } from '@/features/inbox/state/actions'
 import { createDetails } from '@/features/inbox/state/details'
+import { createEpic } from '@/features/inbox/state/epic'
 import { createLive } from '@/features/inbox/state/live'
 import { createBoardLoad } from '@/features/inbox/state/load'
 import { createMoves } from '@/features/inbox/state/moves'
@@ -11,16 +12,18 @@ import { useImprovementsSignalStore } from '@/stores/improvementsSignal'
 
 export type { ActionState } from '@/features/inbox/state/actions'
 export type { DetailState } from '@/features/inbox/state/details'
+export type { EpicState } from '@/features/inbox/state/epic'
 export type { AddState } from '@/features/inbox/state/moves'
 
-// La bandeja: la carga (hechos + dashboard, o el inbox de un runner viejo), la tarea abierta, el
-// resto del board, las acciones, mover y agregar cards, el stream y la cola de decisiones que se dibuja —cada parte en
+// La bandeja: la carga (hechos + dashboard, o el inbox de un runner viejo), la tarea abierta, la
+// épica abierta, el resto del board, las acciones, mover y agregar cards, el stream y la cola de decisiones que se dibuja —cada parte en
 // `state/`—. Este archivo sólo las compone.
 
 export const useInboxStore = defineStore('inbox', () => {
   const signal = useImprovementsSignalStore()
   const load = createBoardLoad()
   const detail = createDetails()
+  const epic = createEpic()
   const board = createRest(() => load.project.value)
   const queue = createQueue(load)
   const act = createActions(async (ref) => {
@@ -63,6 +66,7 @@ export const useInboxStore = defineStore('inbox', () => {
     ...live,
     ...queue,
     ...search,
+    ...epic,
     openRef,
     expanded,
     details,

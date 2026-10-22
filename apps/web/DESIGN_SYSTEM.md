@@ -464,6 +464,9 @@ Al escribir el `<fieldset>` hay que neutralizarle el chrome que trae por default
   en `--green-bg`/`--accent`, `warn` en `--yellow-bg`/`--warn`, `bad` en `--red-bg`/`--danger`.
   Misma altura (`--row-h`), mono y `--radius-sm` que el chip; no es presionable. Se usa sólo para
   razones (máx. 3 en «Lo primero», 2 por fila); un tag de tipo sigue siendo la caja única.
+  La única razón que navega es la de la **épica** («épica #2012 … 3/19»): abre la épica con sus
+  sub-issues (`EpicDetailDrawer`). La pastilla se ve igual, con el texto en `--info`, y el blanco
+  táctil es el botón que la envuelve (`--tap-h-sm`).
 - **Truncado:** truncá lo mínimo. Dentro de un chip, sólo el texto variable (el glifo y el estado quedan siempre visibles). Un título de lista **envuelve**, no trunca: esconder el final de un título esconde justo lo que distingue una fila de otra.
 - **Ausencia:** decila, no la calles — `sin rama`, `sin PR` en `--fg-dimmer`. Pero sólo cuando *sabés* que no hay; si el dato no llegó, no muestres nada (un "no sé" dibujado como "no hay" es peor que el silencio).
 - **Ancho del contenedor, no de la ventana.** Un componente que vive en una columna (la bandeja con el aside o el menú lateral) cambia de forma según el ancho de su contenedor (`@container`, con `container: <nombre> / inline-size` en el wrapper), no del viewport: a 1100–1280 la ventana pasa 640 pero la columna de «Después» no tiene ancho para la fila en una línea. Los tres breakpoints (640/768/1100) siguen siendo los únicos anchos de **ventana**; el corte de un `@container` es el ancho que la pieza necesita, y se justifica en un comentario junto a la regla. Hoy: `DecisionRow` (contenedor `decisions`, en `DecisionQueue`) y `FirstDecision` (contenedor `first`) a **36rem** — edad, toggle y botón ocupan hasta ~13rem y al título le quedan ≥ ~17rem en la misma línea; debajo, apilada.

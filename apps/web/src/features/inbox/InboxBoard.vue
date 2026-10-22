@@ -19,6 +19,7 @@ import { loadFailure } from '@/features/inbox/queue/advice';
 import RulesLegend from '@/features/inbox/RulesLegend.vue';
 import SearchResults from '@/features/inbox/SearchResults.vue';
 import { useInboxStore } from '@/features/inbox/store';
+import EpicDetailDrawer from '@/features/inbox/EpicDetailDrawer.vue';
 import TaskDetailDrawer from '@/features/inbox/TaskDetailDrawer.vue';
 import { useTaskFocusStore } from '@/stores/taskFocus';
 
@@ -182,6 +183,7 @@ watch(
     </div>
 
     <TaskDetailDrawer />
+    <EpicDetailDrawer />
   </div>
 </template>
 
