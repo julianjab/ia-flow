@@ -80,12 +80,17 @@ function fakeProvider(workspace: Provider['workspace']) {
   return { provider, runs }
 }
 
-/** Un workspace de mentira: el worktree de la task, o el de su carril (`<worktree>--<lane>`). */
+/** Un workspace de mentira: el worktree de la task, o el de su carril (`<worktree>--<lane>`).
+ *  `published` anota lo que se publicó al cerrar. */
 function fakeSession(notice?: string) {
   const asked: PipelineExecutionContext[] = []
+  const published: Array<[string, string]> = []
   const pathOf = (ctx: PipelineExecutionContext) =>
     ctx.lane ? `/wt/eks-7--${ctx.lane}` : '/wt/eks-7'
+  const prepared = (ctx: PipelineExecutionContext) =>
+    Promise.resolve({ path: pathOf(ctx), branch: 'feat/x' })
   const session = {
+    prepared,
     dirFor: async (ctx: PipelineExecutionContext) => {
       asked.push(ctx)
       return pathOf(ctx)
@@ -96,10 +101,16 @@ function fakeSession(notice?: string) {
       path: pathOf(ctx),
       branch: 'feat/x',
     }),
-    manager: { worktreePath: () => '/wt/eks-7' },
+    manager: {
+      worktreePath: () => '/wt/eks-7',
+      publishBranch: async (path: string, branch: string) => {
+        published.push([path, branch])
+        return { status: 'pushed', commits: 1 }
+      },
+    },
     takeNotice: async () => notice,
   } as unknown as WorkspaceSession
-  return { session, asked }
+  return { session, asked, published }
 }
 
 describe('hostSettings', () => {
@@ -324,6 +335,83 @@ describe('providerTaskRunner', () => {
     expect(await running).toMatchObject({ status: 'output', output: { outcome: 'error' } })
     expect(seen[0]).toBe(controller.signal)
     expect(ended).toEqual([['/wt/eks-7', undefined]])
+  })
+
+  describe('lo commiteado que el agente no pudo pushear', () => {
+    /** Una corrida con un provider que cierra con `tool` (o no cierra), en `lane` si se dice. */
+    async function runEnding(tool: string | undefined, lane?: string) {
+      const provider: Provider = {
+        id: 'claude-tmux',
+        workspace: 'native',
+        run: async (ctx) => {
+          if (tool) await ctx.tools.find((t) => t.name === tool)?.handler({})
+          return { outcome: 'success', summary: 'hecho' }
+        },
+      }
+      const { session, published } = fakeSession()
+      const lines: string[] = []
+      const order: string[] = []
+      const run = providerTaskRunner({
+        provider,
+        session: {
+          ...session,
+          manager: {
+            ...session.manager,
+            publishBranch: async (path: string, branch: string) => {
+              order.push('publish')
+              return session.manager.publishBranch(path, branch)
+            },
+          },
+        } as unknown as WorkspaceSession,
+        gitCredential: async () => 'gh-token',
+        log: (line) => lines.push(line),
+        fetchImpl: fakeRunner().fetchImpl,
+        worktrees: {
+          begin: async (prepare) => prepare(),
+          end: async () => {
+            order.push('end')
+            return 'removed'
+          },
+          adopt: () => {},
+        },
+      })
+      const failing = {
+        name: 'submit_fail',
+        description: 'falla',
+        inputSchema: { type: 'object' },
+        terminal: true,
+        failure: true,
+      }
+      const base = task()
+      await run(
+        task({
+          tools: [...base.tools, failing],
+          ...(lane ? { lane } : {}),
+        } as Partial<HostTask>),
+        { base: 'http://runner' },
+        new AbortController().signal,
+      )
+      return { published, lines, order }
+    }
+
+    it('se publica al cerrar con una salida, antes de soltar el worktree', async () => {
+      const { published, lines, order } = await runEnding('submit_done')
+      expect(published).toEqual([['/wt/eks-7', 'feat/x']])
+      expect(order).toEqual(['publish', 'end'])
+      expect(lines).toContain('feat/x: publiqué 1 commit(s) locales en origin/feat/x')
+    })
+
+    it('también si cerró fallando: el trabajo no queda sólo en disco', async () => {
+      expect((await runEnding('submit_fail')).published).toEqual([['/wt/eks-7', 'feat/x']])
+    })
+
+    it('no, en un carril: un reviewer en paralelo no escribe la branch', async () => {
+      expect((await runEnding('submit_done', 'reviewer')).published).toEqual([])
+    })
+
+    it('no, si no cerró (sin tool terminal)', async () => {
+      expect((await runEnding(undefined)).published).toEqual([])
+    })
   })
 })
 
