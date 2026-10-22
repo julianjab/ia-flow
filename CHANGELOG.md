@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.0](https://github.com/julianjab/ia-flow/compare/v2.25.0...v2.26.0) (2026-10-22)
+
+
+### Features
+
+* **github-tools:** add_to_project no mueve una card que ya tiene columna y suma labels al entrar ([7ea31a3](https://github.com/julianjab/ia-flow/commit/7ea31a316359d7921bab58fc5770171fb85966d8))
+
 ## [2.25.0](https://github.com/julianjab/ia-flow/compare/v2.24.0...v2.25.0) (2026-10-22)
 
 
