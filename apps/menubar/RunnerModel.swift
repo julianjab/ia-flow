@@ -113,7 +113,7 @@ struct DeviceLogin {
 }
 
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health, github, improvements, improvement }
+    enum Screen { case inbox, logs, run, health, github, improvements, improvement, epic }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
@@ -128,6 +128,12 @@ final class RunnerModel: ObservableObject {
     private var checkingHealth = false
     /// La ejecución que se mira en «En vivo».
     @Published private(set) var watching: RunWatch?
+    /// La épica abierta (su chip o su fila): la ref, lo que trajo el runner y si falló.
+    @Published private(set) var epicRef: String?
+    @Published private(set) var epicDetail: EpicDetail?
+    @Published private(set) var epicError: String?
+    /// Se abrió una tarea desde la épica: «Volver» vuelve a ella, no a la bandeja.
+    private var runFromEpic = false
     @Published var comment: CommentRequest?
     @Published var login: DeviceLogin?
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
@@ -485,6 +491,47 @@ final class RunnerModel: ObservableObject {
     }
 
     func openEpic(_ epic: TaskEpic) { NSWorkspace.shared.open(githubURL(epic.ref)) }
+
+    /// La épica con todos sus sub-issues, en su pantalla. La ya leída se ve mientras se relee.
+    func showEpic(_ ref: String) {
+        if epicRef != ref { epicDetail = nil }
+        epicRef = ref
+        epicError = nil
+        screen = .epic
+        if isFixture, let view = epics.first(where: { $0.epic.ref == ref }) { epicDetail = .fixture(view); return }
+        let server = selected
+        Task { @MainActor in
+            do {
+                let detail = try await RunnerClient(server: server).epic(ref)
+                guard server == selected, epicRef == ref else { return }
+                epicDetail = detail
+            } catch {
+                guard server == selected, epicRef == ref else { return }
+                epicError = (error as? RunnerError)?.message ?? error.localizedDescription
+            }
+        }
+    }
+
+    func reloadEpic() { if let epicRef { showEpic(epicRef) } }
+
+    func closeEpic() {
+        screen = .inbox
+        epicRef = nil
+        epicDetail = nil
+    }
+
+    /// Un sub-issue: su traza si es una card del board (de la bandeja o pedida al runner); si no, el issue.
+    func openEpicChild(_ child: EpicChild) {
+        guard child.state == "open", child.status != nil else { return openTask(child.ref) }
+        Task { @MainActor in
+            if let item = await task(child.ref) {
+                watch(item)
+                runFromEpic = true
+            } else {
+                openTask(child.ref)
+            }
+        }
+    }
     func openBoard() { _ = boardURL.map { NSWorkspace.shared.open($0) } }
     func openServersFile() {
         let path = FileManager.default.fileExists(atPath: runnersPath) ? runnersPath : desktopServersPath
@@ -768,6 +815,7 @@ final class RunnerModel: ObservableObject {
 
     /// Abre la traza de la tarea: lo que hace el agente ahora, o su última ejecución.
     func watch(_ item: InboxItem) {
+        runFromEpic = false
         let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
         watching = next
         screen = .run
@@ -775,7 +823,8 @@ final class RunnerModel: ObservableObject {
     }
 
     func closeRun() {
-        screen = .inbox
+        screen = runFromEpic && epicRef != nil ? .epic : .inbox
+        runFromEpic = false
         watching = nil
     }
 

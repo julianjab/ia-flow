@@ -186,6 +186,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             popoverMaxScroll = 2000
         }
+        if let epic = model.runner.epics.first {
+            model.runner.showEpic(epic.epic.ref)
+            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-epic-\(dark ? "dark" : "light").png") }
+            model.runner.closeEpic()
+        }
         model.runner.showGithub()
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-\(dark ? "dark" : "light").png") }
         model.runner.githubSearch?.pickingRepo = true
@@ -248,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             case .logs: model.runner.pollLogs()
             case .run: model.runner.watching?.reload()
             case .health: model.runner.checkHealth()
+            case .epic: model.runner.reloadEpic()
             case .inbox, .github, .improvements, .improvement: break
             }
         }
@@ -265,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             // Con el stream conectado la bandeja se relee cuando algo cambia: acá sólo un respaldo cada minuto.
             // (las mejoras vienen con la bandeja)
             case .inbox, .improvements, .improvement: if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
-            case .github: break
+            case .github, .epic: break
             }
         }
         RunLoop.main.add(openTimer!, forMode: .common)

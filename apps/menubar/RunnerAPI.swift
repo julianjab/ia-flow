@@ -72,6 +72,25 @@ struct TaskEpic: Codable, Hashable {
     let total: Int
 }
 
+/// Un sub-issue de una épica: su estado en GitHub y, si es una card de un board del runner, su columna.
+struct EpicChild: Codable, Hashable {
+    let ref: String
+    let title: String
+    let url: String
+    /// `open` o `closed`.
+    let state: String
+    let status: String?
+    let blocked_by: [String]?
+    let pr: PullRef?
+}
+
+/// `GET /api/tasks/:owner/:repo/:n/epic`: la épica (con su link) y todos sus sub-issues.
+struct EpicDetail: Codable {
+    struct Epic: Codable { let ref: String; let title: String; let url: String; let done: Int; let total: Int }
+    let epic: Epic
+    let children: [EpicChild]
+}
+
 struct ExecutionSummary: Codable, Hashable {
     let id: String
     let pipeline_id: String
@@ -413,6 +432,12 @@ struct RunnerClient {
         } catch let error as RunnerError where error.status == 404 {
             return nil
         }
+    }
+
+    /// La épica `owner/repo#n` con todos sus sub-issues.
+    func epic(_ ref: String) async throws -> EpicDetail {
+        guard let parts = RunnerSearch.split(ref) else { throw RunnerError(status: 0, message: "Referencia inválida: \(ref)") }
+        return try await get("/api/tasks/\(parts.owner)/\(parts.repo)/\(parts.number)/epic")
     }
 
     /// Las abiertas. Un runner sin mejoras (501) o viejo (404) da una lista vacía.

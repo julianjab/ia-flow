@@ -40,6 +40,9 @@ acción a la vista; las demás, cortas: sus acciones salen **deslizándolas a la
 como en MacPulse) o con clic derecho, y un clic en la fila abre su detalle—, las **épicas** (avance de sus sub-issues y la próxima tarea que la mueve,
 con su acción), lo que
 **corre** (con «Detener…»), la **cola** y lo que está **por arrancar**. Cada sección se colapsa con un clic en su título.
+**La épica:** el chip de épica de una tarea («#2012 · 3/19 · título») y el nombre de cada épica abren su pantalla:
+el avance y **todos** sus sub-issues (`GET /api/tasks/:owner/:repo/:n/epic`), con la columna, el PR y qué los
+bloquea. Un hijo del board abre su traza («Volver» vuelve a la épica); uno cerrado o fuera del board, su issue.
 **Lo último que corrió:** las cards cuya última corrida ya cerró (✓ ✕ ↷, agente, la salida si no fue `done`, hace
 cuánto); la más nueva va también junto a la capacidad. **El detalle** (la traza) lleva al pie la acción de la tarea y
 el resto en «Más», en una sola fila.

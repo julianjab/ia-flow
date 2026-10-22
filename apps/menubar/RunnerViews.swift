@@ -20,6 +20,8 @@ struct RunnerScreen: View {
             } else { ImprovementsScreen(runner: runner) }
         case .run:
             if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
+        case .epic:
+            if runner.epicRef != nil { EpicScreen(runner: runner) } else { RunnerInboxScreen(runner: runner) }
         }
     }
 }
@@ -379,8 +381,11 @@ struct TaskRow: View {
                     .buttonStyle(.plain).fixedSize()
             }
             if let epic = item.epic {
-                Chip(text: "\(epic.done)/\(epic.total) · \(epic.displayTitle)", icon: "square.stack.3d.up")
-                    .help("Épica \(epic.ref): \(epic.title)")
+                Button { runner.showEpic(epic.ref) } label: {
+                    Chip(text: "\(shortRef(epic.ref)) · \(epic.done)/\(epic.total) · \(epic.displayTitle)", tone: .info, icon: "square.stack.3d.up")
+                }
+                .buttonStyle(.plain)
+                .help("Épica \(epic.ref): \(epic.title)\n\nClic: ver sus sub-issues")
             }
             Spacer(minLength: 0)
             Menu { menuItems } label: {
@@ -408,7 +413,10 @@ struct TaskRow: View {
         Divider()
         Button("Abrir issue en GitHub") { runner.open(item) }
         if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }
-        if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }
+        if let epic = item.epic {
+            Button("Ver la épica \(shortRef(epic.ref)) y sus sub-issues") { runner.showEpic(epic.ref) }
+            Button("Abrir épica en GitHub") { runner.openEpic(epic) }
+        }
         ForEach(item.blocked_by ?? [], id: \.self) { ref in Button("Ver \(shortRef(ref)), que la bloquea") { runner.goTo(ref) } }
     }
 
@@ -623,7 +631,10 @@ struct CompactRow: View {
                 if !actions.isEmpty { Divider() }
                 Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
                 Button("Abrir issue en GitHub") { runner.open(item) }
-                if let epic = item.epic { Button("Abrir épica") { runner.openEpic(epic) } }
+                if let epic = item.epic {
+                    Button("Ver la épica \(shortRef(epic.ref)) y sus sub-issues") { runner.showEpic(epic.ref) }
+                    Button("Abrir épica en GitHub") { runner.openEpic(epic) }
+                }
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 20, height: 16).contentShape(Rectangle())
             }
@@ -640,8 +651,11 @@ struct EpicRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Button { runner.openEpic(epic.epic) } label: { Text(epic.epic.displayTitle).font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading) }
-                    .buttonStyle(.plain).help("Abrir \(epic.epic.ref)")
+                Button { runner.showEpic(epic.epic.ref) } label: {
+                    (Text(shortRef(epic.epic.ref)).foregroundStyle(.secondary) + Text(" ") + Text(epic.epic.displayTitle))
+                        .font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                }
+                .buttonStyle(.plain).help("Ver \(epic.epic.ref) y sus sub-issues")
                 Spacer()
                 Text("\(epic.epic.done)/\(epic.epic.total)").font(.lh(11.5, .semibold)).foregroundStyle(.secondary)
             }
