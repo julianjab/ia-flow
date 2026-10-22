@@ -74,8 +74,9 @@ describe('el chip de la épica', () => {
   it('va al final y sólo si queda lugar', () => {
     const chip = epicReason(filtros)
     expect(chip).toEqual({
-      text: 'épica Filtros del listado 3/5',
-      full: 'épica Filtros del listado 3/5',
+      text: 'épica #4200 Filtros del listado 3/5',
+      full: 'épica la-haus/lh-seller-v2-frontend#4200 Filtros del listado 3/5',
+      epic: 'la-haus/lh-seller-v2-frontend#4200',
     })
     expect(withEpic([{ text: 'a' }], [filtros], 2)).toEqual([{ text: 'a' }, chip])
     expect(withEpic([{ text: 'a' }, { text: 'b' }], [filtros], 2)).toEqual([
@@ -95,9 +96,9 @@ describe('el chip de la épica', () => {
       total: 24,
     }
     const chip = epicReason(long)
-    expect(chip.text).toBe('épica feat(360): funnel configurable… 18/24')
-    expect(chip.text.length).toBeLessThanOrEqual('épica  18/24'.length + EPIC_CHIP_CHARS)
-    expect(chip.full).toBe(`épica ${long.title} 18/24`)
+    expect(chip.text).toBe('épica #4200 feat(360): funnel configurable… 18/24')
+    expect(chip.text.length).toBeLessThanOrEqual('épica #4200  18/24'.length + EPIC_CHIP_CHARS)
+    expect(chip.full).toBe(`épica ${long.ref} ${long.title} 18/24`)
     expect(clip('  a   b  ', 10)).toBe('a b')
   })
 
@@ -120,8 +121,12 @@ describe('el chip de la épica', () => {
         }),
       ],
     })
-    expect(q.first?.reasons.map((r) => r.text)).toEqual(['a', 'b', 'épica Filtros del listado 3/5'])
-    expect(q.rest[0]?.reasons.map((r) => r.text)).toEqual(['x', 'épica Calidad de leads 2/6'])
+    expect(q.first?.reasons.map((r) => r.text)).toEqual([
+      'a',
+      'b',
+      'épica #4200 Filtros del listado 3/5',
+    ])
+    expect(q.rest[0]?.reasons.map((r) => r.text)).toEqual(['x', 'épica #1100 Calidad de leads 2/6'])
     expect(q.rest[1]?.reasons.map((r) => r.text)).toEqual(['x', 'y'])
   })
 

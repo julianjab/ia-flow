@@ -1,7 +1,20 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import EpicsPanel from '@/features/inbox/pipeline/EpicsPanel.vue'
 import type { EpicLine } from '@/features/inbox/queue/epics'
+import { useInboxStore } from '@/features/inbox/store'
+
+vi.mock('@/features/inbox/api', () => ({ getEpic: () => new Promise(() => {}) }))
+
+let pinia: ReturnType<typeof createPinia>
+beforeEach(() => {
+  pinia = createPinia()
+  setActivePinia(pinia)
+})
+
+const mountPanel = (props: { epics: EpicLine[]; folded?: boolean }) =>
+  mount(EpicsPanel, { props, global: { plugins: [pinia] } })
 
 const line = (over: Partial<EpicLine> = {}): EpicLine => ({
   ref: 'la-haus/subscriptions#1100',
@@ -16,21 +29,18 @@ const line = (over: Partial<EpicLine> = {}): EpicLine => ({
 })
 
 describe('EpicsPanel', () => {
-  it('cada épica: nombre con link al issue, done/total, la barra decorativa y qué la traba', () => {
-    const w = mount(EpicsPanel, {
-      props: { epics: [line(), line({ ref: 'x/y#2', title: 'Pagos', pct: 25 })] },
-    })
+  it('cada épica: nombre que la abre con sus sub-issues, done/total, la barra decorativa y qué la traba', async () => {
+    const w = mountPanel({ epics: [line(), line({ ref: 'x/y#2', title: 'Pagos', pct: 25 })] })
     const items = w.findAll('li')
     expect(items).toHaveLength(2)
-    const link = items[0]!.get('a')
-    expect(link.text()).toBe('Calidad de leads')
-    expect(link.attributes('href')).toBe('https://github.com/la-haus/subscriptions/issues/1100')
-    expect(link.attributes('target')).toBe('_blank')
-    expect(link.attributes('rel')).toContain('noopener')
+    const open = items[0]!.get('[data-test="epic-open"]')
+    expect(open.text()).toBe('Calidad de leads')
     // `.link`: el hover no es el video inverso global (que dejaba un bloque verde sin texto), y
     // el título completo va en el `title` porque el nombre se recorta a dos líneas.
-    expect(link.classes()).toContain('link')
-    expect(link.attributes('title')).toBe('Calidad de leads')
+    expect(open.classes()).toContain('link')
+    expect(open.attributes('title')).toBe('Calidad de leads')
+    await open.trigger('click')
+    expect(useInboxStore().epicRef).toBe('la-haus/subscriptions#1100')
     expect(items[0]!.get('.mono').text()).toBe('2/6')
     const bar = items[0]!.get('[aria-hidden="true"]')
     expect(bar.get('div').attributes('style')).toContain('width: 33%')
@@ -38,17 +48,15 @@ describe('EpicsPanel', () => {
     expect(items[1]!.text()).toContain('Pagos')
   })
 
-  it('sin link si la épica no tiene url', () => {
+  it('no se abre si la épica no tiene url (su ref no es `owner/repo#n`)', () => {
     const { url: _url, ...noUrl } = line()
-    const w = mount(EpicsPanel, { props: { epics: [noUrl] } })
-    expect(w.find('a').exists()).toBe(false)
+    const w = mountPanel({ epics: [noUrl] })
+    expect(w.find('[data-test="epic-open"]').exists()).toBe(false)
     expect(w.text()).toContain('Calidad de leads')
   })
 
   it('plegada: un <details> cerrado «Épicas» con cuántas están trabadas en vos', () => {
-    const w = mount(EpicsPanel, {
-      props: { epics: [line(), line({ ref: 'x/y#2' })], folded: true },
-    })
+    const w = mountPanel({ epics: [line(), line({ ref: 'x/y#2' })], folded: true })
     const details = w.get('details')
     expect(details.attributes('open')).toBeUndefined()
     expect(details.get('summary').text()).toContain('Épicas')
@@ -56,15 +64,7 @@ describe('EpicsPanel', () => {
   })
 
   it('sin épicas no se dibuja', () => {
-    expect(
-      mount(EpicsPanel, { props: { epics: [] } })
-        .find('[data-test="epics"]')
-        .exists(),
-    ).toBe(false)
-    expect(
-      mount(EpicsPanel, { props: { epics: [], folded: true } })
-        .find('details')
-        .exists(),
-    ).toBe(false)
+    expect(mountPanel({ epics: [] }).find('[data-test="epics"]').exists()).toBe(false)
+    expect(mountPanel({ epics: [], folded: true }).find('details').exists()).toBe(false)
   })
 })
