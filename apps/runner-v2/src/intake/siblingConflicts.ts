@@ -42,8 +42,8 @@ export interface SiblingPort {
     task: IssueRef & { pr: number },
     fields: EventFields,
   ): Promise<DomainEvent<unknown> | { skip: string }>
-  /** Lo ya avisado por (PR mergeado, hermano): el mismo merge no avisa dos veces. */
-  announced: { has(key: string): boolean; add(key: string): void }
+  /** Lo ya avisado (o por avisar) por (PR mergeado, hermano): el mismo merge no avisa dos veces. */
+  announced: { has(key: string): boolean; add(key: string): void; delete(key: string): void }
   sleep?: (ms: number) => Promise<void>
 }
 
@@ -63,6 +63,10 @@ export class Announced {
     const now = Date.now()
     for (const [old, at] of this.at) if (now - at >= ANNOUNCED_TTL_MS) this.at.delete(old)
     this.at.set(key, now)
+  }
+
+  delete(key: string): void {
+    this.at.delete(key)
   }
 }
 
@@ -155,28 +159,34 @@ export async function notifySiblingConflicts(
   // (un 404 de su PR) no tira a los demás.
   const results = await Promise.all(
     found.map(async ({ sibling, child, epic }) => {
+      // Se reserva ANTES de esperar a GitHub: dos entregas del mismo merge casi juntas (un
+      // reintento, un redelivery) no pasan las dos. Si no se publica, se suelta.
+      const key = `${mergedPr.toLowerCase()}→${keyOf(sibling)}`
+      if (port.announced.has(key)) {
+        return { skip: `ya avisé a ${refOf(sibling)} del merge de ${mergedPr}` }
+      }
+      port.announced.add(key)
+      let result: DomainEvent<unknown> | { skip: string }
       try {
         const hit = await conflicted(port, sibling, merged.base)
-        if ('skip' in hit) return hit
-        const key = `${mergedPr.toLowerCase()}→${keyOf(sibling)}`
-        if (port.announced.has(key)) {
-          return { skip: `ya avisé a ${refOf(sibling)} del merge de ${mergedPr}` }
-        }
-        const published = await port.publish(
-          ctx,
-          { ...sibling, pr: hit.pr },
-          {
-            emit: PR_CONFLICT,
-            extra: { mergedPr, mergedChild: refOf(child), epic: refOf(epic) },
-          },
-        )
-        // Sólo lo publicado: un hermano que el `when` del intake descartó (trabado) se avisa en el
-        // próximo merge que lo deje en conflicto.
-        if (!('skip' in published)) port.announced.add(key)
-        return published
+        result =
+          'skip' in hit
+            ? hit
+            : await port.publish(
+                ctx,
+                { ...sibling, pr: hit.pr },
+                {
+                  emit: PR_CONFLICT,
+                  extra: { mergedPr, mergedChild: refOf(child), epic: refOf(epic) },
+                },
+              )
       } catch (err) {
-        return { skip: `no pude mirar ${refOf(sibling)}: ${errorText(err)}` }
+        result = { skip: `no pude mirar ${refOf(sibling)}: ${errorText(err)}` }
       }
+      // Sólo queda anotado lo publicado: un hermano sin conflicto todavía, o que el `when` del
+      // intake descartó (trabado), se puede avisar en el próximo merge.
+      if ('skip' in result) port.announced.delete(key)
+      return result
     }),
   )
   const emitted: string[] = []
