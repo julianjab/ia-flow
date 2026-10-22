@@ -13,6 +13,8 @@
 //   • `node_modules`: un worktree de un repo Node que nace sin él lo copia de la semilla del repo
 //     o de otro checkout con el mismo lockfile, y al borrarse deja el suyo como semilla
 //     (`nodeDeps.ts`). El estado viaja en `dependencies` del resultado.
+//   • `publishBranch`: publica en `origin/<branch>` los commits locales que el agente no pudo
+//     pushear, con la credencial del manager (`publish.ts`).
 //
 // Responsibilities:
 //   • Own the mapping "task ↔ worktree" for a single repo (multi-repo tasks are rejected).
@@ -52,6 +54,7 @@ import {
 } from './layout.js'
 import { noopLogger, type WorkspaceLogger } from './logger.js'
 import { type DependencyStatus, NodeDependencies } from './nodeDeps.js'
+import { type PublishResult, publishBranch } from './publish.js'
 import type { ShellRunner } from './shell.js'
 
 /**
@@ -728,6 +731,12 @@ export class WorkspaceManager {
     return this.#withRepoLock(repoBasePath, () =>
       this.#doRemove(source, repoBasePath, branch, explicitPath),
     )
+  }
+
+  /** Publica en `origin/<branch>` los commits locales del worktree que el remoto no tiene, con la
+   *  credencial del manager: sin force y nunca a una branch protegida (`publish.ts`). */
+  async publishBranch(worktreePath: string, branch: string): Promise<PublishResult> {
+    return publishBranch(this.#shell, await this.#githubAuthArgs(), worktreePath, branch)
   }
 
   /**

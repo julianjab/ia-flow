@@ -31,7 +31,8 @@ import {
   type TaskRunner,
   type WorkspaceToolSpec,
 } from '@ia-flow/provider-remote'
-import { NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
+import type { RunEnding } from '@ia-flow/provider-shared'
+import { describePublish, NodeShellRunner, type WorkspaceSession } from '@ia-flow/workspace'
 import {
   HOST_WORKSPACE_TOOLS,
   type WorkspaceToolDeps,
@@ -229,8 +230,38 @@ export function providerTaskRunner(opts: {
     } finally {
       await link.stop()
       // Cómo cerró el modelo, si llamó una tool terminal; cortada por el runner, no cerró.
-      await opts.worktrees?.end(cwd, signal.reason === CLOSED_BY_RUNNER ? undefined : link.ending)
+      const ending = signal.reason === CLOSED_BY_RUNNER ? undefined : link.ending
+      // Antes de devolverle el resultado al runner, que con él corre `ensure_pull_request`.
+      await publishOnEnd(opts.session, ctx, ending, opts.log)
+      await opts.worktrees?.end(cwd, ending)
     }
+  }
+}
+
+/**
+ * Lo que el agente commiteó y no pudo pushear (el MCP de GitHub sin auth: lh-seller-v2-frontend
+ * #4392) se publica al cerrar la corrida, con la credencial del host: el worktree vive acá, así que
+ * el `publish_branch` de la ruta, que corre en el runner, no lo alcanza. Sólo la corrida de la
+ * task —un carril (un reviewer en paralelo) no escribe la branch— y sólo si cerró (`done` o
+ * `failed`): una pausa sigue trabajando, y una cortada por el runner no terminó.
+ */
+async function publishOnEnd(
+  session: WorkspaceSession,
+  ctx: PipelineExecutionContext,
+  ending: RunEnding | undefined,
+  log: (line: string) => void,
+): Promise<void> {
+  if (ctx.lane || (ending !== 'done' && ending !== 'failed')) return
+  try {
+    const pending = session.prepared(ctx)
+    if (!pending) return
+    const { path, branch } = await pending
+    const result = await session.manager.publishBranch(path, branch)
+    if (result.status !== 'up-to-date') log(`${branch}: ${describePublish(branch, result)}`)
+  } catch (err) {
+    log(
+      `no pude publicar la branch de la corrida: ${err instanceof Error ? err.message : String(err)}`,
+    )
   }
 }
 

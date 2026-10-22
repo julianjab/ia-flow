@@ -17,6 +17,7 @@ export {
   lockfileOf,
   NodeDependencies,
 } from './nodeDeps.js'
+export { describePublish, type PublishResult } from './publish.js'
 export { NodeShellRunner, type ShellResult, type ShellRunner } from './shell.js'
 export {
   type CloneableRepo,

@@ -4,7 +4,9 @@
  * githubAuth, timeout, maxTimeout, maxMemoryMb.
  *
  * `workspace_reset`: el agente descarta su worktree y lo recrea limpio. `cleanup_workspace`: paso
- * de pipeline que suelta el worktree si no tiene trabajo en riesgo.
+ * de pipeline que suelta el worktree si no tiene trabajo en riesgo. `publish_branch`: paso de
+ * pipeline que publica los commits locales que el agente no pudo pushear (antes de
+ * `ensure_pull_request`).
  *
  * `run_agent`: delega en un sub-agente del repo (`.claude/agents/*.md` del worktree). Sus
  * opciones: `provider` (default `anthropic-api`), `write` (si sus sub-agentes escriben: entonces
@@ -15,6 +17,7 @@
 import type { Action } from '@ia-flow/agent-engine'
 import {
   CleanupWorkspaceAction,
+  PublishBranchAction,
   ResetWorkspaceAction,
   RunAgentAction,
   WORKSPACE_TOOLS,
@@ -136,5 +139,10 @@ export default [
   defineAction({
     id: 'cleanup_workspace',
     create: (ctx) => new CleanupWorkspaceAction(ctx.services.session),
+  }),
+  // Paso de pipeline: publica los commits locales que el agente no pudo pushear.
+  defineAction({
+    id: 'publish_branch',
+    create: (ctx) => new PublishBranchAction(ctx.services.session),
   }),
 ]

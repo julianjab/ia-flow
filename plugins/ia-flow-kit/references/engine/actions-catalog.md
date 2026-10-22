@@ -26,6 +26,8 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `post_notice` | `apps/runner-v2/src/actions/builtin/github.ts` |
 | `pr_checks` | `packages/github/tools/src/actions/PrChecksAction.ts` |
 | `propose_improvement` | `apps/runner-v2/src/actions/builtin/assistant.ts` |
+| `publish_branch` | `apps/runner-v2/src/actions/builtin/workspace.ts` |
+| `publish_branch` | `packages/local/workspace/src/actions/PublishBranchAction.ts` |
 | `react_to_comment` | `packages/github/tools/src/actions/ReactToCommentAction.ts` |
 | `redispatch_task` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
 | `remove_blocked_by` | `apps/runner-v2/src/actions/builtin/github.ts` |
