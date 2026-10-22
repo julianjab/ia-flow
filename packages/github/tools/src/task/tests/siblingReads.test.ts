@@ -29,16 +29,29 @@ describe('GithubTaskReader.subIssues', () => {
   })
 })
 
-describe('GithubTaskReader.mergeable', () => {
-  it('false es un conflicto con la base', async () => {
-    const { reader, urls } = readerAnswering({ number: 9, mergeable: false })
+describe('GithubTaskReader.mergeability', () => {
+  it('lee mergeable, su estado y la base del PR', async () => {
+    const { reader, urls } = readerAnswering({
+      number: 9,
+      mergeable: false,
+      mergeable_state: 'dirty',
+      base: { ref: 'main' },
+    })
 
-    expect(await reader.mergeable('o', 'r', 9)).toBe(false)
+    expect(await reader.mergeability('o', 'r', 9)).toEqual({
+      mergeable: false,
+      state: 'dirty',
+      base: 'main',
+    })
     expect(urls[0]).toBe('https://api.github.com/repos/o/r/pulls/9')
   })
 
   it('sin calcular todavía (null o ausente) es null', async () => {
-    expect(await readerAnswering({ mergeable: null }).reader.mergeable('o', 'r', 9)).toBeNull()
-    expect(await readerAnswering({ number: 9 }).reader.mergeable('o', 'r', 9)).toBeNull()
+    expect(await readerAnswering({ mergeable: null }).reader.mergeability('o', 'r', 9)).toEqual({
+      mergeable: null,
+    })
+    expect(await readerAnswering({ number: 9 }).reader.mergeability('o', 'r', 9)).toEqual({
+      mergeable: null,
+    })
   })
 })

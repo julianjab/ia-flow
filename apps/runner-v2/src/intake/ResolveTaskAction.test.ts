@@ -703,7 +703,11 @@ describe('resolve_task notifySiblingConflicts', () => {
         { number: 7, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
       ],
       openPullOf: async (_o: string, _r: string, number: number) => (number === 7 ? 21 : undefined),
-      mergeable: async () => mergeable,
+      mergeability: async () => ({
+        mergeable,
+        base: 'main',
+        ...(mergeable === false ? { state: 'dirty' } : {}),
+      }),
     }
     const bus = new EventBus()
     const published: DomainEvent<unknown>[] = []

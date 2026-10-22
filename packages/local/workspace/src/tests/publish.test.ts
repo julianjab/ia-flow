@@ -58,13 +58,37 @@ describe('publishBranch', () => {
     repo = setup()
   })
 
-  it('sin branch remota, publica lo commiteado sobre la base', async () => {
+  it('una branch que no existe en el remoto no se crea: puede ser la de un PR mergeado y borrado', async () => {
     commit(repo.work, 'feature.txt', 'v1\n')
 
-    const result = await publishBranch(shell, [], repo.work, 'ia-flow/7')
+    expect(await publishBranch(shell, [], repo.work, 'ia-flow/7')).toEqual({
+      status: 'skipped',
+      reason: 'origin/ia-flow/7 no existe',
+    })
+    expect(remoteHas(repo.bare, 'ia-flow/7')).toBeUndefined()
+  })
 
-    expect(result).toEqual({ status: 'pushed', commits: 1 })
-    expect(remoteHas(repo.bare, 'ia-flow/7')).toBe(git(repo.work, 'rev-parse', 'HEAD'))
+  it('el commit del autosalvage no se publica: puede traer cualquier cosa del disco', async () => {
+    git(repo.work, 'push', '-q', 'origin', 'ia-flow/7')
+    commit(repo.work, 'feature.txt', 'v1\n')
+    writeFileSync(join(repo.work, '.env.local'), 'SECRET=1\n')
+    git(repo.work, 'add', '-A')
+    git(repo.work, 'commit', '-q', '-m', 'WIP autosalvage from run r1')
+
+    expect(await publishBranch(shell, [], repo.work, 'ia-flow/7')).toMatchObject({
+      status: 'skipped',
+    })
+  })
+
+  it('tampoco a la base del repo, aunque no se llame main', async () => {
+    git(repo.work, 'push', '-q', 'origin', 'HEAD:trunk')
+    git(repo.work, 'remote', 'set-head', 'origin', 'trunk')
+    git(repo.work, 'checkout', '-q', '-b', 'trunk')
+
+    expect(await publishBranch(shell, [], repo.work, 'trunk')).toEqual({
+      status: 'skipped',
+      reason: 'trunk es la base del repo',
+    })
   })
 
   it('con la branch publicada, sube sólo lo que falta', async () => {
@@ -117,10 +141,12 @@ describe('publishBranch', () => {
   })
 
   it('lo sin commitear no se publica: sólo lo commiteado', async () => {
+    git(repo.work, 'push', '-q', 'origin', 'ia-flow/7')
+    const before = remoteHas(repo.bare, 'ia-flow/7')
     writeFileSync(join(repo.work, 'dirty.txt'), 'sin commit\n')
 
     expect(await publishBranch(shell, [], repo.work, 'ia-flow/7')).toEqual({ status: 'up-to-date' })
-    expect(remoteHas(repo.bare, 'ia-flow/7')).toBeUndefined()
+    expect(remoteHas(repo.bare, 'ia-flow/7')).toBe(before)
   })
 })
 

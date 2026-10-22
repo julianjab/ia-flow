@@ -9,7 +9,7 @@ const ctx = {} as PipelineExecutionContext
 
 /** La épica #1991 con #1992 (el mergeado, PR #2000), #1993 (PR #2001) y #1994 (PR #2002) en
  *  subscriptions, y #77 en el front (PR #90). `mergeable` dice qué contesta GitHub, en orden. */
-function portOf(mergeable: Record<number, Array<boolean | null>>) {
+function portOf(mergeable: Record<number, Array<boolean | null>>, announced = new Set<string>()) {
   const published: Array<{ task: IssueRef & { pr: number }; fields: EventFields }> = []
   const asked: number[] = []
   const port: SiblingPort = {
@@ -23,11 +23,17 @@ function portOf(mergeable: Record<number, Array<boolean | null>>) {
     ],
     openPullOf: async (task) =>
       ({ 1993: 2001, 1994: 2002, 77: 90 })[task.number as 1993 | 1994 | 77],
-    mergeable: async (_o, _r, pr) => {
+    mergeability: async (_o, _r, pr) => {
       asked.push(pr)
       const answers = mergeable[pr] ?? []
-      return answers.length > 0 ? (answers.shift() as boolean | null) : true
+      const value = answers.length > 0 ? (answers.shift() as boolean | null) : true
+      return {
+        mergeable: value,
+        base: 'main',
+        ...(value === false ? { state: 'dirty' } : value ? { state: 'clean' } : {}),
+      }
     },
+    announced,
     publish: async (_ctx, task, fields) => {
       published.push({ task, fields })
       return { scope: { issue: `${task.owner}/${task.repo}#${task.number}` } } as never
@@ -37,7 +43,7 @@ function portOf(mergeable: Record<number, Array<boolean | null>>) {
   return { port, published, asked }
 }
 
-const merged = { owner: 'la-haus', repo: 'subscriptions', pr: 2000 }
+const merged = { owner: 'la-haus', repo: 'subscriptions', pr: 2000, base: 'main' }
 
 describe('notifySiblingConflicts', () => {
   it('publica issue.pr_conflict sólo sobre el hermano del mismo repo que quedó en conflicto', async () => {
@@ -88,6 +94,51 @@ describe('notifySiblingConflicts', () => {
 
     expect(published).toEqual([])
     expect(result).toEqual({ skipped: 'la-haus/subscriptions#5 no es sub-issue de nada' })
+  })
+
+  it('el mismo merge no avisa dos veces (un webhook repetido)', async () => {
+    const announced = new Set<string>()
+    const first = portOf({ 2001: [false], 2002: [true] }, announced)
+    await notifySiblingConflicts(first.port, ctx, merged)
+    const again = portOf({ 2001: [false], 2002: [true] }, announced)
+
+    const result = await notifySiblingConflicts(again.port, ctx, merged)
+
+    expect(first.published).toHaveLength(1)
+    expect(again.published).toEqual([])
+    expect(result).toMatchObject({
+      skipped: expect.stringContaining('ya avisé a la-haus/subscriptions#1993'),
+    })
+  })
+
+  it('un hermano contra otra base no recibió este merge: no se avisa', async () => {
+    const { port, published } = portOf({ 2001: [false], 2002: [true] })
+    const mergeability = port.mergeability
+    port.mergeability = async (o, r, pr) => ({
+      ...(await mergeability(o, r, pr)),
+      base: 'release/1',
+    })
+
+    const result = await notifySiblingConflicts(port, ctx, merged)
+
+    expect(published).toEqual([])
+    expect(result).toMatchObject({
+      skipped: expect.stringContaining('es contra release/1, no contra main'),
+    })
+  })
+
+  it('un hermano que no se puede leer no tira a los demás', async () => {
+    const { port, published } = portOf({ 2001: [false], 2002: [true] })
+    const openPullOf = port.openPullOf
+    port.openPullOf = async (task) => {
+      if (task.number === 1994) throw new Error('404')
+      return openPullOf(task)
+    }
+
+    const result = await notifySiblingConflicts(port, ctx, merged)
+
+    expect(published.map((p) => p.task.number)).toEqual([1993])
+    expect(result).toEqual({ emitted: ['la-haus/subscriptions#1993'] })
   })
 
   it('un PR que no cierra ningún issue tampoco', async () => {
