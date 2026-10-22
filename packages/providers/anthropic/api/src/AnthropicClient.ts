@@ -264,8 +264,10 @@ export class AnthropicClient {
 
     // Un 200 cuyo stream corta con `overloaded_error` antes de mandar contenido es un 529 que
     // llegó tarde: se reintenta igual, con los mismos reintentos y el mismo backoff.
+    // Un solo presupuesto de reintentos: cada vuelta del stream le resta a los del request, así un
+    // 529 seguido de un `overloaded_error` no multiplica los intentos.
     for (let attempt = 0; ; attempt++) {
-      const res = await this.requestWithRetry(requestBody, headers, fetchImpl, maxRetries)
+      const res = await this.requestWithRetry(requestBody, headers, fetchImpl, maxRetries - attempt)
       const requestId = res.headers.get('request-id') ?? undefined
       if (!res.ok) throw new AnthropicApiError(res.status, await res.text(), requestId)
       try {
