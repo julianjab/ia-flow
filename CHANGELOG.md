@@ -1,5 +1,22 @@
 # Changelog
 
+## [2.25.0](https://github.com/julianjab/ia-flow/compare/v2.24.0...v2.25.0) (2026-10-22)
+
+
+### Features
+
+* **intake:** el merge de un PR avisa a los hermanos de la épica que quedaron en conflicto ([cc6baee](https://github.com/julianjab/ia-flow/commit/cc6baeea63a1a37ca70c9e3730156424e8141b54))
+* **workspace:** publicar los commits locales que el agente no pudo pushear ([dd459e7](https://github.com/julianjab/ia-flow/commit/dd459e77f87b0d6a0a30e195da5d6478d79bf196))
+
+
+### Bug Fixes
+
+* **intake:** avisar sólo el conflicto que causó el merge, una vez por hermano ([b1548c0](https://github.com/julianjab/ia-flow/commit/b1548c04dbf84422bc89f99ff33ecb16165288e0))
+* **intake:** reservar el aviso de conflicto antes de esperar a GitHub ([2b993b7](https://github.com/julianjab/ia-flow/commit/2b993b7e421654518dfed5a20d3225bd8c9da8e3))
+* **provider-anthropic-api:** reintentar el overloaded_error que llega por el stream antes del contenido ([5418602](https://github.com/julianjab/ia-flow/commit/54186021e101d650b85702e05a0a475ba60d05a5))
+* **provider-anthropic-api:** un solo presupuesto de reintentos entre el request y el stream ([a9f6894](https://github.com/julianjab/ia-flow/commit/a9f68949fa713ae079180b6c0a6e13cdd7018657))
+* **workspace:** publicar sólo sobre una branch remota que existe, sin autosalvage ni la base ([14187f6](https://github.com/julianjab/ia-flow/commit/14187f69cc2b629385420cedb3a70f39407b9bf3))
+
 ## [2.24.0](https://github.com/julianjab/ia-flow/compare/v2.23.0...v2.24.0) (2026-10-22)
 
 
