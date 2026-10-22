@@ -55,7 +55,7 @@ export class ProjectsV2Board implements Board {
     return this.fields.setFields(...args)
   }
 
-  addIssue(issueNodeId: string): Promise<{ itemId?: string }> {
+  addIssue(issueNodeId: string): Promise<{ itemId?: string; status?: string }> {
     return this.adder.addIssue(issueNodeId)
   }
 

@@ -5,8 +5,14 @@ const PROJECT_ID = `query($owner: String!, $number: Int!) {
   repositoryOwner(login: $owner) { ... on ProjectV2Owner { projectV2(number: $number) { id } } }
 }`
 
+// Si el issue ya estaba en el board, GitHub devuelve su card: su `Status` dice si ya tenía columna.
 const ADD_ITEM = `mutation($projectId: ID!, $contentId: ID!) {
-  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) { item { id } }
+  addProjectV2ItemById(input: { projectId: $projectId, contentId: $contentId }) {
+    item {
+      id
+      fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+    }
+  }
 }`
 
 /** Agrega issues existentes a un Project v2. El item queda sin Status: moverlo es decisión humana
@@ -19,14 +25,18 @@ export class ProjectsV2Adder implements BoardAdder {
     private readonly board: ProjectRef,
   ) {}
 
-  async addIssue(issueNodeId: string): Promise<{ itemId?: string }> {
+  async addIssue(issueNodeId: string): Promise<{ itemId?: string; status?: string }> {
     const data = await this.client.graphql<{
-      addProjectV2ItemById?: { item?: { id: string } }
+      addProjectV2ItemById?: {
+        item?: { id: string; fieldValueByName?: { name?: string } | null }
+      }
     }>(ADD_ITEM, {
       projectId: await this.resolveProjectId(),
       contentId: issueNodeId,
     })
-    return { itemId: data.addProjectV2ItemById?.item?.id }
+    const item = data.addProjectV2ItemById?.item
+    const status = item?.fieldValueByName?.name
+    return { itemId: item?.id, ...(status ? { status } : {}) }
   }
 
   /** El node id del Project v2 — se pide una vez y se cachea (no cambia). */

@@ -11,8 +11,11 @@ const Input = z.strictObject({
     .min(1)
     .describe('Node id del issue (el `issueId` de create_github_issue)'),
   /** La columna en la que entra. Sin esto queda sin Status. Un agente la recibe fijada en su YAML
-   *  (`with: { status: Refine }`), no la elige. */
+   *  (`with: { status: Refine }`), no la elige. Una card que ya tenía columna no se mueve. */
   status: z.string().min(1).optional(),
+  /** Labels que se le suman al issue al entrar al board (`with: { labels: [epic-hold] }`, fijados
+   *  en el YAML). A uno que ya tenía columna no se le tocan. */
+  labels: z.array(z.string().min(1)).optional(),
 })
 
 const ISSUE_OF_NODE = `query($id: ID!) {
@@ -20,7 +23,9 @@ const ISSUE_OF_NODE = `query($id: ID!) {
 }`
 
 /** `add_to_project` de ia-flow: agrega un issue existente al board del proyecto, sin Status o en
- *  la columna que diga `status` (ver el functional-refiner). */
+ *  la columna que diga `status`, con `labels` (ver el functional-refiner). Llamarla sobre un issue
+ *  que YA tiene columna no lo mueve ni le toca los labels: así un agente puede pasar todos los hijos
+ *  de una épica sin devolver a Refine uno que ya está en Build. */
 export class AddToProjectAction extends Action<typeof Input> {
   readonly description =
     'Agrega un issue existente (por su node id) al board del proyecto. Devuelve el itemId.'
@@ -34,11 +39,27 @@ export class AddToProjectAction extends Action<typeof Input> {
 
   async execute(input: z.infer<typeof Input>) {
     const added = await this.adder.addIssue(input.issue_node_id)
-    if (!input.status) return JSON.stringify(added)
+    // Ya estaba en el board con su columna: se deja como está.
+    if (added.status) return JSON.stringify({ ...added, alreadyOnBoard: true })
+    if (!input.status && !input.labels?.length) return JSON.stringify(added)
     const { writer } = this.project
-    if (!writer) throw new Error('add_to_project: `status` necesita el board del proyecto')
-    await writer.setFields(await this.issueOf(input.issue_node_id), { Status: input.status })
-    return JSON.stringify({ ...added, status: input.status })
+    if (input.status && !writer) {
+      throw new Error('add_to_project: `status` necesita el board del proyecto')
+    }
+    const issue = await this.issueOf(input.issue_node_id)
+    if (input.labels?.length) {
+      await this.project.client.requestJson(
+        `/repos/${issue.owner}/${issue.repo}/issues/${issue.number}/labels`,
+        { method: 'POST', body: JSON.stringify({ labels: input.labels }) },
+      )
+    }
+    if (!input.status || !writer) return JSON.stringify({ ...added, labels: input.labels })
+    await writer.setFields(issue, { Status: input.status })
+    return JSON.stringify({
+      ...added,
+      status: input.status,
+      ...(input.labels?.length ? { labels: input.labels } : {}),
+    })
   }
 
   /** `owner/repo#n` del issue detrás de un node id: lo que el board necesita para mover la card. */

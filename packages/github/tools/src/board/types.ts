@@ -72,8 +72,10 @@ export interface BoardWriter {
 
 /** Que un issue pase a ser parte del board. */
 export interface BoardAdder {
-  /** `issueNodeId` es el node id de GraphQL del issue (el `issueId` de `create_github_issue`). */
-  addIssue(issueNodeId: string): Promise<{ itemId?: string }>
+  /** `issueNodeId` es el node id de GraphQL del issue (el `issueId` de `create_github_issue`).
+   *  Si el issue ya tenía card, la misma: `status` es la columna que ya tenía (sin `status`, entró
+   *  recién o el board no lo sabe). */
+  addIssue(issueNodeId: string): Promise<{ itemId?: string; status?: string }>
 }
 
 /** Lo que el intake lee del board para publicar la task de un webhook. */
