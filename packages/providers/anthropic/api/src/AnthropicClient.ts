@@ -1,6 +1,7 @@
-import { type AnthropicDeltaHandler, readAnthropicSseStream } from './sse.js'
+import { type AnthropicDeltaHandler, AnthropicStreamError, readAnthropicSseStream } from './sse.js'
 
 export type { AnthropicDeltaHandler, AnthropicStreamDelta } from './sse.js'
+export { AnthropicStreamError } from './sse.js'
 
 /**
  * Cliente delgado de la Anthropic Messages API: auth + headers + retry con backoff +
@@ -163,6 +164,21 @@ export function isMcpConnectionError(body: string): boolean {
   return MCP_CONNECTION_ERROR.test(body)
 }
 
+/** Los `error.type` de un evento `error` del stream que son del upstream y no del request: los
+ *  mismos que el 529 y el 500 cuando llegan como status. */
+const RETRYABLE_STREAM_ERRORS = new Set(['overloaded_error', 'api_error'])
+
+/** Si el stream cortó con un error del upstream ANTES de mandar contenido: reintentarlo no
+ *  duplica nada de lo que vio el caller (ni por `onDelta`). */
+export function isRetryableStreamError(err: unknown): boolean {
+  return (
+    err instanceof AnthropicStreamError &&
+    !err.emitted &&
+    err.errorType !== undefined &&
+    RETRYABLE_STREAM_ERRORS.has(err.errorType)
+  )
+}
+
 /** Backoff de un MCP que no respondió: más largo que el de un 429 — un MCP que reinicia tarda
  *  segundos en volver a estar detrás del ingress, no milisegundos. 5s, 10s, 20s, … hasta 30s: con
  *  los 3 reintentos por default del provider, ~35s de margen. */
@@ -246,14 +262,28 @@ export class AnthropicClient {
     const maxRetries = opts.maxRetries ?? this.options.maxRetries ?? 0
     const requestBody = { ...body, stream: useStream }
 
-    const res = await this.requestWithRetry(requestBody, headers, fetchImpl, maxRetries)
-    const requestId = res.headers.get('request-id') ?? undefined
-    if (!res.ok) throw new AnthropicApiError(res.status, await res.text(), requestId)
-    const data = useStream
-      ? ((await readAnthropicSseStream(res, opts.onDelta)) as unknown as AnthropicMessagesResponse)
-      : ((await res.json()) as AnthropicMessagesResponse)
-    if (requestId) data._request_id = requestId
-    return data
+    // Un 200 cuyo stream corta con `overloaded_error` antes de mandar contenido es un 529 que
+    // llegó tarde: se reintenta igual, con los mismos reintentos y el mismo backoff.
+    for (let attempt = 0; ; attempt++) {
+      const res = await this.requestWithRetry(requestBody, headers, fetchImpl, maxRetries)
+      const requestId = res.headers.get('request-id') ?? undefined
+      if (!res.ok) throw new AnthropicApiError(res.status, await res.text(), requestId)
+      try {
+        const data = useStream
+          ? ((await readAnthropicSseStream(
+              res,
+              opts.onDelta,
+            )) as unknown as AnthropicMessagesResponse)
+          : ((await res.json()) as AnthropicMessagesResponse)
+        if (requestId) data._request_id = requestId
+        return data
+      } catch (err) {
+        if (attempt >= maxRetries || !isRetryableStreamError(err)) throw err
+        const delayMs = backoffMs(attempt, null)
+        this.options.onRetry?.({ attempt: attempt + 2, maxRetries, delayMs, error: err })
+        await sleep(delayMs)
+      }
+    }
   }
 
   /** Reenvía el body TAL CUAL, con la credencial y los headers de ESTE cliente, y devuelve la

@@ -7,7 +7,13 @@ export type {
   AnthropicSendOptions,
   AnthropicStreamDelta,
 } from './AnthropicClient.js'
-export { AnthropicApiError, AnthropicClient, backoffMs } from './AnthropicClient.js'
+export {
+  AnthropicApiError,
+  AnthropicClient,
+  AnthropicStreamError,
+  backoffMs,
+  isRetryableStreamError,
+} from './AnthropicClient.js'
 export type {
   AnthropicAgentProviderConfig,
   AnthropicClearToolUsesConfig,

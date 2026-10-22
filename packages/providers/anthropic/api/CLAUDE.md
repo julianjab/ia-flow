@@ -32,7 +32,8 @@ src/
 │                         (`chat <model>`) y `executeTool` (`execute_tool <name>`).
 ├── sse.ts                reensamblado de streaming SSE → misma forma que un response
 │                         no-streaming. Funciones puras, detalle de implementación de
-│                         AnthropicClient (no se exporta).
+│                         AnthropicClient (no se exporta, salvo `AnthropicStreamError`: un
+│                         `error` del stream que `send` reintenta si aún no llegó contenido).
 ├── index.ts
 └── tests/                AnthropicClient.test.ts, AnthropicProvider.test.ts, sse.test.ts
 ```

@@ -22,6 +22,23 @@ export interface AnthropicStreamDelta {
 
 export type AnthropicDeltaHandler = (delta: AnthropicStreamDelta) => void
 
+/** Un evento `error` en medio del stream (la API ya respondió 200): su `error.type`
+ *  (`overloaded_error`, `api_error`, …) y si para entonces ya había llegado contenido. Sin
+ *  contenido, reintentar el request entero es seguro: el caller no vio nada. */
+export class AnthropicStreamError extends Error {
+  readonly errorType?: string
+  /** Llegó algún content block antes del error (y quizá ya salió por `onDelta`). */
+  readonly emitted: boolean
+
+  constructor(payload: unknown, emitted: boolean) {
+    super(`Anthropic API stream error: ${JSON.stringify(payload)}`)
+    this.name = 'AnthropicStreamError'
+    const type = (payload as { type?: unknown } | undefined)?.type
+    if (typeof type === 'string') this.errorType = type
+    this.emitted = emitted
+  }
+}
+
 interface SseFrame {
   eventType: string
   data: string
@@ -130,7 +147,7 @@ function applySseEvent(
       applyMessageDelta(evt, message)
       break
     case 'error':
-      throw new Error(`Anthropic API stream error: ${JSON.stringify(evt.error ?? evt)}`)
+      throw new AnthropicStreamError(evt.error ?? evt, blocks.length > 0)
     default:
       // message_stop, ping — nada que acumular.
       break
