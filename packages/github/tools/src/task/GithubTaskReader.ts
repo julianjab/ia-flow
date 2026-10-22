@@ -296,7 +296,8 @@ export class GithubTaskReader {
     return last
   }
 
-  /** Los sub-issues de `owner/repo#number` (su épica), abiertos o no; pueden ser de otro repo. */
+  /** Los sub-issues de `owner/repo#number` (su épica), abiertos o no; pueden ser de otro repo.
+   *  Los primeros 100: una épica con más no es el caso. */
   subIssues(owner: string, repo: string, number: number) {
     return this.client.requestJson<
       Array<{ number: number; state: string; repository_url: string }>
@@ -308,13 +309,24 @@ export class GithubTaskReader {
     return this.linkedOpenPr(owner, repo, number)
   }
 
-  /** Si GitHub puede mergear el PR contra su base: `false` es conflicto, `null` es que todavía lo
-   *  está calculando (el primer GET después de un push o de un merge en la base lo dispara). */
-  async mergeable(owner: string, repo: string, number: number): Promise<boolean | null> {
-    const pr = await this.client.requestJson<{ mergeable?: boolean | null }>(
-      `/repos/${owner}/${repo}/pulls/${number}`,
-    )
-    return pr.mergeable ?? null
+  /** Si GitHub puede mergear el PR contra su base (`base`): `mergeable: false` con `state: 'dirty'`
+   *  es un conflicto; `mergeable: null` es que todavía lo está calculando (el primer GET después de
+   *  un push o de un merge en la base lo dispara). */
+  async mergeability(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<{ mergeable: boolean | null; state?: string; base?: string }> {
+    const pr = await this.client.requestJson<{
+      mergeable?: boolean | null
+      mergeable_state?: string
+      base?: { ref?: string }
+    }>(`/repos/${owner}/${repo}/pulls/${number}`)
+    return {
+      mergeable: pr.mergeable ?? null,
+      ...(pr.mergeable_state ? { state: pr.mergeable_state } : {}),
+      ...(pr.base?.ref ? { base: pr.base.ref } : {}),
+    }
   }
 
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */

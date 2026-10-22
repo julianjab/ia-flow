@@ -25,7 +25,8 @@ import { TaskBranches } from './branch.js'
 import { heldComments, isHumanComment } from './heldComments.js'
 import { eventMessage } from './message.js'
 import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
-import { notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
+import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
+
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { taskPayload } from './task.js'
 
@@ -137,6 +138,8 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   readonly description = 'Resuelve la task de un webhook de GitHub y publica su evento'
   readonly input = Input
   override readonly sideEffects = 'none' as const
+  /** Lo que `notifySiblingConflicts` ya avisó: un webhook repetido no vuelve a relanzar a nadie. */
+  private readonly announced = new Announced()
 
   constructor(
     private readonly projects: () => ResolveTaskProject[],
@@ -166,7 +169,11 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     const reader = this.reader.withItemCache()
     const results = await Promise.all(
       projects.map((project) =>
-        new ProjectResolver(project, reader, this.userComments).resolve(input, ctx, slackLocation),
+        new ProjectResolver(project, reader, this.userComments, this.announced).resolve(
+          input,
+          ctx,
+          slackLocation,
+        ),
       ),
     )
     const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))
@@ -187,6 +194,7 @@ class ProjectResolver {
     private readonly project: ResolveTaskProject,
     private readonly reader: GithubTaskReader,
     private readonly userComments?: { has(commentId: number): boolean },
+    private readonly announced: SiblingPort['announced'] = new Announced(),
   ) {
     this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
   }
@@ -499,7 +507,12 @@ class ProjectResolver {
     if (!this.inCatalog(merged.owner, merged.repo)) {
       return { skipped: `${merged.owner}/${merged.repo} no es del catálogo de ${this.project.id}` }
     }
-    return notifySiblingConflicts(this.siblingPort(when), ctx, merged)
+    // La branch en la que entró: un hermano apilado sobre otra no recibió este merge.
+    const { base } = await this.reader.mergeability(merged.owner, merged.repo, merged.pr)
+    return notifySiblingConflicts(this.siblingPort(when), ctx, {
+      ...merged,
+      ...(base ? { base } : {}),
+    })
   }
 
   /** Lo que `notifySiblingConflicts` necesita de esta acción. */
@@ -517,8 +530,9 @@ class ProjectResolver {
           this.project.repos,
         ),
       openPullOf: (task) => reader.openPullOf(task.owner, task.repo, task.number),
-      mergeable: (owner, repo, pr) => reader.mergeable(owner, repo, pr),
+      mergeability: (owner, repo, pr) => reader.mergeability(owner, repo, pr),
       publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),
+      announced: this.announced,
     }
   }
 
