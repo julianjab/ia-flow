@@ -44,6 +44,7 @@ import { type DeviceFlow, githubLogin, RefreshRejectedError } from '../github/de
 import { type ApiRequest, ApiRouter, HttpError, sendJson } from '../http/ApiRouter.js'
 import { openSse, type SseHub, writeSse } from '../http/sse.js'
 import type { BoardMoves } from './BoardMoves.js'
+import type { EpicReader } from './EpicReader.js'
 import type { InboxService } from './InboxService.js'
 import type { IngressService } from './IngressService.js'
 import { type IssueBoard, placement } from './issueBoards.js'
@@ -59,6 +60,8 @@ export interface RunnerApiOptions {
   actions: TaskActions
   /** Sumar un issue al board, mover una card de columna y cambiarle labels. Sin esto, 501. */
   moves?: BoardMoves
+  /** Una épica con sus sub-issues (`EpicReader`). Sin esto, 501. */
+  epics?: Pick<EpicReader, 'detail'>
   assistant: Assistant
   /** Las entradas del runner (webhook de GitHub, Slack) y lo que les llegó. */
   ingress?: IngressService
@@ -205,6 +208,14 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
     if (!detail)
       throw new HttpError(404, `${refOf(req.params)} no está en ningún board de este runner`)
     return detail
+  })
+
+  // La épica entera, con cada sub-issue: lo que se abre desde el chip de épica de una tarea.
+  router.get('/api/tasks/:owner/:repo/:number/epic', async (req) => {
+    if (!options.epics) throw new HttpError(501, 'Este runner no lee épicas')
+    const epic = await options.epics.detail(refOf(req.params))
+    if (!epic) throw new HttpError(404, `${refOf(req.params)} no existe o el runner no lo ve`)
+    return epic
   })
 
   // Lo que una persona hace con una tarea o el board, firmado con su login de GitHub. Un rechazo

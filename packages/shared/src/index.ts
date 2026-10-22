@@ -1,4 +1,5 @@
 export * from './cache.js'
+export * from './epics.js'
 export * from './improvements.js'
 export * from './inbox.js'
 export * from './resources.js'

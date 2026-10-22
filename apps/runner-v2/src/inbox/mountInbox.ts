@@ -22,6 +22,7 @@ import { actingAs } from './actingAs.js'
 import { BoardMoves } from './BoardMoves.js'
 import type { BoardSpec } from './BoardReader.js'
 import { configSummary } from './configSummary.js'
+import { EpicReader } from './EpicReader.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
 import { issueBoards } from './issueBoards.js'
@@ -279,6 +280,9 @@ export function mountInbox(
     inbox,
     actions,
     moves,
+    epics: new EpicReader(mounted.github, async () =>
+      (await Promise.all(specs.map((spec) => boards.cards(spec)))).flat(),
+    ),
     assistant,
     conversations: store.conversations,
     improvements: store.improvements,
