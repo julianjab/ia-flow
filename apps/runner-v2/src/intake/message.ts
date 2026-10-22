@@ -28,6 +28,8 @@ export function eventMessage(type: string, payload: Payload): string {
     }
     case 'issue.child_closed':
       return `Se cerró el sub-issue ${text(payload.child)} (${text(payload.stateReason) || 'completed'}).`
+    case 'issue.pr_conflict':
+      return `El PR de esta tarea quedó en conflicto con la rama base: se mergeó ${text(payload.mergedPr)}, de ${text(payload.mergedChild)} (hermana en la épica ${text(payload.epic)}). Traé la base (\`git fetch origin && git merge origin/<base>\`), resolvé los conflictos conservando los dos cambios, corré la puerta previa al push y pusheá.`
     case 'issue.child_status_changed':
       return `El sub-issue ${text(payload.child)} pasó a ${text(payload.to) || 'otra columna'}.`
     case 'check_suite':

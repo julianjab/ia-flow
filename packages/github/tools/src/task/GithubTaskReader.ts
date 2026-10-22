@@ -296,6 +296,27 @@ export class GithubTaskReader {
     return last
   }
 
+  /** Los sub-issues de `owner/repo#number` (su épica), abiertos o no; pueden ser de otro repo. */
+  subIssues(owner: string, repo: string, number: number) {
+    return this.client.requestJson<
+      Array<{ number: number; state: string; repository_url: string }>
+    >(`/repos/${owner}/${repo}/issues/${number}/sub_issues?per_page=100`)
+  }
+
+  /** El número del PR abierto que cierra el issue, si hay uno. */
+  openPullOf(owner: string, repo: string, number: number): Promise<number | undefined> {
+    return this.linkedOpenPr(owner, repo, number)
+  }
+
+  /** Si GitHub puede mergear el PR contra su base: `false` es conflicto, `null` es que todavía lo
+   *  está calculando (el primer GET después de un push o de un merge en la base lo dispara). */
+  async mergeable(owner: string, repo: string, number: number): Promise<boolean | null> {
+    const pr = await this.client.requestJson<{ mergeable?: boolean | null }>(
+      `/repos/${owner}/${repo}/pulls/${number}`,
+    )
+    return pr.mergeable ?? null
+  }
+
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
   dependents(owner: string, repo: string, number: number) {
     return this.client.requestJson<

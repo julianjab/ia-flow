@@ -25,6 +25,7 @@ import { TaskBranches } from './branch.js'
 import { heldComments, isHumanComment } from './heldComments.js'
 import { eventMessage } from './message.js'
 import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
+import { notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { taskPayload } from './task.js'
 
@@ -61,6 +62,10 @@ const Input = z.strictObject({
    *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
    *  quedó refinado sin que ningún evento del hijo la interrumpa. */
   notifyParentOfStatus: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
+   *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
+   *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
+  notifySiblingConflicts: z.boolean().optional(),
   /**
    * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
    * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
@@ -196,6 +201,7 @@ class ProjectResolver {
     const when = (input.when ?? []).map((row) => new Condition(row))
     if (input.unblockDependents) return this.unblocked(raw, ctx, when)
     if (input.notifyParent) return this.childClosed(raw, ctx, when)
+    if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
     if (input.notifyParentOfStatus) return this.childStatusChanged(location, ctx, when)
@@ -480,6 +486,40 @@ class ProjectResolver {
       'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
     if ('skipped' in child) return child
     return notifyParent(this.parentPort(when), ctx, child, CHILD_STATUS_CHANGED, location.extra)
+  }
+
+  /** `issue.pr_conflict` sobre los hermanos que el merge de este PR dejó en conflicto. */
+  private async siblingConflicts(
+    raw: Record<string, unknown>,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> {
+    const merged = mergedPullRequest(raw)
+    if ('skip' in merged) return { skipped: merged.skip }
+    if (!this.inCatalog(merged.owner, merged.repo)) {
+      return { skipped: `${merged.owner}/${merged.repo} no es del catálogo de ${this.project.id}` }
+    }
+    return notifySiblingConflicts(this.siblingPort(when), ctx, merged)
+  }
+
+  /** Lo que `notifySiblingConflicts` necesita de esta acción. */
+  private siblingPort(when: Condition[]): SiblingPort {
+    const { reader } = this
+    return {
+      closingIssues: async (owner, repo, pr) =>
+        (await reader.closingIssues(owner, repo, pr)).filter((issue) =>
+          this.inCatalog(issue.owner, issue.repo),
+        ),
+      parentOf: (owner, repo, number) => reader.parentOf(owner, repo, number),
+      openChildren: async (parent) =>
+        issueRefs(
+          await reader.subIssues(parent.owner, parent.repo, parent.number),
+          this.project.repos,
+        ),
+      openPullOf: (task) => reader.openPullOf(task.owner, task.repo, task.number),
+      mergeable: (owner, repo, pr) => reader.mergeable(owner, repo, pr),
+      publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),
+    }
   }
 
   /** Lo que `notifyParent` necesita de esta acción. */
