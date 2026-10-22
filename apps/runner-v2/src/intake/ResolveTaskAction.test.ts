@@ -679,3 +679,63 @@ describe('resolve_task held comments (ia-flow#331)', () => {
     expect(published.map((event) => event.type)).toEqual(['issue.unlabeled'])
   })
 })
+
+describe('resolve_task notifySiblingConflicts', () => {
+  /** El merge del PR #20 de o/r, que cierra o/r#12: hijo de la épica o/r#5, hermano de o/r#7 (en
+   *  el board, con el PR #21 abierto). */
+  const merge = createEvent('github.pull_request', {
+    action: 'closed',
+    number: 20,
+    pull_request: { number: 20, merged: true, head: { ref: 'feat/12' }, base: { ref: 'main' } },
+    repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+    sender: { login: 'julian' },
+  })
+
+  async function resolve(mergeable: boolean | null) {
+    const base = reader([]) as unknown as Record<string, unknown>
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      closingIssues: async () => [{ owner: 'o', repo: 'r', number: 12 }],
+      parentOf: async () => ({ owner: 'o', repo: 'r', number: 5 }),
+      subIssues: async () => [
+        { number: 12, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
+        { number: 7, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
+      ],
+      openPullOf: async (_o: string, _r: string, number: number) => (number === 7 ? 21 : undefined),
+      mergeable: async () => mergeable,
+    }
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (e) => {
+      published.push(e)
+    })
+    const ctx = {
+      event: merge,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
+    const result = await action.execute(action.input.parse({ notifySiblingConflicts: true }), ctx)
+    return { result, published }
+  }
+
+  it('a sibling whose PR the merge left in conflict gets issue.pr_conflict, with what to do', async () => {
+    const { result, published } = await resolve(false)
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.pr_conflict'])
+    expect(published[0]?.payload).toMatchObject({
+      mergedPr: 'o/r#20',
+      mergedChild: 'o/r#12',
+      epic: 'o/r#5',
+      message: expect.stringContaining('quedó en conflicto con la rama base: se mergeó o/r#20'),
+    })
+    expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it('a sibling still mergeable gets nothing', async () => {
+    const { result, published } = await resolve(true)
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: el PR #21 de o/r#7 sigue sin conflictos' })
+  })
+})
