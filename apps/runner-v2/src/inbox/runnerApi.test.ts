@@ -282,6 +282,21 @@ async function start(
       changed: (ref) => hub.publish({ type: 'inbox', refs: [ref] }),
       fetchImpl: github.fetchImpl,
     }),
+    epics: {
+      detail: async (ref) =>
+        ref === 'o/r#10'
+          ? {
+              epic: {
+                ref,
+                title: 'Épica',
+                url: 'https://github.com/o/r/issues/10',
+                done: 0,
+                total: 1,
+              },
+              children: [{ ref: 'o/r#1', title: 'Mergeable', url: cards[0]!.url, state: 'open' }],
+            }
+          : undefined,
+    },
     assistant: assistantFor(inbox, conversations, improvements),
     conversations,
     improvements,
@@ -363,6 +378,13 @@ describe('runner API', () => {
     })
     expect((await call('/api/tasks/o/r/1')).status).toBe(200)
     expect((await call('/api/tasks/o/r/404')).status).toBe(404)
+  })
+
+  it('serves an epic with its sub-issues, and 404 for an issue it cannot see', async () => {
+    const { call } = await start()
+    const epic = await (await call('/api/tasks/o/r/10/epic')).json()
+    expect(epic).toMatchObject({ epic: { ref: 'o/r#10' }, children: [{ ref: 'o/r#1' }] })
+    expect((await call('/api/tasks/o/r/404/epic')).status).toBe(404)
   })
 
   it('an action needs the GitHub login, applies only if it fits, and is signed by that user', async () => {
