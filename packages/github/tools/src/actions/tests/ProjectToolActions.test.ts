@@ -124,6 +124,73 @@ describe('AddToProjectAction', () => {
     )
   })
 
+  it('a card that already has a column is not moved nor relabeled: an epic can pass all its children', async () => {
+    const graphql = vi.fn(async (query: string) =>
+      query.includes('projectV2(number')
+        ? { repositoryOwner: { projectV2: { id: 'PVT' } } }
+        : {
+            addProjectV2ItemById: {
+              item: { id: 'PVTI_old', fieldValueByName: { name: 'Build' } },
+            },
+          },
+    )
+    const requestJson = vi.fn(async () => [])
+    const setFields = vi.fn(async () => {})
+    const action = new AddToProjectAction({
+      ...project({ graphql, requestJson }),
+      writer: { setFields },
+    })
+
+    const out = JSON.parse(
+      (await action.run(ctx(), {
+        issue_node_id: 'I_1',
+        status: 'Refine',
+        labels: ['epic-hold'],
+      })) as string,
+    )
+
+    expect(out).toEqual({ itemId: 'PVTI_old', status: 'Build', alreadyOnBoard: true })
+    expect(setFields).not.toHaveBeenCalled()
+    expect(requestJson).not.toHaveBeenCalled()
+  })
+
+  it('a card that enters gets its column and its labels', async () => {
+    const graphql = vi.fn(async (query: string) => {
+      if (query.includes('projectV2(number'))
+        return { repositoryOwner: { projectV2: { id: 'PVT' } } }
+      if (query.includes('node(id')) {
+        return {
+          node: { number: 77, repository: { name: 'subscriptions', owner: { login: 'la-haus' } } },
+        }
+      }
+      return { addProjectV2ItemById: { item: { id: 'PVTI_new', fieldValueByName: null } } }
+    })
+    const requestJson = vi.fn(async () => [])
+    const setFields = vi.fn(async () => {})
+    const action = new AddToProjectAction({
+      ...project({ graphql, requestJson }),
+      writer: { setFields },
+    })
+
+    const out = JSON.parse(
+      (await action.run(ctx(), {
+        issue_node_id: 'I_1',
+        status: 'Refine',
+        labels: ['epic-hold'],
+      })) as string,
+    )
+
+    expect(out).toEqual({ itemId: 'PVTI_new', status: 'Refine', labels: ['epic-hold'] })
+    expect(requestJson).toHaveBeenCalledWith('/repos/la-haus/subscriptions/issues/77/labels', {
+      method: 'POST',
+      body: JSON.stringify({ labels: ['epic-hold'] }),
+    })
+    expect(setFields).toHaveBeenCalledWith(
+      { owner: 'la-haus', repo: 'subscriptions', number: 77 },
+      { Status: 'Refine' },
+    )
+  })
+
   it('without status it does not touch the column', async () => {
     const graphql = vi.fn(async (query: string) =>
       query.includes('projectV2(number')
