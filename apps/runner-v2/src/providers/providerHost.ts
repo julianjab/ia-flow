@@ -245,6 +245,8 @@ export function providerTaskRunner(opts: {
  * task —un carril (un reviewer en paralelo) no escribe la branch— y sólo si cerró (`done` o
  * `failed`): una pausa sigue trabajando, y una cortada por el runner no terminó.
  */
+const PUBLISH_TIMEOUT_MS = 60_000
+
 async function publishOnEnd(
   session: WorkspaceSession,
   ctx: PipelineExecutionContext,
@@ -256,8 +258,22 @@ async function publishOnEnd(
     const pending = session.prepared(ctx)
     if (!pending) return
     const { path, branch } = await pending
-    const result = await session.manager.publishBranch(path, branch)
-    if (result.status !== 'up-to-date') log(`${branch}: ${describePublish(branch, result)}`)
+    // Un push colgado no retiene el cierre: el resultado de la corrida le hace falta al runner.
+    let stop = () => {}
+    const result = await Promise.race([
+      session.manager.publishBranch(path, branch),
+      new Promise<undefined>((resolve) => {
+        const timer = setTimeout(resolve, PUBLISH_TIMEOUT_MS)
+        stop = () => clearTimeout(timer)
+      }),
+    ]).finally(() => stop())
+    if (!result) log(`${branch}: no publiqué, git tardó más de ${PUBLISH_TIMEOUT_MS / 1000} s`)
+    else if (
+      result.status === 'pushed' ||
+      result.status === 'diverged' ||
+      result.status === 'failed'
+    )
+      log(`${branch}: ${describePublish(branch, result)}`)
   } catch (err) {
     log(
       `no pude publicar la branch de la corrida: ${err instanceof Error ? err.message : String(err)}`,
