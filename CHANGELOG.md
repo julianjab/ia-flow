@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.24.0](https://github.com/julianjab/ia-flow/compare/v2.23.0...v2.24.0) (2026-10-22)
+
+
+### Features
+
+* **menubar:** el chip de la épica muestra su número y abre la épica con sus sub-issues ([424faf3](https://github.com/julianjab/ia-flow/commit/424faf3c1368b7a74990fdc4c2019d6691d2f756))
+* **runner:** GET /api/tasks/:owner/:repo/:n/epic — la épica con todos sus sub-issues ([e81ff43](https://github.com/julianjab/ia-flow/commit/e81ff435784d8394173cfdc8321966d0ca3e3479))
+* **web:** el chip de la épica muestra su número y abre la épica con sus sub-issues ([b6853d9](https://github.com/julianjab/ia-flow/commit/b6853d94cd0f357b8bb936a21bb0171d8edd24ae))
+
 ## [2.23.0](https://github.com/julianjab/ia-flow/compare/v2.22.0...v2.23.0) (2026-10-21)
 
 
