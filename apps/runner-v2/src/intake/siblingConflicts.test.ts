@@ -111,6 +111,33 @@ describe('notifySiblingConflicts', () => {
     })
   })
 
+  it('dos entregas del mismo merge a la vez avisan una sola vez', async () => {
+    const announced = new Set<string>()
+    const a = portOf({ 2001: [null, false], 2002: [true] }, announced)
+    const b = portOf({ 2001: [null, false], 2002: [true] }, announced)
+
+    await Promise.all([
+      notifySiblingConflicts(a.port, ctx, merged),
+      notifySiblingConflicts(b.port, ctx, merged),
+    ])
+
+    expect(a.published.length + b.published.length).toBe(1)
+  })
+
+  it('lo que no se publicó no queda anotado: el próximo merge puede avisarlo', async () => {
+    const announced = new Set<string>()
+    await notifySiblingConflicts(
+      portOf({ 2001: [true], 2002: [true] }, announced).port,
+      ctx,
+      merged,
+    )
+
+    const later = portOf({ 2001: [false], 2002: [true] }, announced)
+    await notifySiblingConflicts(later.port, ctx, merged)
+
+    expect(later.published.map((p) => p.task.number)).toEqual([1993])
+  })
+
   it('un hermano contra otra base no recibió este merge: no se avisa', async () => {
     const { port, published } = portOf({ 2001: [false], 2002: [true] })
     const mergeability = port.mergeability
