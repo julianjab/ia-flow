@@ -1,5 +1,6 @@
 import type { BoardRest, Inbox, InboxItem } from '@ia-flow/shared'
 import { computed, type Ref, ref } from 'vue'
+import { boardIndex } from '@/features/inbox/queue/boardIndex'
 import {
   exactRef,
   githubSearchUrl,
@@ -57,6 +58,16 @@ export function createSearch(deps: SearchDeps) {
     return githubSearchUrl(s, org)
   })
 
+  /** Qué está en el board y en qué columna (ref o PR en minúsculas → tarea): «Buscar en GitHub». */
+  const board = computed(() => {
+    const feed = deps.inbox.value?.feed ?? deps.runner.value?.feed
+    return boardIndex({
+      items: [...(deps.inbox.value?.items ?? []), ...(deps.runner.value?.items ?? [])],
+      feed: [...(feed?.ready ?? []), ...(feed?.waiting ?? [])],
+      rest: deps.rest.value?.columns ?? [],
+    })
+  })
+
   function setQuery(value: string): void {
     query.value = value
     if (search.value && !deps.rest.value && !deps.restLoading.value) void deps.loadRest()
@@ -68,6 +79,7 @@ export function createSearch(deps: SearchDeps) {
     searchHits: hits,
     searchExact: exact,
     searchGithub: github,
+    boardIndex: board,
     setSearchQuery: setQuery,
   }
 }
