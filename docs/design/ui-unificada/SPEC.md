@@ -138,11 +138,28 @@ Los números de pantalla son los del mockup. «Nuevo» = archivo que se crea; lo
 - **Agregar un issue al board:** el issue (`owner/repo#n` o link), el proyecto (si hay más de uno), la
   columna (Todo por defecto), y el error con «→ qué hacer».
 - Al pie, la **higiene del board**.
+- **Nada queda afuera** (pedido explícito al aprobar):
+  - **Todo completo.** «Pueden arrancar» y «Esperan a otra» muestran **todas** las cards de Todo del
+    `feed`, sin el tope de 8 por grupo que tiene hoy el menú. Con más de 8, el grupo arranca mostrando
+    8 y termina en «Ver las N» (se despliega en el lugar, sin navegar). El buscador y el tag de repo
+    filtran sobre todas.
+  - **Resto del board completo:** todas las columnas de `GET /api/board`, cada una con todas sus cards.
+  - **Sección nueva «En los repos, sin card»:** los issues abiertos de **cualquier repo del catálogo
+    del runner** (`projects[].repos`) que no tienen card en el board, agrupados por repo y el más
+    reciente primero. Cada fila tiene la ref en mono, el título, la antigüedad, el autor y «Agregar al
+    board ▾» (con las columnas del proyecto; Todo por defecto). Un repo que no se pudo leer muestra su
+    error en una línea, sin tapar al resto. `truncated` muestra «Hay más en GitHub ↗».
+  - **Contrato:** `GET /api/repos/issues?project=` → `RepoIssuesSchema` (`packages/shared/src/inbox.ts`).
+    Lo arma `apps/runner-v2/src/inbox/` con la identidad del runner y un cache corto por repo (como
+    `BoardReader`), invalidado por los webhooks `issues.*` del repo. Excluye los PRs, los cerrados y
+    los que ya tienen card en cualquier board del runner. Tope de 100 por repo, el más reciente primero.
 
 | Lado | Archivos |
 | --- | --- |
 | Web | `apps/web/src/features/inbox/pipeline/{EpicsPanel,EpicEntry,FeedList,BlockedList,MoveToSelect,AddToBoardForm,HygieneNote}.vue`, `apps/web/src/features/inbox/{BoardRest,InboxToolbar}.vue` |
-| Menú | `apps/menubar/FeedViews.swift`, `apps/menubar/Feed.swift`, `apps/menubar/RunnerViews.swift` |
+| Menú | `apps/menubar/FeedViews.swift`, `apps/menubar/Feed.swift`, `apps/menubar/RunnerViews.swift`, `apps/menubar/RunnerAPI.swift` (decodifica `GET /api/repos/issues`) |
+| Runner | `apps/runner-v2/src/inbox/runnerApi.ts` (ruta), nuevo `apps/runner-v2/src/inbox/RepoIssuesReader.ts` (+ su test), `apps/runner-v2/src/inbox/InboxService.ts` (excluir lo que ya tiene card) |
+| Web, nuevo | `apps/web/src/features/inbox/pipeline/RepoIssuesList.vue`, `apps/web/src/features/inbox/state/repoIssues.ts` |
 
 ### 4. Épica (Mac 17, Teléfono 19, Escritorio 3 a la derecha)
 
