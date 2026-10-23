@@ -20,12 +20,14 @@ export type {
   IssueRef,
   IssueRefResolver,
   PrNumberResolver,
+  StackBaseResolver,
 } from './issueRef.js'
 export {
   assertSafeBranch,
   branchFromPayload,
   issueFromPayload,
   prFromPayload,
+  stackBaseFromPayload,
 } from './issueRef.js'
 export type { ChecklistItem } from './issueSection.js'
 export {
@@ -64,6 +66,8 @@ export { PostUserCommentAction, PostUserCommentInput } from './PostUserCommentAc
 export { PrChecksAction } from './PrChecksAction.js'
 export { ReactToCommentAction } from './ReactToCommentAction.js'
 export { RemoveBlockedByAction } from './RemoveBlockedByAction.js'
+export type { RetargetPullRequestActionOptions } from './RetargetPullRequestAction.js'
+export { RetargetPullRequestAction, RetargetPullRequestInput } from './RetargetPullRequestAction.js'
 export { ReviewPullRequestAction } from './ReviewPullRequestAction.js'
 export { ReplyPrReviewThreadAction, ResolvePrReviewThreadAction } from './ReviewThreadActions.js'
 export { type GithubProjectContext, resolveRepo } from './repoCatalog.js'

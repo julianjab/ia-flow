@@ -7,6 +7,7 @@
 import type { GithubClient } from '@ia-flow/github-api'
 import { sameRepo } from '../shared.js'
 import { type OpenPr, openPr, type RawItem, type RawPr } from './shapes.js'
+import type { StackBlocker } from './stack.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 
 export interface BoardRef {
@@ -398,6 +399,43 @@ export class GithubTaskReader {
       statuses: status.statuses,
       workflowRuns: runs.workflow_runs,
     }
+  }
+
+  /** El PR abierto de la task (el de `pr`, o el que GitHub vincula al issue), si hay uno. */
+  openPullRequest(task: {
+    owner: string
+    repo: string
+    number: number
+    pr?: number
+  }): Promise<OpenPr | undefined> {
+    return this.openPr(task)
+  }
+
+  /** Los blockers abiertos de una task con su PR abierto, si tienen uno: lo que pide `stackOf`. */
+  async stackBlockers(
+    blockers: Array<{ state: string; html_url: string }>,
+  ): Promise<StackBlocker[]> {
+    const open = blockers
+      .filter((blocker) => blocker.state === 'open')
+      .map((blocker) => /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(blocker.html_url))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map(([, owner = '', repo = '', number]) => ({ owner, repo, number: Number(number) }))
+    return Promise.all(
+      open.map(async (ref) => {
+        const pr = await this.openPr(ref)
+        return pr
+          ? { ...ref, pr: { number: pr.number, headRef: pr.headRef, baseRef: pr.baseRef } }
+          : ref
+      }),
+    )
+  }
+
+  /** Si `head` ya trae el commit `sha` (`sha` es su ancestro, o es el mismo). */
+  async contains(owner: string, repo: string, sha: string, head: string): Promise<boolean> {
+    const compare = await this.client.requestJson<{ status: string }>(
+      `/repos/${owner}/${repo}/compare/${encodeURIComponent(sha)}...${encodeURIComponent(head)}`,
+    )
+    return compare.status === 'ahead' || compare.status === 'identical'
   }
 
   /** El PR del evento si sigue abierto; si no trae uno, el que GitHub vincula al issue. */

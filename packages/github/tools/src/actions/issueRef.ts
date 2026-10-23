@@ -64,3 +64,14 @@ export const branchFromPayload: BranchResolver = (ctx) => {
   }
   return assertSafeBranch(task.branch)
 }
+
+/** De dónde sale la rama de un prerrequisito sobre la que se apila la de la task, si hay una. */
+export type StackBaseResolver = (ctx: PipelineExecutionContext) => string | undefined
+
+/** Default: `task.stack.branch` en el payload del evento — la rama del prerrequisito del mismo repo
+ *  con PR abierto sobre la que se construye la task (`stackOf`). Sin apilar, `undefined`. */
+export const stackBaseFromPayload: StackBaseResolver = (ctx) => {
+  const task = payloadOf(ctx).task as { stack?: { branch?: unknown } } | undefined
+  const branch = task?.stack?.branch
+  return typeof branch === 'string' && branch.length > 0 ? assertSafeBranch(branch) : undefined
+}

@@ -4,6 +4,8 @@ export type { BoardRef, RawTaskContext } from './GithubTaskReader.js'
 export { GithubTaskReader } from './GithubTaskReader.js'
 export type { Card, OpenPr, RawIssueRef, RawItem, RawPr } from './shapes.js'
 export { boardItem, issueRefs, openPr } from './shapes.js'
+export type { Stack, StackBase, StackBlocker } from './stack.js'
+export { stackOf } from './stack.js'
 export type { RawComment, RawReview, RawThread } from './timeline.js'
 export {
   formatComments,
