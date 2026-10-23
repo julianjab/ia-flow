@@ -24,8 +24,11 @@ export interface RetargetPullRequestActionOptions {
 /**
  * Un PR apilado cuya base acaba de mergearse (`issue.base_merged`: `from` es la rama del
  * prerrequisito y `to` la rama en la que entró): lo apunta a `to`. GitHub lo hace solo cuando el
- * repo borra la rama mergeada, pero no siempre la borra; si ya lo hizo, o una persona lo apuntó a
- * otra rama, no toca nada.
+ * repo borra la rama mergeada, pero no siempre la borra; si una persona lo apuntó a otra rama, no
+ * toca nada.
+ *
+ * Apuntando a `to`, vuelve a guardar el body: GitHub ignora el `Closes #n` de un PR que no apunta a
+ * la default branch, y sin releerlo mergear el PR no cerraría el issue.
  */
 export class RetargetPullRequestAction extends Action<typeof RetargetPullRequestInput> {
   readonly description = 'Apunta el PR apilado de la task a la rama en la que entró su base.'
@@ -50,14 +53,19 @@ export class RetargetPullRequestAction extends Action<typeof RetargetPullRequest
       throw new Error('retarget_pr: el evento no trae from/to (issue.base_merged)')
     }
     const path = repoPath(issue.owner, issue.repo, `/pulls/${number}`)
-    const pr = await this.client.requestJson<{ base?: { ref?: string } }>(path)
+    const pr = await this.client.requestJson<{ base?: { ref?: string }; body?: string | null }>(
+      path,
+    )
     const base = pr.base?.ref
-    if (base === to) return `PR #${number} ya apunta a ${to}`
-    if (base !== from) return `PR #${number} apunta a ${base ?? '?'}, no a ${from}: no lo toco`
+    if (base !== to && base !== from) {
+      return `PR #${number} apunta a ${base ?? '?'}, no a ${from}: no lo toco`
+    }
     await this.client.requestJson(path, {
       method: 'PATCH',
-      body: JSON.stringify({ base: assertSafeBranch(to) }),
+      body: JSON.stringify({ base: assertSafeBranch(to), body: pr.body ?? '' }),
     })
-    return `PR #${number}: base ${from} → ${to}`
+    return base === to
+      ? `PR #${number} ya apuntaba a ${to}: body releído`
+      : `PR #${number}: base ${from} → ${to}`
   }
 }
