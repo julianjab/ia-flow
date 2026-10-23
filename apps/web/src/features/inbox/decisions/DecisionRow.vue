@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from 'vue';
 import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import AgeStamp from '@/features/inbox/decisions/AgeStamp.vue';
+import ArrangeActions from '@/features/inbox/decisions/ArrangeActions.vue';
 import DecisionChild from '@/features/inbox/decisions/DecisionChild.vue';
 import DecisionDetail from '@/features/inbox/decisions/DecisionDetail.vue';
 import InlineConfirm from '@/features/inbox/decisions/InlineConfirm.vue';
@@ -36,12 +37,25 @@ const detailId = computed(() => `${domId.value}-detail`);
 const tone = computed(() => ({ '--tone': `var(--${props.row.tone})` }));
 const detail = ref<InstanceType<typeof DecisionDetail> | null>(null);
 
-/** Lo que aparece al deslizarla: su acción (el detalle ya está a un toque). */
-const swipe = computed<SwipeAction[]>(() =>
-  props.row.action
+/** Lo que aparece al deslizarla a la izquierda: su acción y Posponer (el detalle, con todas, ya
+ *  está a un toque). Un grupo no se pospone ni se fija: se decide sobre sus hijas. */
+const swipe = computed<SwipeAction[]>(() => [
+  ...(props.row.action
     ? [{ id: 'act', label: props.row.action.label, tone: 'primary' as const, disabled: act.busy.value }]
-    : [],
+    : []),
+  ...(single.value ? [{ id: 'snooze', label: 'Posponer' }] : []),
+]);
+const pinned = computed(() => (single.value ? store.isPinned(single.value.ref) : false));
+/** A la derecha: fijarla arriba (o soltarla). */
+const leading = computed<SwipeAction[]>(() =>
+  single.value ? [{ id: 'pin', label: pinned.value ? 'Soltar' : 'Fijar arriba', tone: 'warn' as const }] : [],
 );
+
+function swiped(id: string) {
+  if (id === 'act') void press();
+  else if (id === 'snooze' && single.value) store.snooze(single.value.item, null);
+  else if (id === 'pin' && single.value) store.togglePin(single.value.ref);
+}
 
 /** Tocar la card (fuera de un link o un botón) abre la tarea en grande; un grupo, sus hijas. */
 function tapRow(e: MouseEvent) {
@@ -70,12 +84,12 @@ async function confirm() {
 </script>
 
 <template>
-  <SwipeRow class="dr-sw" :actions="swipe" :disabled="open || act.confirming.value" @action="press">
+  <SwipeRow class="dr-sw" :actions="swipe" :leading="leading" :disabled="open || act.confirming.value" @action="swiped">
   <article :id="domId" class="dr" :style="tone" :data-kind="row.kind" :data-type="row.type" :data-open="open || undefined">
     <div class="dr__head" @click="tapRow">
       <span class="dr__rank mono">{{ row.rank }}</span>
       <div class="dr__what">
-        <h3 class="dr__verb"><span class="dr__glyph" aria-hidden="true">{{ row.glyph }}</span>{{ row.verb }}</h3>
+        <h3 class="dr__verb"><span class="dr__glyph" aria-hidden="true">{{ row.glyph }}</span>{{ row.verb }}<span v-if="pinned" class="dr__pin">Fijada</span></h3>
         <p class="dr__title">{{ row.title }}</p>
         <div class="dr__why">
           <RefLink v-if="single" :short="single.short" :url="single.url" />
@@ -128,6 +142,7 @@ async function confirm() {
           <DecisionChild v-for="child in row.children" :key="child.ref" :entry="child" />
         </ul>
         <DecisionDetail v-else-if="single" ref="detail" v-model:comment="act.comment.value" :entry="single" />
+        <ArrangeActions v-if="single" class="dr__arrange" :item="single.item" />
       </template>
     </div>
   </article>
@@ -142,6 +157,8 @@ async function confirm() {
 .dr__what { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .dr__verb { display: flex; align-items: baseline; gap: 0.5rem; margin: 0; color: var(--tone); font-family: var(--font-body); font-size: var(--fs-body); font-weight: 600; letter-spacing: 0; overflow-wrap: anywhere; }
 .dr__glyph { flex: none; width: 1rem; }
+.dr__pin { color: var(--warn); font-size: var(--fs-chrome); font-weight: 500; }
+.dr__arrange { margin-top: 0.5rem; }
 .dr__title { margin: 0; color: var(--fg-mute); line-height: 1.4; overflow-wrap: anywhere; }
 .dr__why { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
 /* Teléfono: dos columnas, sin el número de rango (el orden ya se ve). La antigüedad arriba a la

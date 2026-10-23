@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
 import ActionError from '@/features/inbox/decisions/ActionError.vue';
+import ArrangeActions from '@/features/inbox/decisions/ArrangeActions.vue';
 import AgeStamp from '@/features/inbox/decisions/AgeStamp.vue';
 import DecisionDetail from '@/features/inbox/decisions/DecisionDetail.vue';
 import InlineConfirm from '@/features/inbox/decisions/InlineConfirm.vue';
@@ -90,6 +91,7 @@ async function press() {
       <div id="first-detail" class="fd__detail" :class="{ 'fd__detail--open': whyOpen }">
         <DecisionDetail ref="detail" v-model:comment="act.comment.value" :entry="entry" />
       </div>
+      <ArrangeActions :item="entry.item" />
     </article>
   </div>
 </template>
