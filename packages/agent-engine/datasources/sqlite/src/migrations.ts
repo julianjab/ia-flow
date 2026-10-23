@@ -93,6 +93,18 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (key, counter)
   );
   `,
+  // 4 — las corridas que esperan turno o lugar bajo el tope, con el evento que las disparó: una
+  // espera vive en memoria, y sin esto un reinicio (un deploy) la perdía sin rastro. Al arrancar
+  // el store re-despacha su evento y la borra.
+  `
+  CREATE TABLE execution_queue (
+    id          TEXT PRIMARY KEY,
+    key         TEXT NOT NULL,
+    pipeline_id TEXT NOT NULL,
+    queued_at   TEXT NOT NULL,
+    event_json  TEXT NOT NULL
+  );
+  `,
 ]
 
 /** Lleva la base a la última versión del esquema (`PRAGMA user_version`). */

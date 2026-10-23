@@ -11,7 +11,7 @@ fuera del core.
 ```
 src/
 ├── SqliteDatabase.ts             el puerto: la base síncrona que comparten node:sqlite y bun:sqlite
-├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread
+├── SqliteExecutionRepository.ts  el repositorio: save / delivered / read / live / unread / queued
 ├── SqliteExecutionStore.ts       ExecutionStore sobre ese repositorio (+ close)
 ├── SqliteRunCounter.ts           `run_counts`: el RunCounter de `maxRuns` (sobrevive al reinicio)
 ├── SqliteDispatchJournal.ts      `event_log`: el DispatchJournal del Engine + `append` (lo que la app ignora)
@@ -47,6 +47,9 @@ src/
 - **El tope de corridas** (migración 3, `run_counts`): una fila por (task, contador) con la cuenta y
   la última corrida contada. Tabla propia y no columnas de `executions`: su CHECK de `status` no
   se puede alterar sin reconstruir la tabla, y la cuenta no es de una ejecución sino de la task.
+- **Las corridas en espera** (migración 4, `execution_queue`): una fila por corrida que espera
+  turno o lugar, con el evento que la disparó (`queued`/`unqueued`). Se borra al arrancar o ser
+  reemplazada; las que quedan al reiniciar las re-despacha el store por `takeOrphaned`.
 - `node:sqlite` imprime un `ExperimentalWarning` al cargarse.
 
 ## Antes de commitear

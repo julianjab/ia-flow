@@ -7,7 +7,7 @@ import {
   type ExecutionRecord,
   type ExecutionStatus,
 } from './Execution.js'
-import type { ExecutionRepository } from './ExecutionRepository.js'
+import type { ExecutionRepository, QueuedRun } from './ExecutionRepository.js'
 import { type ExecutionGroups, ExecutionScheduler } from './ExecutionScheduler.js'
 import { InMemoryRunCounter } from './InMemoryRunCounter.js'
 import type { RunCounter } from './RunCounter.js'
@@ -23,6 +23,10 @@ export interface StartExecution {
    *  (`keep`, el default del store; el de una `Pipeline` es `replace`). La que ya corre nunca se
    *  reemplaza. */
   ifQueued?: IfQueued
+  /** El evento que la disparó: mientras espera, queda anotado en el repositorio
+   *  (`ExecutionRepository.queued`) y, si el proceso muere antes de que arranque, se re-despacha al
+   *  reiniciar (`takeOrphaned`). */
+  event?: DomainEvent<any>
 }
 
 /** Una corrida esperando turno que se puede reemplazar: la marca la corrida que llega después. */
@@ -174,9 +178,46 @@ export class ExecutionStore {
     pipelineId,
     ifPaused = 'supersede',
     ifQueued = 'keep',
+    event,
   }: StartExecution): Promise<Execution | undefined> {
     const queuedAt = Date.now()
     const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
+    const waiting = this.noteQueued(key, pipelineId, queuedAt, event)
+    try {
+      return await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket)
+    } finally {
+      if (waiting) this.repository.unqueued?.(waiting)
+    }
+  }
+
+  /** Anota la espera con su evento, si el repositorio sabe guardarla. Devuelve su id. */
+  private noteQueued(
+    key: string,
+    pipelineId: string,
+    queuedAt: number,
+    event: DomainEvent<any> | undefined,
+  ): string | undefined {
+    if (!event || !this.repository.queued) return undefined
+    // Un id propio, no el de `newId`: el de la espera no es el de una ejecución.
+    const id = `queued:${globalThis.crypto.randomUUID()}`
+    this.repository.queued({
+      id,
+      key,
+      pipelineId,
+      queuedAt: new Date(queuedAt).toISOString(),
+      event,
+    })
+    return id
+  }
+
+  /** Espera el turno de la task y un lugar bajo el tope, y abre la ejecución (o cede). */
+  private async takeTurn(
+    key: string,
+    pipelineId: string,
+    queuedAt: number,
+    ifPaused: IfPaused,
+    ticket: QueuedTicket | undefined,
+  ): Promise<Execution | undefined> {
     for (;;) {
       const { ready, release } = this.scheduler.enter(key)
       await ready
@@ -304,6 +345,27 @@ export class ExecutionStore {
       this.log.warn(`${record.id} se interrumpió con el proceso: queda failed`, {
         'ia.execution.id': record.id,
       })
+    }
+    this.recoverWaiting(this.repository.waiting?.() ?? [])
+  }
+
+  /**
+   * Las corridas que esperaban turno o lugar cuando el proceso murió: su evento vuelve a pasar por
+   * las reglas, como lo que una interrumpida no leyó (`takeOrphaned`). Una vez por evento: un
+   * mismo evento pudo encolar varias pipelines, y re-despacharlo las vuelve a decidir a todas con
+   * los hechos de ahora.
+   */
+  private recoverWaiting(waiting: QueuedRun[]): void {
+    const seen = new Set<string>()
+    for (const run of waiting) {
+      this.repository.unqueued?.(run.id)
+      if (seen.has(run.event.id)) continue
+      seen.add(run.event.id)
+      this.orphaned.push({ executionId: run.id, events: [run.event] })
+      this.log.warn(
+        `${run.pipelineId} esperaba turno en ${run.key} cuando el proceso se reinició: su evento se re-despacha`,
+        { 'ia.pipeline.id': run.pipelineId },
+      )
     }
   }
 

@@ -429,6 +429,13 @@ Reglas que no son obvias al leer el código:
   intentos seguidos y 24 h desde que guardó (`ExecutionStoreOptions.resume`); pasados, cierra
   `failed/interrupted` como antes. Un agente anidado (destino de una salida) no guarda progreso:
   no hay cómo seguir una lista de destinos a medias.
+- **Una corrida que espera turno o lugar sobrevive al reinicio por su evento.** La espera vive en
+  memoria (`ExecutionScheduler`); sin más, un deploy perdía sin rastro las que esperaban
+  (subscriptions#1762: 5 refiners de una épica en cola, ninguno corrió). Con `start({ event })` —
+  el coordinador lo pasa siempre— el store la anota en el repositorio (`queued`/`unqueued`,
+  opcionales) mientras espera; al arrancar, las que quedaron salen por `takeOrphaned` UNA vez por
+  evento y el `Engine` las re-despacha: el evento vuelve a pasar por las reglas con los hechos de
+  ahora, como lo que una interrumpida no leyó.
 - **Topes, del más general al más fino** — se suman, ninguno reemplaza a otro:
   1. el turno de la task (`KeyedQueue`: una task nunca corre dos a la vez);
   2. el de su grupo (`ExecutionStoreOptions.groups`: ej. las tasks de un proyecto);

@@ -5,6 +5,7 @@ import type {
   ExecutionRepository,
   ExecutionStatus,
   PauseJSON,
+  QueuedRun,
 } from '@ia-flow/agent-engine'
 import { migrate } from './migrations.js'
 import type { SqliteDatabase } from './SqliteDatabase.js'
@@ -104,6 +105,44 @@ export class SqliteExecutionRepository implements ExecutionRepository {
       )
       .all(executionId) as Array<{ event_json: string }>
     return rows.map((row) => JSON.parse(row.event_json) as DomainEvent<any>)
+  }
+
+  queued(run: QueuedRun): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO execution_queue (id, key, pipeline_id, queued_at, event_json)
+         VALUES ($id, $key, $pipelineId, $queuedAt, $event)`,
+      )
+      .run({
+        $id: run.id,
+        $key: run.key,
+        $pipelineId: run.pipelineId,
+        $queuedAt: run.queuedAt,
+        $event: JSON.stringify(run.event),
+      })
+  }
+
+  unqueued(id: string): void {
+    this.db.prepare('DELETE FROM execution_queue WHERE id = ?').run(id)
+  }
+
+  waiting(): QueuedRun[] {
+    const rows = this.db
+      .prepare('SELECT * FROM execution_queue ORDER BY queued_at, id')
+      .all() as Array<{
+      id: string
+      key: string
+      pipeline_id: string
+      queued_at: string
+      event_json: string
+    }>
+    return rows.map((row) => ({
+      id: row.id,
+      key: row.key,
+      pipelineId: row.pipeline_id,
+      queuedAt: row.queued_at,
+      event: JSON.parse(row.event_json) as DomainEvent<any>,
+    }))
   }
 
   /** Una ejecución guardada, por id — para inspeccionar o depurar. */

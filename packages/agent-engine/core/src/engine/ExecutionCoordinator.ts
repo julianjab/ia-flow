@@ -239,6 +239,7 @@ export class ExecutionCoordinator {
         pipelineId: pipeline.id,
         ifPaused: pipeline.ifPaused,
         ifQueued: pipeline.ifQueued,
+        event,
       })
       // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó.
       if (!execution) return undefined

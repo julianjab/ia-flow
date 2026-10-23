@@ -84,7 +84,7 @@ export type {
 export { Execution } from './engine/Execution.js'
 export type { Offer } from './engine/ExecutionCoordinator.js'
 export { interruptNotice } from './engine/ExecutionCoordinator.js'
-export type { ExecutionRepository } from './engine/ExecutionRepository.js'
+export type { ExecutionRepository, QueuedRun } from './engine/ExecutionRepository.js'
 export type { ExecutionGroups } from './engine/ExecutionScheduler.js'
 export type {
   ExecutionListener,

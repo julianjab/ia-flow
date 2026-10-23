@@ -14,4 +14,22 @@ export interface ExecutionRepository extends ExecutionJournal {
   live(): ExecutionRecord[]
   /** Lo que se le entregó a `executionId` y nadie leyó. */
   unread(executionId: string): DomainEvent<any>[]
+  /** Una corrida que espera turno o lugar bajo el tope, con el evento que la disparó: una espera
+   *  vive en memoria, y sin esto un reinicio la perdía sin rastro. Opcional: sin él, igual que
+   *  antes. */
+  queued?(run: QueuedRun): void
+  /** Su espera terminó: arrancó, la reemplazaron o cedió. */
+  unqueued?(id: string): void
+  /** Las que quedaron esperando cuando el proceso murió. */
+  waiting?(): QueuedRun[]
+}
+
+/** Una corrida esperando turno (`ExecutionRepository.queued`). */
+export interface QueuedRun {
+  id: string
+  key: string
+  pipelineId: string
+  /** ISO. */
+  queuedAt: string
+  event: DomainEvent<any>
 }

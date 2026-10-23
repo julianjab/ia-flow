@@ -1,11 +1,12 @@
 import type { DomainEvent } from '../events/DomainEvent.js'
 import type { ExecutionRecord } from './Execution.js'
-import type { ExecutionRepository } from './ExecutionRepository.js'
+import type { ExecutionRepository, QueuedRun } from './ExecutionRepository.js'
 
 /** Repositorio en memoria: alcanza para un proceso. Un reinicio lo pierde todo. */
 export class InMemoryExecutionRepository implements ExecutionRepository {
   private readonly records = new Map<string, ExecutionRecord>()
   private readonly inboxes = new Map<string, Array<{ event: DomainEvent<any>; read: boolean }>>()
+  private readonly queue = new Map<string, QueuedRun>()
   save(record: ExecutionRecord): void {
     if (record.status === 'running' || record.status === 'paused') {
       this.records.set(record.id, record)
@@ -34,5 +35,17 @@ export class InMemoryExecutionRepository implements ExecutionRepository {
     return (this.inboxes.get(executionId) ?? [])
       .filter((entry) => !entry.read)
       .map((entry) => entry.event)
+  }
+
+  queued(run: QueuedRun): void {
+    this.queue.set(run.id, run)
+  }
+
+  unqueued(id: string): void {
+    this.queue.delete(id)
+  }
+
+  waiting(): QueuedRun[] {
+    return [...this.queue.values()]
   }
 }
