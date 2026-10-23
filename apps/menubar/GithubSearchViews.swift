@@ -11,7 +11,7 @@ struct GithubSearchScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
+                IconButton(symbol: "chevron.left", help: "Volver") { runner.goBack() }
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Buscar en GitHub").font(.lh(17, .bold))
                     Text("Cualquier repo de \(model.org)").font(.lh(12)).foregroundStyle(.secondary)

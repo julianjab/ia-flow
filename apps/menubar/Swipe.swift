@@ -10,7 +10,7 @@ struct SwipeAction: Identifiable {
     let id: String
     let icon: String
     let label: String
-    var color: Color = .accentColor
+    var color: Color = Palette.blue
     let run: () -> Void
 }
 

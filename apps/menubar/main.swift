@@ -113,11 +113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         popover.animates = true
         popover.delegate = self
 
-        contextMenu.addItem(menuItem("Abrir en una ventana", #selector(openWindow)))
-        contextMenu.addItem(menuItem("Actualizar", #selector(refreshAction)))
-        contextMenu.addItem(menuItem("Editar servicios…", #selector(editAction)))
-        contextMenu.addItem(.separator())
-        contextMenu.addItem(menuItem("Salir (detiene los procesos que levantó)", #selector(quitAction), key: "q"))
         model.onDetach = { [weak self] in self?.openWindow() }
         model.onFloating = { [weak self] on in self?.window?.level = on ? .floating : .normal }
         installMainMenu()
@@ -151,57 +146,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func screenshots(_ base: String) {
         popoverMaxScroll = 2000  // ver todo el contenido, sin el scroll del popover
         let model = AppModel.fixture()
-        model.tab = .services
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-list-\(dark ? "dark" : "light").png") }
-        model.tab = .runner
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-runner-\(dark ? "dark" : "light").png") }
-        model.runner.query = "funnel"
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-\(dark ? "dark" : "light").png") }
-        model.runner.query = ""
-        model.runner.repoFilter = "subscriptions"
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-repo-\(dark ? "dark" : "light").png") }
-        model.runner.repoFilter = nil
-        model.tab = .assistant
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-assistant-\(dark ? "dark" : "light").png") }
-        model.tab = .runner
-        model.runner.screen = .logs
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-logs-\(dark ? "dark" : "light").png") }
-        if let running = model.runner.running.first {
-            model.runner.watch(running)
-            model.runner.watching?.expanded = ["7"]
+        let runner = model.runner
+        func shot(_ name: String, both: Bool = true) {
+            for dark in both ? [false, true] : [true] { renderPNG(model, dark: dark, to: "\(base)-\(name)-\(dark ? "dark" : "light").png") }
+        }
+        runner.tab = .mine
+        shot("runner")
+        runner.tab = .running
+        shot("running")
+        runner.tab = .next
+        shot("next")
+        runner.tab = .mine
+        runner.searchOpen = true
+        runner.query = "funnel"
+        shot("search")
+        runner.query = ""
+        runner.repoFilter = "subscriptions"
+        shot("repo")
+        runner.toggleSearch()
+        model.assistantOpen = true
+        popoverMaxScroll = 520  // el chat tiene su propio scroll: con el tope real
+        shot("assistant")
+        popoverMaxScroll = 2000
+        model.assistantOpen = false
+        runner.showRunners()
+        shot("runners")
+        runner.goHome()
+        runner.showLogs()
+        shot("logs")
+        runner.goHome()
+        if let running = runner.running.first {
+            runner.watch(running)
+            runner.watching?.expanded = ["7"]
             popoverMaxScroll = 520  // la traza tiene su propio scroll: con el tope real
-            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-run-\(dark ? "dark" : "light").png") }
-            model.runner.closeRun()
+            shot("run")
+            runner.goHome()
             // un review con dos agentes en paralelo: cada uno con su estado, y la traza filtrable por agente
-            if let review = model.runner.running.first(where: { $0.execution?.parallelAgents != nil }) {
-                model.runner.watch(review)
-                for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-run-review-\(dark ? "dark" : "light").png") }
-                model.runner.closeRun()
+            if let review = runner.running.first(where: { $0.execution?.parallelAgents != nil }) {
+                runner.watch(review)
+                shot("run-review", both: false)
+                runner.goHome()
             }
             popoverMaxScroll = 2000
         }
-        if let epic = model.runner.epics.first {
-            model.runner.showEpic(epic.epic.ref)
-            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-epic-\(dark ? "dark" : "light").png") }
-            model.runner.closeEpic()
+        if let first = runner.decisions.first {
+            runner.showTask(first)
+            popoverMaxScroll = 520
+            shot("detail")
+            popoverMaxScroll = 2000
+            runner.goHome()
         }
-        model.runner.showGithub()
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-\(dark ? "dark" : "light").png") }
-        model.runner.githubSearch?.pickingRepo = true
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-search-gh-repos-\(dark ? "dark" : "light").png") }
-        model.runner.showImprovements()
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-improvements-\(dark ? "dark" : "light").png") }
-        if let first = model.runner.improvements.first {
-            model.runner.discuss(first)
+        if let epic = runner.epics.first {
+            runner.showEpic(epic.epic.ref)
+            shot("epic")
+            runner.goHome()
+        }
+        runner.showGithub()
+        shot("search-gh")
+        runner.githubSearch?.pickingRepo = true
+        shot("search-gh-repos", both: false)
+        runner.githubSearch?.pickingRepo = false
+        runner.goHome()
+        runner.showImprovements()
+        shot("improvements")
+        if let first = runner.improvements.first {
+            runner.discuss(first)
             popoverMaxScroll = 520  // el chat tiene su propio scroll: con el tope real
-            for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-improvement-why-\(dark ? "dark" : "light").png") }
+            shot("improvement-why", both: false)
             popoverMaxScroll = 2000
         }
-        model.runner.screen = .inbox
-        model.runner.health = RunnerHealth.fixture
-        model.runner.screen = .health
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-health-\(dark ? "dark" : "light").png") }
-        model.runner.screen = .inbox
+        runner.goHome()
+        runner.health = RunnerHealth.fixture
+        runner.showHealth()
+        shot("health")
+        runner.goHome()
         if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,
            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: "\(base)-badge.png"))
@@ -215,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let event = NSApp.currentEvent
         if event?.type == .rightMouseUp || event?.modifierFlags.contains(.option) == true {
             if popover.isShown { popover.performClose(nil) }
+            buildContextMenu()
             statusItem.menu = contextMenu
             sender.performClick(nil)  // muestra el menú contextual
             statusItem.menu = nil
@@ -242,14 +261,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         model.refresh()
         model.runner.refresh()
         model.runner.startStream()
-        if model.tab == .runner {
-            switch model.runner.screen {
-            case .logs: model.runner.pollLogs()
-            case .run: model.runner.watching?.reload()
-            case .health: model.runner.checkHealth()
-            case .epic: model.runner.reloadEpic()
-            case .inbox, .github, .improvements, .improvement: break
-            }
+        switch model.runner.screen {
+        case .logs: model.runner.pollLogs()
+        case .run, .task: model.runner.watching?.reload()
+        case .health, .runners: model.runner.checkHealth()
+        case .epic: model.runner.reloadEpic()
+        case .inbox: model.runner.warmNext()
+        case .github, .improvements, .improvement: break
         }
         guard openTimer == nil else { return }
         var tick = 0
@@ -257,14 +275,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             guard let self else { return }
             tick += 1
             self.model.refresh()
-            guard self.model.tab == .runner else { return }
             switch self.model.runner.screen {
             case .logs: self.model.runner.pollLogs()
-            case .run: self.model.runner.watching?.poll()
-            case .health: if tick % 2 == 0 { self.model.runner.checkHealth() }
+            case .run, .task: self.model.runner.watching?.poll()
+            case .health, .runners: if tick % 2 == 0 { self.model.runner.checkHealth() }
             // Con el stream conectado la bandeja se relee cuando algo cambia: acá sólo un respaldo cada minuto.
             // (las mejoras vienen con la bandeja)
-            case .inbox, .improvements, .improvement: if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
+            case .inbox, .improvements, .improvement:
+                if tick % (self.model.runner.live ? 20 : 2) == 0 { self.model.runner.refresh() }
+                if tick % 20 == 0 { self.model.runner.warmNext() }
             case .github, .epic: break
             }
         }
@@ -283,6 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     func popoverDidClose(_ notification: Notification) {
         if window == nil {
             model.confirm = nil
+            model.assistantOpen = false
             model.runner.comment = nil
         }
         popover.contentViewController = nil  // libera la vista SwiftUI
@@ -400,13 +420,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     // MARK: menú contextual
 
+    /// Lo poco frecuente: actualizar, la ventana, los servidores y servicios, la sesión de GitHub y salir.
+    private func buildContextMenu() {
+        contextMenu.removeAllItems()
+        contextMenu.addItem(menuItem("Actualizar", #selector(refreshAction)))
+        contextMenu.addItem(menuItem("Abrir en una ventana", #selector(openWindow)))
+        contextMenu.addItem(.separator())
+        contextMenu.addItem(menuItem("Editar servidores…", #selector(editServersAction)))
+        contextMenu.addItem(menuItem("Editar servicios…", #selector(editAction)))
+        contextMenu.addItem(.separator())
+        if let session = model.runner.github {
+            contextMenu.addItem(menuItem("Cerrar la sesión de GitHub (@\(session.login))", #selector(logoutAction)))
+        } else {
+            contextMenu.addItem(menuItem("Iniciar sesión con GitHub", #selector(loginAction)))
+        }
+        contextMenu.addItem(.separator())
+        contextMenu.addItem(menuItem("Salir de ia-flow (detiene los procesos que levantó)", #selector(quitAction), key: "q"))
+    }
+
     private func menuItem(_ title: String, _ selector: Selector, key: String = "") -> NSMenuItem {
         let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
         item.target = self
         return item
     }
 
-    @objc private func refreshAction() { model.refresh() }
+    @objc private func refreshAction() { model.refresh(); model.runner.refresh() }
+    @objc private func editServersAction() { model.runner.openServersFile() }
+    @objc private func logoutAction() { model.runner.logout() }
+    /// El código del device flow se ve en el popover: se abre con él.
+    @objc private func loginAction() {
+        model.runner.beginLogin()
+        if window == nil, let button = statusItem.button { showPopover(button) }
+    }
     @objc private func editAction() { model.editConfig() }
     @objc private func quitAction() { model.quit() }
 }

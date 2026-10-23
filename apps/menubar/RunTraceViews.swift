@@ -149,7 +149,7 @@ struct RunTraceScreen: View {
         return HStack(spacing: 8) {
             if let main {
                 Button(main.confirms ? "\(main.label)…" : main.label) { runner.trigger(main, on: watch.item) }
-                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? .red : .accentColor, compact: true))
+                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? Palette.red : Palette.blue, compact: true))
                     .fixedSize().disabled(busy)
             }
             if !rest.isEmpty {
@@ -167,10 +167,10 @@ struct RunTraceScreen: View {
             Spacer(minLength: 4)
             Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
             Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Color.accentColor : .secondary)
+                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Palette.link : .secondary)
                 .help("Seguir el final")
             Toggle(isOn: $watch.showModel) { Image(systemName: "cpu") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Color.accentColor : .secondary)
+                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Palette.link : .secondary)
                 .help("Mostrar las llamadas al modelo")
             IconButton(symbol: "doc.on.doc", help: "Copiar la traza") { watch.copy(); runner.toast?("Traza copiada") }
             IconButton(symbol: "arrow.clockwise", help: "Releer") { watch.reload() }

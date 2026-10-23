@@ -19,16 +19,17 @@ struct ServiceGroup: Identifiable {
 }
 
 final class AppModel: ObservableObject {
-    enum Tab { case services, runner, assistant }
-
     @Published private(set) var services: [Service]
-    @Published var tab: Tab = .runner
-    /// La pestaña «Runner»: la bandeja del server elegido, sus épicas y su log.
+    /// La bandeja del server elegido (Para mí · En curso · Próximo), sus pantallas y su log.
     let runner: RunnerModel
-    /// La pestaña «Asistente»: el chat del runner elegido, general o sobre una tarea.
+    /// El chat del runner elegido, general o sobre una tarea: la caja al pie lo abre como panel encima.
     let assistant: AssistantModel
+    /// El panel del asistente está abierto sobre la vista.
+    @Published var assistantOpen = false
     @Published var confirm: ConfirmRequest?
     @Published var toast: String?
+    /// «Deshacer» del aviso, si lo tiene.
+    @Published var toastUndo: (() -> Void)?
     /// Avisa al ícono de la barra de menú (corriendo / en reposo).
     var onChange: (() -> Void)?
     /// «Abrir en una ventana» (lo resuelve la app: cierra el popover y abre la ventana).
@@ -47,12 +48,16 @@ final class AppModel: ObservableObject {
         assistant = isFixture ? AssistantModel.fixture(runner: self.runner) : AssistantModel(runner: self.runner)
         self.services.forEach(wire)
         self.runner.onAsk = { [weak self] item in self?.ask(about: item) }
+        // Una tarea que nombra el asistente: el buscador con su ref.
         assistant.showTask = { [weak self] ref in
-            self?.runner.query = ref
-            self?.runner.screen = .inbox
-            self?.tab = .runner
+            guard let self else { return }
+            self.assistantOpen = false
+            self.runner.goHome()
+            self.runner.searchOpen = true
+            self.runner.query = ref
         }
         self.runner.toast = { [weak self] in self?.showToast($0) }
+        self.runner.undoToast = { [weak self] text, undo in self?.showToast(text, undo: undo) }
         self.runner.confirm = { [weak self] in self?.confirm = $0 }
         refresh()
     }
@@ -96,15 +101,22 @@ final class AppModel: ObservableObject {
 
     func restart(_ service: Service) { service.restart() }
 
-    func selectTab(_ tab: Tab) {
-        self.tab = tab
-        if tab == .runner { runner.refresh() }
-        if tab == .assistant { assistant.appear() }
+    /// Una vista de la bandeja (Para mí · En curso · Próximo): cierra el asistente y lo que estaba encima.
+    func show(_ tab: InboxTab) {
+        assistantOpen = false
+        runner.goHome(tab)
     }
 
-    /// «Preguntar sobre esta tarea»: la pestaña Asistente con la tarea como tema.
+    /// La caja del pie: el chat como panel encima de lo que se ve.
+    func openAssistant(listening: Bool = false) {
+        assistantOpen = true
+        assistant.appear()
+        if listening, !Dictation.shared.isListening(assistant) { assistant.toggleListening() }
+    }
+
+    /// «Preguntar sobre esta tarea»: el panel del asistente con la tarea como tema («Sobre <ref> ×»).
     func ask(about item: InboxItem) {
-        tab = .assistant
+        assistantOpen = true
         assistant.appear()
         assistant.ask(about: item)
     }
@@ -132,10 +144,12 @@ final class AppModel: ObservableObject {
     func editConfig() { NSWorkspace.shared.open(URL(fileURLWithPath: "\(configDir)/services.json")) }
     func quit() { NSApp.terminate(nil) }
 
-    func showToast(_ text: String) {
+    /// Con `undo`, el aviso dura más y lleva «Deshacer».
+    func showToast(_ text: String, undo: (() -> Void)? = nil) {
         toast = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            if self?.toast == text { self?.toast = nil }
+        toastUndo = undo
+        DispatchQueue.main.asyncAfter(deadline: .now() + (undo == nil ? 2.5 : 6)) { [weak self] in
+            if self?.toast == text { self?.toast = nil; self?.toastUndo = nil }
         }
     }
 

@@ -40,6 +40,11 @@ func cleanTitle(_ title: String) -> String {
     return first.uppercased() + stripped.dropFirst()
 }
 
+/// `la-haus/subscriptions#4281` → `subscriptions #4281`: la ref como se lee en una ruta o una fila.
+func refLabel(_ ref: String) -> String {
+    RunnerSearch.split(ref).map { "\($0.repo) #\($0.number)" } ?? ref
+}
+
 private let isoFractional: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -112,17 +117,48 @@ struct DeviceLogin {
     var error: String?
 }
 
+/// Las tres vistas de la bandeja, con el mismo nombre que en la web.
+enum InboxTab: String, CaseIterable {
+    case mine, running, next
+
+    var title: String {
+        switch self {
+        case .mine: return "Para mí"
+        case .running: return "En curso"
+        case .next: return "Próximo"
+        }
+    }
+}
+
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health, github, improvements, improvement, epic }
+    /// `inbox` es la vista elegida (Para mí · En curso · Próximo); lo demás, pantallas que se abren encima con su ruta
+    /// de vuelta. `runners`: los runners, su estado, sus logs y los servicios de este Mac. `task`: el detalle.
+    enum Screen { case inbox, logs, run, health, github, improvements, improvement, epic, runners, task }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
     @Published private(set) var inbox: Inbox?
     /// Las mejoras propuestas abiertas del server.
     @Published fileprivate(set) var improvements: [Improvement] = []
-    @Published private(set) var error: RunnerError?
+    @Published private(set) var error: RunnerError? {
+        didSet { if error == nil { failingSince = nil } else if failingSince == nil { failingSince = Date() } }
+    }
+    /// Desde cuándo no responde (lo último que se vio queda atenuado debajo).
+    private(set) var failingSince: Date?
     @Published private(set) var loading = false
     @Published var screen: Screen = .inbox
+    /// Lo que se abrió antes de la pantalla actual: «‹ <lo anterior>» vuelve ahí.
+    @Published private(set) var trail: [Screen] = []
+    /// La vista de la bandeja que se mira (se recuerda entre aperturas).
+    @Published var tab: InboxTab = InboxTab(rawValue: UserDefaults.standard.string(forKey: "runnerTab") ?? "") ?? .mine {
+        didSet {
+            guard tab != oldValue, !isFixture else { return }
+            UserDefaults.standard.set(tab.rawValue, forKey: "runnerTab")
+            warmNext()
+        }
+    }
+    /// La lupa (⌘K): el buscador arriba y, en vez de la vista, lo que coincide.
+    @Published var searchOpen = false
     /// El estado del server (la pantalla «Estado del runner»).
     @Published var health: RunnerHealth?
     private var checkingHealth = false
@@ -132,8 +168,6 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var epicRef: String?
     @Published private(set) var epicDetail: EpicDetail?
     @Published private(set) var epicError: String?
-    /// Se abrió una tarea desde la épica: «Volver» vuelve a ella, no a la bandeja.
-    private var runFromEpic = false
     @Published var comment: CommentRequest?
     @Published var login: DeviceLogin?
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
@@ -178,6 +212,8 @@ final class RunnerModel: ObservableObject {
     /// Avisa al ícono (el badge) y a quien muestre los toasts.
     var onBadge: ((Int) -> Void)?
     var toast: ((String) -> Void)?
+    /// Un aviso con «Deshacer» (posponer).
+    var undoToast: ((String, @escaping () -> Void) -> Void)?
     /// «Preguntar sobre esta tarea» (lo resuelve la app: cambia a la pestaña Asistente).
     var onAsk: ((InboxItem) -> Void)?
     var confirm: ((ConfirmRequest) -> Void)?
@@ -190,16 +226,61 @@ final class RunnerModel: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: "runnerServer")
         selected = list.first { $0.baseUrl == saved } ?? list[0]
         self.inbox = inbox
-        restoreRepoFilter()
     }
 
     private var client: RunnerClient { RunnerClient(server: selected) }
 
-    /// Al arrancar, el repo que se había elegido para este server.
-    func restoreRepoFilter() {
-        guard !isFixture else { return }
-        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(selected.baseUrl)")
+    /// «2 min»: hace cuánto no responde el runner.
+    var downFor: String? {
+        guard let since = failingSince else { return nil }
+        let minutes = Int(Date().timeIntervalSince(since) / 60)
+        return minutes < 1 ? "menos de 1 min" : "\(minutes) min"
     }
+
+    // MARK: navegación
+
+    /// Abre `next` encima de lo que se ve; «Volver» regresa.
+    func navigate(_ next: Screen) {
+        guard next != screen else { return }
+        trail.append(screen)
+        screen = next
+    }
+
+    /// Vuelve a la pantalla anterior (la bandeja si no hay). Lo que ya no se ve se suelta.
+    func goBack() {
+        screen = trail.popLast() ?? .inbox
+        if ![.run, .task].contains(screen), !trail.contains(.run), !trail.contains(.task) { watching = nil }
+        if screen != .epic, !trail.contains(.epic) { epicRef = nil; epicDetail = nil }
+    }
+
+    /// A la bandeja, en la vista `tab` (si se pide).
+    func goHome(_ tab: InboxTab? = nil) {
+        trail = []
+        screen = .inbox
+        watching = nil
+        epicRef = nil
+        epicDetail = nil
+        if let tab { self.tab = tab }
+    }
+
+    /// Cómo se nombra una pantalla en la ruta de vuelta («‹ Para mí»).
+    func label(_ screen: Screen) -> String {
+        switch screen {
+        case .inbox: return tab.title
+        case .logs: return "Logs"
+        case .run: return "En vivo"
+        case .health: return "Estado"
+        case .github: return "GitHub"
+        case .improvements: return "Mejoras"
+        case .improvement: return "¿Por qué?"
+        case .epic: return "Épica"
+        case .runners: return "Runners"
+        case .task: return watching.map { refLabel($0.ref) } ?? "Tarea"
+        }
+    }
+
+    /// La ruta de vuelta de la pantalla actual: el nombre de la anterior.
+    var backLabel: String { label(trail.last ?? .inbox) }
 
     // MARK: lo que se muestra
 
@@ -208,6 +289,22 @@ final class RunnerModel: ObservableObject {
     }
     var running: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "run" } }
     var queued: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "queue" } }
+    /// «2 corriendo · 1 en cola · 1 de 3 lugares libres»: el estado del runner bajo su nombre.
+    var pipelineLine: String? {
+        guard let p = inbox?.pipeline else { return nil }
+        var parts = ["\(p.running) corriendo", "\(p.queued) en cola"]
+        if let free = p.free, let cap = p.capacity { parts.append("\(free) de \(cap) lugares libres") }
+        if p.paused > 0 { parts.append("\(p.paused) esperando CI") }
+        return parts.joined(separator: " · ")
+    }
+    /// Cuántas hay en cada vista: Para mí es el badge; En curso, lo que corre y la cola; Próximo, las cards de Todo.
+    func count(_ tab: InboxTab) -> Int {
+        switch tab {
+        case .mine: return pendingCount
+        case .running: return running.count + queued.count
+        case .next: return (inbox?.feed?.ready.count ?? 0) + (inbox?.feed?.waiting.count ?? 0)
+        }
+    }
     /// El badge: lo que te espera a vos (decisiones y mejoras por decidir).
     var pendingCount: Int { decisions.count + improvements.count }
 
@@ -236,7 +333,6 @@ final class RunnerModel: ObservableObject {
     @Published var repoFilter: String? {
         didSet {
             guard repoFilter != oldValue else { return }
-            if !isFixture { UserDefaults.standard.set(repoFilter, forKey: "runnerRepo:\(selected.baseUrl)") }
             searchChanged()
         }
     }
@@ -295,6 +391,12 @@ final class RunnerModel: ObservableObject {
     }
 
     func clearSearch() { query = "" }
+
+    /// La lupa: abre el buscador; cerrarlo limpia lo escrito y el repo.
+    func toggleSearch() {
+        searchOpen.toggle()
+        if !searchOpen { query = ""; repoFilter = nil }
+    }
 
     /// Espera a que se deje de escribir y busca afuera de la bandeja: el board (cacheado 1 min) y el detalle de las
     /// primeras coincidencias, que es lo que trae sus acciones.
@@ -374,6 +476,12 @@ final class RunnerModel: ObservableObject {
         }
     }
 
+    /// Próximo (o la lupa) muestra el resto del board: se trae si hace falta.
+    func warmNext() {
+        guard tab == .next || searchOpen else { return }
+        warmBoard()
+    }
+
     /// Algo cambió el board desde acá: la próxima consulta lo vuelve a traer.
     func forgetBoard() { boardCache = nil }
 
@@ -392,7 +500,7 @@ final class RunnerModel: ObservableObject {
         githubSearch = model
         if let repo { model.repo = repo }
         if let query { model.query = query }
-        screen = .github
+        navigate(.github)
     }
 
     /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
@@ -422,13 +530,14 @@ final class RunnerModel: ObservableObject {
         improvements = []
         boardCache = nil
         query = ""
-        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(server.baseUrl)")
+        repoFilter = nil
+        searchOpen = false
         error = nil
         login = nil
         comment = nil
         discussing = nil
         improvementChat = nil
-        if screen == .improvement { screen = .improvements }
+        goHome()
         resetLogs()
         refresh()
         // El stream es de un server: si estaba abierto, se reabre contra el nuevo.
@@ -497,7 +606,7 @@ final class RunnerModel: ObservableObject {
         if epicRef != ref { epicDetail = nil }
         epicRef = ref
         epicError = nil
-        screen = .epic
+        navigate(.epic)
         if isFixture, let view = epics.first(where: { $0.epic.ref == ref }) { epicDetail = .fixture(view); return }
         let server = selected
         Task { @MainActor in
@@ -514,11 +623,7 @@ final class RunnerModel: ObservableObject {
 
     func reloadEpic() { if let epicRef { showEpic(epicRef) } }
 
-    func closeEpic() {
-        screen = .inbox
-        epicRef = nil
-        epicDetail = nil
-    }
+    func closeEpic() { goBack() }
 
     /// Un sub-issue: su traza si es una card del board (de la bandeja o pedida al runner); si no, el issue.
     func openEpicChild(_ child: EpicChild) {
@@ -526,7 +631,6 @@ final class RunnerModel: ObservableObject {
         Task { @MainActor in
             if let item = await task(child.ref) {
                 watch(item)
-                runFromEpic = true
             } else {
                 openTask(child.ref)
             }
@@ -625,7 +729,7 @@ final class RunnerModel: ObservableObject {
             if result.ok {
                 improvements.removeAll { $0.id == improvement.id }
                 onBadge?(pendingCount)
-                if discussing?.id == improvement.id, screen == .improvement { screen = .improvements }
+                if discussing?.id == improvement.id, screen == .improvement { goBack() }
             }
             refresh()
         }
@@ -633,7 +737,7 @@ final class RunnerModel: ObservableObject {
 
     // MARK: mejoras propuestas
 
-    func showImprovements() { screen = .improvements }
+    func showImprovements() { navigate(.improvements) }
 
     /// «¿Por qué?»: un chat con el asistente sobre la tarea de la mejora, con la mejora como contexto. La misma
     /// mejora retoma su chat; otra empieza uno nuevo.
@@ -649,7 +753,7 @@ final class RunnerModel: ObservableObject {
             improvementChat = chat
             discussing = improvement
         }
-        screen = .improvement
+        navigate(.improvement)
     }
 
     func openTask(_ ref: String) { NSWorkspace.shared.open(githubURL(ref)) }
@@ -795,7 +899,7 @@ final class RunnerModel: ObservableObject {
 
     func showHealth() {
         if health?.info == nil || health.map({ Date().timeIntervalSince($0.checkedAt) > 10 }) == true { health = nil }
-        screen = .health
+        navigate(.health)
         checkHealth()
     }
 
@@ -815,17 +919,39 @@ final class RunnerModel: ObservableObject {
 
     /// Abre la traza de la tarea: lo que hace el agente ahora, o su última ejecución.
     func watch(_ item: InboxItem) {
-        runFromEpic = false
+        // desde el detalle de la misma tarea, la misma traza (con la ejecución que se eligió)
+        if screen == .task, let current = watching, current.ref == item.ref { return navigate(.run) }
         let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
         watching = next
-        screen = .run
+        navigate(.run)
         next.poll()
     }
 
-    func closeRun() {
-        screen = runFromEpic && epicRef != nil ? .epic : .inbox
-        runFromEpic = false
-        watching = nil
+    func closeRun() { goBack() }
+
+    /// El detalle de una tarea: por qué te necesita, sus ejecuciones y sus eventos, con todas sus acciones.
+    func showTask(_ item: InboxItem) {
+        let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
+        watching = next
+        navigate(.task)
+        next.poll()
+    }
+
+    func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        toast?("Copiado: \(text)")
+    }
+
+    /// Los runners, su estado y los servicios de este Mac (se abre desde el nombre del runner).
+    func showRunners() {
+        navigate(.runners)
+        checkHealth()
+    }
+
+    func showLogs() {
+        navigate(.logs)
+        pollLogs()
     }
 
     // MARK: log del server

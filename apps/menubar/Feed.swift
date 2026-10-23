@@ -38,17 +38,24 @@ extension RunnerModel {
 
     /// A dónde se puede mover una card de Todo: las columnas de su proyecto menos la suya.
     func destinations(_ item: FeedItem) -> [String] {
-        statuses(project: item.project_id).filter { $0.caseInsensitiveCompare(item.status ?? "") != .orderedSame }
+        destinations(ref: item.ref, project: item.project_id, status: item.status)
+    }
+
+    /// Las columnas del proyecto de una card menos la suya.
+    func destinations(ref: String, project: String?, status: String?) -> [String] {
+        statuses(project: project).filter { $0.caseInsensitiveCompare(status ?? "") != .orderedSame }
     }
 
     func open(_ item: FeedItem) { openTask(item.ref) }
 
     /// Mover sale directo (es elegir en un menú); 409 si un agente la trabaja o ya está ahí: el runner lo dice.
-    func move(_ item: FeedItem, to status: String) {
+    func move(_ item: FeedItem, to status: String) { move(ref: item.ref, to: status) }
+
+    func move(ref: String, to status: String) {
         guard !isFixture else { return }
         Task { @MainActor in
-            await signed(item.ref, what: "mover la card", okPrefix: item.shortRef) { client, token in
-                await client.move(ref: item.ref, to: status, github: token)
+            await signed(ref, what: "mover la card", okPrefix: "✓ \(shortRef(ref)) movida a \(status)") { client, token in
+                await client.move(ref: ref, to: status, github: token)
             }
         }
     }

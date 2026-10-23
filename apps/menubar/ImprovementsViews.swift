@@ -11,7 +11,7 @@ struct ImprovementsScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
+                IconButton(symbol: "chevron.left", help: "Volver") { runner.goBack() }
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Mejoras propuestas").font(.lh(17, .bold))
                     Text("Las deja la retrospectiva al mergearse un PR").font(.lh(12)).foregroundStyle(.secondary)
@@ -51,7 +51,7 @@ struct ImprovementChatScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver a las mejoras") { runner.screen = .improvements }
+                IconButton(symbol: "chevron.left", help: "Volver a las mejoras") { runner.goBack() }
                 Text("¿Por qué?").font(.lh(17, .bold))
                 Spacer()
                 IconButton(symbol: "square.and.pencil", help: "Conversación nueva") { chat.discuss(improvement) }
@@ -145,7 +145,7 @@ struct ImprovementRow: View {
                 Button { runner.decide(improvement, open: true) } label: {
                     if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) } else { Text("Abrir issue…") }
                 }
-                .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(busy)
+                .buttonStyle(PillButtonStyle(tint: Palette.blue, compact: true)).fixedSize().disabled(busy)
                 Button("Descartar…") { runner.decide(improvement, open: false) }
                     .buttonStyle(PillButtonStyle(tint: .secondary, compact: true)).fixedSize().disabled(busy)
                 if detailed {
