@@ -236,6 +236,8 @@ export const BoardRestItemSchema = z.object({
   labels: z.array(z.string()),
   updated_at: z.string(),
   pr: z.object({ number: z.number(), url: z.string() }).optional(),
+  /** Cuándo se cerró (ISO): sólo las de `closed`. */
+  closed_at: z.string().optional(),
 })
 export type BoardRestItem = z.infer<typeof BoardRestItemSchema>
 
@@ -779,6 +781,9 @@ export type AssistantConversation = z.infer<typeof AssistantConversationSchema>
 /** `GET /api/board`: lo que la bandeja no muestra, por columna y en el orden del board. */
 export const BoardRestSchema = z.object({
   columns: z.array(z.object({ status: z.string(), items: z.array(BoardRestItemSchema) })),
+  /** Con `?closed=1`: las cards cerradas del board, las más recientes primero (hasta 100 por
+   *  board). Sin el parámetro, o con un runner viejo, ausente. */
+  closed: z.array(BoardRestItemSchema).optional(),
 })
 export type BoardRest = z.infer<typeof BoardRestSchema>
 

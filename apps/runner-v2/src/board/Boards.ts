@@ -1,5 +1,6 @@
 import type { GithubClient } from '@ia-flow/github-api'
 import type { BoardCard, BoardMeta, BoardWriter } from '@ia-flow/github-tools'
+import type { ClosedCard } from '../inbox/ClosedCards.js'
 import type { Board } from './Board.js'
 import { RefreshingCache } from './RefreshingCache.js'
 
@@ -21,6 +22,7 @@ export function changedRefs(previous: BoardCard[], next: BoardCard[]): string[] 
 export interface InboxBoards {
   cards(spec: { projectId: string }): Promise<BoardCard[]>
   meta(spec: { projectId: string }): Promise<BoardMeta>
+  closed(spec: { projectId: string }): Promise<ClosedCard[]>
 }
 
 /** El board de cada proyecto del runner. */
@@ -99,6 +101,11 @@ export class Boards implements InboxBoards {
 
   meta(spec: { projectId: string }): Promise<BoardMeta> {
     return this.of(spec.projectId).meta()
+  }
+
+  /** Las cerradas de ese board; uno que no las sabe leer (el de labels), ninguna. */
+  closed(spec: { projectId: string }): Promise<ClosedCard[]> {
+    return this.of(spec.projectId).closed?.() ?? Promise.resolve([])
   }
 
   /** Para escribir con otra identidad (la de la persona que usa la bandeja). `undefined` si el

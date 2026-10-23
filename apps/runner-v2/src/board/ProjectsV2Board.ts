@@ -9,6 +9,7 @@ import {
 } from '@ia-flow/github-tools'
 import { locate } from '@ia-flow/github-webhook'
 import type { BoardReader } from '../inbox/BoardReader.js'
+import { type ClosedCard, ClosedCardsReader } from '../inbox/ClosedCards.js'
 import { statusChangeWebhook } from '../inbox/statusChangeWebhook.js'
 import type { Board, BoardRef, EventLocator, RawDelivery } from './Board.js'
 
@@ -24,6 +25,7 @@ export class ProjectsV2Board implements Board {
   readonly kind = 'projects-v2' as const
   private readonly fields: ProjectsV2Fields
   private readonly adder: ProjectsV2Adder
+  private readonly closedReader: ClosedCardsReader
 
   constructor(
     readonly projectId: string,
@@ -33,6 +35,7 @@ export class ProjectsV2Board implements Board {
   ) {
     this.fields = new ProjectsV2Fields(client, ref)
     this.adder = new ProjectsV2Adder(client, ref)
+    this.closedReader = new ClosedCardsReader(client)
   }
 
   describe(): string {
@@ -45,6 +48,10 @@ export class ProjectsV2Board implements Board {
 
   meta(): Promise<BoardMeta> {
     return this.reader.meta({ projectId: this.projectId, board: this.ref })
+  }
+
+  closed(): Promise<ClosedCard[]> {
+    return this.closedReader.closed({ projectId: this.projectId, board: this.ref })
   }
 
   invalidate(): void {

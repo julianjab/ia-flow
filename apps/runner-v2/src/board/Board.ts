@@ -7,6 +7,7 @@
  * La elige `project.yaml` (`board:`). El engine no sabe que existe: ve los eventos que el intake
  * ya armó (`item.status`, `item.labels`, …).
  */
+
 import type { GithubClient } from '@ia-flow/github-api'
 import type {
   BoardAdder,
@@ -16,6 +17,7 @@ import type {
   IntakeBoard,
 } from '@ia-flow/github-tools'
 import type { Location } from '@ia-flow/github-webhook'
+import type { ClosedCard } from '../inbox/ClosedCards.js'
 
 export type BoardKind = 'projects-v2' | 'issues'
 
@@ -42,6 +44,8 @@ export interface BoardView {
   cards(): Promise<BoardCard[]>
   /** Sus links y el orden de sus columnas. */
   meta(): Promise<BoardMeta>
+  /** Las cards cerradas, las más recientes primero. Un board que no las sabe leer no lo trae. */
+  closed?(): Promise<ClosedCard[]>
   invalidate(): void
 }
 

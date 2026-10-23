@@ -4,6 +4,7 @@
  * el detalle de una tarea (sus ejecuciones, eventos y traza), el "¿por qué corrió / no corrió?" y
  * el resto del board (lo que la bandeja no muestra).
  */
+
 import type {
   BoardRest,
   BoardRestItem,
@@ -21,6 +22,7 @@ import type {
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
 import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
+import { type ClosedCard, newestClosed } from './ClosedCards.js'
 import {
   anytimeActions,
   type BoardCard,
@@ -43,6 +45,8 @@ export interface InboxServiceOptions {
     cards(spec: BoardSpec): Promise<BoardCard[]>
     /** Los links y columnas del Project. Sin esto, el link del Project sin la vista de tablero. */
     meta?(spec: BoardSpec): Promise<BoardMeta>
+    /** Las cards cerradas, las más recientes primero. Sin esto, `rest` no trae `closed`. */
+    closed?(spec: BoardSpec): Promise<ClosedCard[]>
   }
   activity: ActivityPort
   /** Los issues abiertos de un repo del catálogo (`RepoIssuesReader`). Sin esto, no hay
@@ -167,7 +171,8 @@ export class InboxService {
 
   /** Lo que la bandeja no muestra —las cards sin pendientes—, por columna
    *  en el orden del board; una columna que el board no declara, al final. */
-  async rest(projectId?: string): Promise<BoardRest> {
+  async rest(projectId?: string, options: { closed?: boolean } = {}): Promise<BoardRest> {
+    const closed = options.closed ? await this.closedCards(projectId) : undefined
     const cards = await this.boardCards(projectId)
     const shown = new Set((await this.inbox(projectId)).items.map((item) => item.ref))
     const order: string[] = []
@@ -204,7 +209,25 @@ export class InboxService {
           status,
           items: items.sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
         })),
+      ...(closed ? { closed } : {}),
     }
+  }
+
+  /** Las cards cerradas de los boards (de un proyecto o de todos), las más recientes primero. */
+  private async closedCards(projectId?: string): Promise<BoardRestItem[]> {
+    const read = this.options.board.closed
+    if (!read) return []
+    const all = (await Promise.all(this.specs(projectId).map((spec) => read(spec)))).flat()
+    return newestClosed(all).map((card) => ({
+      ref: card.ref,
+      project_id: card.projectId,
+      title: card.title,
+      url: card.url,
+      ...(card.status ? { status: card.status } : {}),
+      labels: card.labels,
+      updated_at: card.closedAt,
+      closed_at: card.closedAt,
+    }))
   }
 
   /** Por repo del catálogo de los proyectos, sus issues abiertos sin card en NINGÚN board del

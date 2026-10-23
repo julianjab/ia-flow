@@ -201,7 +201,9 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   router.get('/api/tasks', (req) => inbox.tasks(req.query.get('project') ?? undefined))
 
   // Lo que la bandeja no muestra: se pide aparte (la web, sólo al abrir esa sección).
-  router.get('/api/board', (req) => inbox.rest(req.query.get('project') ?? undefined))
+  router.get('/api/board', (req) =>
+    inbox.rest(req.query.get('project') ?? undefined, { closed: req.query.get('closed') === '1' }),
+  )
 
   // Los issues abiertos de los repos del catálogo que no tienen card: nada de lo que el runner
   // maneja queda fuera de la vista.
