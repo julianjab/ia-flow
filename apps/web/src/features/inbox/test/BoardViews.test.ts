@@ -204,6 +204,13 @@ describe('InboxBoard', () => {
     expect(panel?.querySelector('[data-group]')).toBeNull()
     expect(panel?.querySelector('.dd__pill')?.textContent).toContain('✓')
     expect(panel?.querySelector('.dd__head a.ref')?.textContent).toBe('api#1 ↗')
+    // Una decisión dice por qué te necesita en su recuadro; la ruta de vuelta nombra la vista.
+    expect(panel?.querySelector('[data-test="needs-you"]')?.textContent).toContain(
+      'Por qué te necesita',
+    )
+    expect(panel?.querySelector('[data-test="detail-back"]')?.getAttribute('aria-label')).toMatch(
+      /^Volver a /,
+    )
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
