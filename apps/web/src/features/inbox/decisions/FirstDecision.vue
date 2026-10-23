@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
+import { useCollapsed } from '@/composables/useCollapsed';
 import ActionError from '@/features/inbox/decisions/ActionError.vue';
 import ArrangeActions from '@/features/inbox/decisions/ArrangeActions.vue';
 import AgeStamp from '@/features/inbox/decisions/AgeStamp.vue';
@@ -15,6 +16,8 @@ import { useDecisionAction } from '@/features/inbox/useDecisionAction';
 // bajo un separador, el porqué y las acciones terciarias. En el teléfono la card es corta —verbo,
 // título, link y razones, y el botón a lo ancho al final— y el porqué se pliega tras «Por qué ▾».
 
+/** «Lo primero» plegado: se recuerda en este navegador. */
+const folded = useCollapsed('first');
 const props = defineProps<{ entry: QueueEntry; total: number }>();
 
 const act = useDecisionAction({ action: () => props.entry.action, targets: () => [props.entry.item] });
@@ -35,10 +38,23 @@ async function press() {
 <template>
   <!-- El contenedor que mide: la card cambia de forma según el ancho de su columna, no de la ventana. -->
   <div class="fd-c" data-test="first">
-    <article :id="`card-${entry.ref}`" class="fd" :style="tone" aria-labelledby="first-verb">
+    <article :id="`card-${entry.ref}`" class="fd" :class="{ 'fd--folded': folded }" :style="tone" aria-labelledby="first-verb">
       <div class="fd__top">
-        <h2 class="uc-label fd__kicker">Lo primero · 1 de {{ total }}</h2>
+        <h2 class="uc-label fd__kicker">
+          <button
+            type="button"
+            class="fd__fold"
+            :aria-expanded="!folded"
+            aria-controls="first-body"
+            data-test="first-fold"
+            @click="folded = !folded"
+          >
+            <span class="fd__chev" aria-hidden="true">{{ folded ? '▸' : '▾' }}</span>
+            Lo primero · 1 de {{ total }}
+          </button>
+        </h2>
         <AgeStamp :age="entry.age" prefix="esperando" />
+        <p v-if="folded" class="fd__peek">{{ entry.title }}</p>
       </div>
 
       <div class="fd__main">
@@ -111,6 +127,12 @@ async function press() {
 .fd__top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 0.75rem; }
 /* El h2 de la sección (como «Después»), con la voz de la etiqueta: el verbo de abajo es el h3. */
 .fd__kicker { margin: 0; color: var(--accent); font-weight: 600; }
+/* El título de la sección pliega la card: plegada queda sólo el título de la tarea. */
+.fd__fold { display: inline-flex; align-items: center; gap: 0.35rem; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.fd__chev { width: 0.8rem; color: var(--fg-dim); }
+.fd__peek { flex: 1 1 100%; margin: 0; color: var(--fg-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd--folded > :not(.fd__top),
+.fd--folded .fd__main > * { display: none; }
 /* Teléfono: los hijos de .fd__main se ordenan con los de la card —el botón va después del link y
    las razones— y el porqué queda plegado. */
 .fd__main { display: contents; }

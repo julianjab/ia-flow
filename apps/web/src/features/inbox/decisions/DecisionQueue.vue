@@ -2,6 +2,7 @@
 import type { QueueFilter } from '@/features/inbox/queue/build';
 import type { QueueRow } from '@/features/inbox/queue/entries';
 import type { QueueType } from '@/features/inbox/queue/kinds';
+import { useCollapsed } from '@/composables/useCollapsed';
 import DecisionRow from '@/features/inbox/decisions/DecisionRow.vue';
 
 // «Después»: el resto de las decisiones, numeradas en el orden de la cola (2, 3, …). Con más de
@@ -11,16 +12,29 @@ defineProps<{ rows: QueueRow[]; total: number; filters: QueueFilter[] | null }>(
 const emit = defineEmits<{ (e: 'filter', type: QueueType | null): void }>();
 
 const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
+/** «Después» plegado: se recuerda en este navegador. */
+const folded = useCollapsed('after');
 </script>
 
 <template>
   <section class="dq" aria-labelledby="after-h">
     <div class="dq__head">
-      <h2 id="after-h" class="sec-hd">Después</h2>
+      <h2 id="after-h" class="sec-hd">
+        <button
+          type="button"
+          class="dq__fold"
+          :aria-expanded="!folded"
+          aria-controls="after-list"
+          data-test="after-fold"
+          @click="folded = !folded"
+        >
+          <span class="dq__chev" aria-hidden="true">{{ folded ? '▸' : '▾' }}</span>Después
+        </button>
+      </h2>
       <span class="uc-label">{{ total }} más</span>
     </div>
 
-    <div v-if="filters" class="dq__filters" role="toolbar" aria-label="Filtrar por tipo">
+    <div v-if="filters && !folded" class="dq__filters" role="toolbar" aria-label="Filtrar por tipo">
       <button
         v-for="f in filters"
         :key="f.type ?? 'all'"
@@ -34,7 +48,7 @@ const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
       </button>
     </div>
 
-    <div class="dq__list">
+    <div v-show="!folded" id="after-list" class="dq__list">
       <DecisionRow v-for="row in rows" :key="keyOf(row)" :row="row" />
     </div>
   </section>
@@ -54,6 +68,8 @@ const keyOf = (row: QueueRow) => (row.kind === 'group' ? row.key : row.ref);
   .dq__filters { flex-wrap: wrap; overflow-x: visible; }
 }
 .dq__n { color: var(--fg); font-weight: 700; }
+.dq__fold { display: inline-flex; align-items: center; gap: 0.35rem; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.dq__chev { width: 0.8rem; color: var(--fg-dim); }
 @media (min-width: 640px) {
   .dq__head, .dq__filters { padding-left: 1rem; padding-right: 1rem; }
 }
