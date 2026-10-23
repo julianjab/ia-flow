@@ -11,6 +11,7 @@ import { locate } from '@ia-flow/github-webhook'
 import type { BoardReader } from '../inbox/BoardReader.js'
 import { statusChangeWebhook } from '../inbox/statusChangeWebhook.js'
 import type { Board, BoardRef, EventLocator, RawDelivery } from './Board.js'
+import { withBuiltBlockers } from './stacking.js'
 
 /**
  * El board de un GitHub Project v2: el estado es el campo `Status` de la card (y los demás campos
@@ -30,6 +31,8 @@ export class ProjectsV2Board implements Board {
     readonly ref: BoardRef,
     private readonly client: GithubClient,
     private readonly reader: BoardReader,
+    /** `stacking.label` del proyecto: sus cards no cuentan los blockers con PR abierto. */
+    private readonly stackingLabel?: string,
   ) {
     this.fields = new ProjectsV2Fields(client, ref)
     this.adder = new ProjectsV2Adder(client, ref)
@@ -39,8 +42,9 @@ export class ProjectsV2Board implements Board {
     return `${this.ref.owner}#${this.ref.number}`
   }
 
-  cards(): Promise<BoardCard[]> {
-    return this.reader.cards({ projectId: this.projectId, board: this.ref })
+  async cards(): Promise<BoardCard[]> {
+    const cards = await this.reader.cards({ projectId: this.projectId, board: this.ref })
+    return withBuiltBlockers(cards, this.stackingLabel)
   }
 
   meta(): Promise<BoardMeta> {

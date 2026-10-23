@@ -23,6 +23,7 @@ import {
   statusOfLabels,
   valueOfField,
 } from './labelScheme.js'
+import { withBuiltBlockers } from './stacking.js'
 
 export interface IssuesBoardOptions {
   /** Los repos del catálogo del proyecto: el board son sus issues abiertos. */
@@ -37,6 +38,8 @@ export interface IssuesBoardOptions {
   /** El label que dice "trabada esperando a una persona" (`inbox.labels.blocked`): una card en la
    *  columna `Blocked` lo trae aunque el issue sólo tenga `status:blocked`. Default `blocked`. */
   blockedLabel?: string
+  /** `stacking.label` del proyecto: sus cards no cuentan los blockers con PR abierto. */
+  stackingLabel?: string
 }
 
 interface RawRef {
@@ -160,6 +163,7 @@ export class IssuesBoard implements Board {
   /** Los prefijos de los labels de los otros campos que escribe el runner (`task-type:`, `working:`). */
   private readonly fieldPrefixes: string[]
   private readonly blockedLabel: string
+  private readonly stackingLabel?: string
   private readonly log = createLogger('runner.issues-board')
   /** GitHub todavía no expone `blockedBy` en todos lados: si la query lo rechaza, sin él. */
   private withBlockers = true
@@ -179,6 +183,7 @@ export class IssuesBoard implements Board {
     }
     this.fields = new IssueLabelFields(client, this.scheme)
     this.blockedLabel = options.blockedLabel ?? DEFAULT_BLOCKED_LABEL
+    if (options.stackingLabel) this.stackingLabel = options.stackingLabel
     this.fieldPrefixes = (options.fields ?? []).map((field) => fieldPrefix(field, this.scheme))
     this.intake = {
       cardOf: (issue) => this.cardOf(issue),
@@ -192,8 +197,8 @@ export class IssuesBoard implements Board {
 
   /** Las cards, cacheadas un minuto; un webhook o una acción desde la bandeja relee. */
   @memoize({ ttlMs: 60_000, key: () => 'cards' })
-  cards(): Promise<BoardCard[]> {
-    return this.readAll()
+  async cards(): Promise<BoardCard[]> {
+    return withBuiltBlockers(await this.readAll(), this.stackingLabel)
   }
 
   async meta(): Promise<BoardMeta> {

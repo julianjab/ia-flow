@@ -27,10 +27,11 @@ export function createBoards(
           })),
           ...project.issuesBoard,
           ...(blockedLabel ? { blockedLabel } : {}),
+          ...(project.stacking ? { stackingLabel: project.stacking.label } : {}),
           // Lo que el runner escribe además de la columna: el tipo y la marca "en curso".
           fields: ['Task Type', ...(project.workingMarker ? [project.workingMarker.field] : [])],
         })
-      : new ProjectsV2Board(project.id, project.board, github, reader),
+      : new ProjectsV2Board(project.id, project.board, github, reader, project.stacking?.label),
   )
   // Una relectura en segundo plano que falla deja la bandeja con lo que tenía: sólo se anota.
   return new Boards(boards, {
