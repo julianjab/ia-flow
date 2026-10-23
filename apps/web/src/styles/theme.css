@@ -9,41 +9,51 @@
  * ranura without redeclaring hex values.
  */
 
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+/* v5 (UI unificada con el menú de Mac): la tipografía es la del sistema, sin fuentes externas. */
 
 :root {
   /* Surfaces */
-  --bg: #0f1113;
-  --panel: #17191c;
-  --panel-alt: #1c1e22;
-  --panel-hi: #22252a;
-  --border: #2c2f34;
-  --border-hi: #3d4148;
-  --border-mute: #1e2024;
+  /* v5: los neutros del menú de Mac (docs/design/ui-unificada/SPEC.md, «Sistema visual»). */
+  --bg: #1c1c1e;
+  --panel: #262628;
+  --panel-alt: #2f2f32;
+  --panel-hi: #3a3a3d;
+  --panel-top: #4a4a4e;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hi: rgba(255, 255, 255, 0.14);
+  --border-mute: rgba(255, 255, 255, 0.05);
 
   /* Text — warm off-white on the cool-neutral surfaces above, so the teal
      accent reads as chosen rather than just "the green that was there". */
-  --fg: #ece9e2;
-  --fg-mute: #b5b1a7;
-  --fg-dim: #85817a;
-  --fg-dimmer: #5c5952;
+  --fg: #ececec;
+  --fg-mute: #c7c7cc;
+  --fg-dim: #a1a1a6;
+  --fg-dimmer: #7c7c82;
 
   /* Accent family — teal-sage reemplaza el acid-green como color primario;
      el resto son variantes semánticas, no ANSI-16 literal ya. */
-  --red: #e0665c;
-  --green: #7fb8ac;
-  --green-hi: #9ecfc4;
+  --red: #ff7b72;
+  --green: #7ee787;
+  --green-hi: #a5f0ab;
   /* El par de --green-hi: el hover del relleno rojo. */
-  --red-hi: #ea8078;
-  --yellow: #d9a441;
-  --blue: #6ea3c9;
-  --magenta: #c98ecb;
-  --cyan: #6fbfc4;
-  --white: #b8b4a9;
+  --red-hi: #ffa198;
+  --yellow: #e3b341;
+  --blue: #6cb6ff;
+  --magenta: #d2a8ff;
+  --cyan: #6cb6ff;
+  --teal: #56d4c4;
+  --white: #c7c7cc;
+  /* La acción principal y nada más: relleno azul, texto blanco (4.6:1). */
+  --primary: #1f6feb;
+  --primary-hi: #388bfd;
+  --on-primary: #ffffff;
+  /* El punto «en vivo». */
+  --live: #3fb950;
 
-  --red-bg: #241716;
-  --green-bg: #16211f;
-  --yellow-bg: #241f14;
+  --red-bg: #3a2422;
+  --green-bg: #22382a;
+  --yellow-bg: #3a3020;
+  --blue-bg: #1d2d44;
 
   /* Semantic */
   --accent: var(--green);
@@ -58,9 +68,13 @@
      `.uc-label`, inputs `mono`). La escala sigue en `rem` colgando del
      `font-size` de <html> por la misma razón que antes: subir esa raíz
      agranda TODO de una, sin tocar componente por componente. */
-  --font-display: "IBM Plex Sans Condensed", "Arial Narrow", sans-serif;
-  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue",
+    sans-serif;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue",
+    sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   --fs-chrome: 0.75rem;
   --fs-body: 0.875rem;
   --fs-body-sm: 0.8125rem;
@@ -112,8 +126,10 @@
   /* Radius — v3 mataba todo radius a propósito ("consola sin curvas"). v4
      lo relaja a un valor chico y consistente; sigue siendo un token único
      por si hace falta volver a 0 en algún lado puntual. */
-  --radius: 4px;
-  --radius-sm: 3px;
+  --radius: 8px;
+  --radius-sm: 6px;
+  /* Card, panel y sheet: el radio del menú de Mac. */
+  --radius-lg: 12px;
 
   color-scheme: dark;
 }
@@ -167,7 +183,7 @@ input,
 textarea,
 select {
   color: var(--fg);
-  caret-color: var(--accent);
+  caret-color: var(--primary);
 }
 
 /* Headings inherit the mono voice — no serif fallback. */
@@ -200,7 +216,7 @@ input:focus,
 textarea:focus,
 select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--primary);
 }
 input::placeholder,
 textarea::placeholder {
@@ -230,13 +246,13 @@ pre {
    fila, card o panel lleva `.link`; un <a> con otra clase (`.btn`, una fila clickeable) define su
    propio :hover completo — background y color, nunca sólo color. */
 a {
-  color: var(--accent);
+  color: var(--info);
   text-decoration: none;
 }
 a:not([class]):hover {
-  background: var(--accent);
-  color: var(--panel);
-  text-decoration: none;
+  background: transparent;
+  color: var(--fg);
+  text-decoration: underline;
 }
 .link {
   color: var(--info);
@@ -247,7 +263,7 @@ a:not([class]):hover {
   text-decoration: underline;
 }
 .link:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
@@ -278,7 +294,7 @@ a:not([class]):hover {
   font: 500 var(--fs-chrome) / var(--row-h) var(--font-mono);
 }
 .kbd--primary {
-  background: var(--accent);
+  background: var(--primary);
   color: var(--panel);
 }
 
@@ -339,14 +355,14 @@ a:not([class]):hover {
   cursor: not-allowed;
 }
 .btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--panel);
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
   font-weight: 600;
 }
 .btn--primary:hover {
-  background: var(--green-hi);
-  border-color: var(--green-hi);
+  background: var(--primary-hi);
+  border-color: var(--primary-hi);
 }
 .btn--danger {
   border-color: var(--danger);
@@ -399,7 +415,7 @@ a:not([class]):hover {
   color: var(--fg);
 }
 .filter-chip:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .filter-chip[aria-pressed="true"] {
@@ -410,6 +426,46 @@ a:not([class]):hover {
 .filter-chip[aria-pressed="true"] > * {
   color: inherit;
 }
+/* Control segmentado (v5): una sola elección entre pocas, como en el menú de Mac — las vistas, el
+   orden de «Para mí», el nivel de los logs. La elegida en `--panel-top`, nunca en color. */
+.seg {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.seg__btn {
+  min-width: 0;
+  min-height: var(--tap-h-sm);
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-mute);
+  font: inherit;
+  font-size: var(--fs-body-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.seg__btn:hover {
+  color: var(--fg);
+}
+.seg__btn[aria-pressed="true"],
+.seg__btn[aria-current="page"] {
+  background: var(--panel-top);
+  color: var(--fg);
+  font-weight: 600;
+}
+.seg__btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
 .hairline {
   background: var(--border);
   height: 1px;
@@ -420,6 +476,7 @@ a:not([class]):hover {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .panel__header {
   display: flex;
@@ -678,7 +735,7 @@ a:not([class]):hover {
   outline: none;
 }
 [data-kbd-item]:focus-visible {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--primary);
   outline-offset: -1px;
   background: var(--panel-hi);
   color: var(--fg);
