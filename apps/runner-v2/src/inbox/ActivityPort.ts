@@ -33,8 +33,17 @@ export interface ActivityPort {
   recentEvents(limit: number, projectId?: string): EventLogEntry[]
   /** En orden; con `limit`, las últimas. */
   trace(executionId: string, limit?: number): TraceEntry[]
-  /** El último evento de la task que el engine despachó, con su payload. */
-  lastDispatchedEvent(taskRef: string): StoredEvent | undefined
+  /** El último evento de la task que el engine despachó, con su payload. Con `openedBy`, el que
+   *  abrió esa ejecución. */
+  lastDispatchedEvent(taskRef: string, openedBy?: OpenedBy): StoredEvent | undefined
+}
+
+/** Una ejecución, por lo que permite encontrar el evento que la abrió: el último anterior a su
+ *  arranque con el que corrió su pipeline. */
+export interface OpenedBy {
+  pipelineId: string
+  /** ISO. */
+  startedAt: string
 }
 
 /** El dry-run del engine: qué haría cada pipeline con un evento. */
