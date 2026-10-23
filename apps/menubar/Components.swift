@@ -71,7 +71,7 @@ struct RepoTag: View {
     }
 }
 
-/// Chip seleccionable (los puertos en escucha del formulario de túnel).
+/// Chip seleccionable (las preguntas sugeridas del asistente).
 struct SelectChip: View {
     let label: String
     let selected: Bool

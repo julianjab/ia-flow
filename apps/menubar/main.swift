@@ -2,16 +2,17 @@ import AppKit
 import Darwin
 import SwiftUI
 
-// Barra de menú de ia-flow: levanta, detiene y reinicia web, gateway, runner, Grafana y túneles de julianjab.link.
+// Barra de menú de ia-flow: la bandeja del runner y, en «Runners», levantar, detener y reiniciar web, gateway, runner
+// y Grafana.
 // Clic en el ícono → popover SwiftUI (Views.swift); clic derecho o ⌥-clic → menú corto. En reposo es un proceso
 // que sólo espera eventos (≈ 0 % CPU): la interfaz SwiftUI existe únicamente mientras el popover está abierto
 // y el estado se relee cada 3 s sólo en ese momento.
 //
 // Flags: --status             imprime el estado de cada servicio y sale
-//        --screenshot <base>  renderiza el popover (lista y formulario, claro y oscuro) a <base>-*.png y sale
+//        --screenshot <base>  renderiza el popover (cada pantalla, claro y oscuro) a <base>-*.png y sale
 //        --window             abre la ventana al arrancar (verificación)
 //        --open               abre el popover al arrancar (verificación; con IA_FLOW_MENUBAR_HOME no toca lo real)
-//        IA_FLOW_MENUBAR_HOME aísla la config, los logs y los túneles en otra carpeta (pruebas)
+//        IA_FLOW_MENUBAR_HOME aísla la config y los logs en otra carpeta (pruebas)
 
 let args = CommandLine.arguments
 
@@ -152,13 +153,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         let model = AppModel.fixture()
         model.tab = .services
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-list-\(dark ? "dark" : "light").png") }
-        model.beginForm()
-        model.form?.sub = "demo"
-        model.form?.portText = "5173"
-        model.form?.ports = [(5173, "node"), (4141, "bun"), (3001, "bun"), (3000, "gvproxy")]
-        model.form?.notice = .overwriteDNS("demo.julianjab.link")
-        for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-form-\(dark ? "dark" : "light").png") }
-        model.cancelForm()
         model.tab = .runner
         for dark in [false, true] { renderPNG(model, dark: dark, to: "\(base)-runner-\(dark ? "dark" : "light").png") }
         model.runner.query = "funnel"
@@ -288,7 +282,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     func popoverDidClose(_ notification: Notification) {
         if window == nil {
-            model.cancelForm()
             model.confirm = nil
             model.runner.comment = nil
         }
@@ -360,7 +353,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         window = nil
         // si la app se cierra con la ventana abierta, al volver a abrirla vuelve la ventana
         if !terminating { UserDefaults.standard.set(false, forKey: "windowOpen") }
-        model.cancelForm()
         model.confirm = nil
         model.runner.comment = nil
         NSApp.setActivationPolicy(.accessory)

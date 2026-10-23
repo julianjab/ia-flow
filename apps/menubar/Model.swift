@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 // El estado que lee la interfaz y las acciones que dispara. Los servicios los maneja Service.swift; esto sólo
-// los agrupa, publica los cambios a SwiftUI y arma el formulario de túnel (que reemplaza a los diálogos modales).
+// los agrupa y publica los cambios a SwiftUI.
 
 struct ConfirmRequest {
     let title: String
@@ -10,28 +10,6 @@ struct ConfirmRequest {
     let confirmLabel: String
     var destructive = false
     let action: () -> Void
-}
-
-struct TunnelForm {
-    /// Lo que hay que confirmar antes de crear: exponer el puerto del runner o gateway, o pisar un DNS ajeno.
-    enum Notice { case expose(Int), overwriteDNS(String) }
-
-    var sub = ""
-    var portText = ""
-    var ports: [(port: Int, command: String)] = []
-    var error: String?
-    var notice: Notice?
-    /// Lo confirmado es un puerto y un host concretos: cambiar el subdominio o el puerto invalida la confirmación.
-    var okExposePort: Int?
-    var okOverwriteHost: String?
-    var checking = false
-
-    /// El puerto escrito o elegido (acepta «5173» y también «5173  ·  node»).
-    var port: Int? {
-        Int(portText.trimmingCharacters(in: .whitespaces).prefix { $0.isNumber }).flatMap { (1...65535).contains($0) ? $0 : nil }
-    }
-
-    var cleanSub: String { sub.trimmingCharacters(in: .whitespaces).lowercased() }
 }
 
 struct ServiceGroup: Identifiable {
@@ -49,7 +27,6 @@ final class AppModel: ObservableObject {
     let runner: RunnerModel
     /// La pestaña «Asistente»: el chat del runner elegido, general o sobre una tarea.
     let assistant: AssistantModel
-    @Published var form: TunnelForm?
     @Published var confirm: ConfirmRequest?
     @Published var toast: String?
     /// Avisa al ícono de la barra de menú (corriendo / en reposo).
@@ -91,13 +68,13 @@ final class AppModel: ObservableObject {
 
     var activeCount: Int { services.filter { $0.state != .stopped }.count }
 
-    /// Servicios, observabilidad y túneles: lo detached sin grupo propio va a «Observabilidad».
+    /// Servicios y observabilidad: lo detached sin grupo propio va a «Observabilidad».
     var groups: [ServiceGroup] {
         func title(_ s: Service) -> String { s.spec.group ?? (s.isDetached ? "Observabilidad" : "Servicios") }
-        var order = ["Servicios", "Observabilidad", "Túneles"]
+        var order = ["Servicios", "Observabilidad"]
         for s in services where !order.contains(title(s)) { order.append(title(s)) }
         return order.map { name in ServiceGroup(title: name, services: services.filter { title($0) == name }) }
-            .filter { !$0.services.isEmpty || $0.title == "Túneles" }
+            .filter { !$0.services.isEmpty }
     }
 
     /// Relee el estado real (puertos y procesos huérfanos). Sólo con el popover abierto o al arrancar.
@@ -149,7 +126,7 @@ final class AppModel: ObservableObject {
     }
 
     func startAll() { services.forEach { if !$0.isExternal { $0.start() } } }
-    /// Sólo reinicia lo que está corriendo: no enciende lo que se apagó a propósito (un túnel expone un puerto a internet).
+    /// Sólo reinicia lo que está corriendo: no enciende lo que se apagó a propósito.
     func restartAll() { services.filter { $0.state == .running }.forEach { $0.restart() } }
     func stopAll() { services.forEach { $0.stop() } }
     func editConfig() { NSWorkspace.shared.open(URL(fileURLWithPath: "\(configDir)/services.json")) }
@@ -162,113 +139,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: túneles
-
-    private func persistTunnels() {
-        // Sólo los túneles creados desde el menú; un servicio de services.json con deleteCommand no va aquí.
-        save(services.map(\.spec).filter { $0.id.hasPrefix("tunnel-") && $0.deleteCommand != nil }, to: tunnelsPath)
-    }
-
-    func requestDelete(_ service: Service) {
-        confirm = ConfirmRequest(
-            title: "¿Borrar \(service.spec.name)?",
-            detail: "Detiene el túnel, borra su registro DNS en Cloudflare (sólo el suyo, si hay token) y lo elimina de cloudflared.",
-            confirmLabel: "Borrar", destructive: true
-        ) { [weak self] in self?.deleteTunnel(service) }
-    }
-
-    /// Detiene el túnel y lo saca de la lista; después borra su CNAME (se encuentra por el id del túnel) y el túnel.
-    private func deleteTunnel(_ service: Service) {
-        let finish = { [weak self] in
-            self?.services.removeAll { $0 === service }
-            self?.persistTunnels()
-            DispatchQueue.global().async {
-                appendLog(removeTunnelDNS(sub: tunnelSub(service)), to: service.logPath)
-                DispatchQueue.main.async { service.runDelete() }
-            }
-        }
-        // Si ya se está deteniendo (`.stopping`) también se espera: borrar con cloudflared aún conectado falla.
-        if service.state == .running || service.state == .stopping {
-            service.afterStop = finish
-            if service.state == .running { service.stop() }
-        } else {
-            finish()
-        }
-        changed()
-    }
-
-    func beginForm() {
-        var f = TunnelForm()
-        f.ports = listeningPorts()
-        form = f
-    }
-
-    func cancelForm() { form = nil }
-
-    /// Valida y crea el túnel. El DNS se consulta fuera del hilo principal: `dig` puede tardar unos segundos.
-    func submitForm() {
-        guard var f = form, !f.checking else { return }
-        f.error = nil
-        let sub = f.cleanSub
-        guard sub.range(of: "^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$", options: .regularExpression) != nil else {
-            f.error = "Subdominio inválido: sólo letras minúsculas, números y guiones."
-            form = f
-            return
-        }
-        guard let port = f.port else {
-            f.error = "Puerto inválido: un número entre 1 y 65535."
-            form = f
-            return
-        }
-        let host = "\(sub).julianjab.link"
-        guard !services.contains(where: { $0.spec.id == "tunnel-\(sub)" }), !hostnameInUse(host) else {
-            f.error = "\(host) ya lo usa otro túnel."
-            form = f
-            return
-        }
-        if [3001, 4141].contains(port), f.okExposePort != port {
-            f.notice = .expose(port)
-            form = f
-            return
-        }
-        f.checking = true
-        f.notice = nil
-        form = f
-        DispatchQueue.global().async { [weak self] in
-            let exists = dnsRecordExists(host)
-            DispatchQueue.main.async { self?.finishSubmit(sub: sub, port: port, dnsExists: exists) }
-        }
-    }
-
-    private func finishSubmit(sub: String, port: Int, dnsExists: Bool) {
-        guard var f = form else { return }
-        f.checking = false
-        // Si el formulario ya no es el que se consultó (o se canceló), el resultado no vale: no se crea nada.
-        guard f.cleanSub == sub, f.port == port else {
-            form = f
-            return
-        }
-        if dnsExists, f.okOverwriteHost != "\(sub).julianjab.link" {
-            f.notice = .overwriteDNS("\(sub).julianjab.link")
-            form = f
-            return
-        }
-        form = nil
-        let service = Service(spec: tunnelSpec(sub: sub, port: port))
-        // TUNNEL_FORCE_PROVISIONING_DNS es el `-f` de `route dns`; vale sólo para este primer inicio.
-        if dnsExists { service.nextStartEnv = ["TUNNEL_FORCE_PROVISIONING_DNS": "true"] }
-        wire(service)
-        services.append(service)
-        persistTunnels()
-        service.start()
-        showToast("Túnel creado: \(sub).julianjab.link")
-    }
-
     /// Datos de ejemplo para las capturas: no toca procesos, puertos ni archivos.
     static func fixture() -> AppModel {
-        func spec(_ id: String, _ name: String, port: Int? = nil, url: String? = nil, group: String? = nil, detached: Bool = false, tunnel: Bool = false) -> ServiceSpec {
-            ServiceSpec(id: id, name: name, command: "", cwd: "/", port: port, url: url, env: nil,
-                        stopCommand: detached ? "true" : nil, group: group, deleteCommand: tunnel ? "true" : nil)
+        func spec(_ id: String, _ name: String, port: Int? = nil, url: String? = nil, detached: Bool = false) -> ServiceSpec {
+            ServiceSpec(id: id, name: name, command: "", cwd: "/", port: port, url: url, env: nil, stopCommand: detached ? "true" : nil)
         }
         return AppModel(services: [
             Service(spec: spec("web", "Web", port: 5173, url: "http://localhost:5173"), state: .running),
@@ -276,7 +150,6 @@ final class AppModel: ObservableObject {
             Service(spec: spec("runner", "Runner", port: 3001), state: .stopped, forcedExternal: true),
             Service(spec: spec("grafana", "Grafana (OTel)", port: 3000, url: "http://localhost:3000", detached: true), state: .running),
             Service(spec: spec("otlp-proxy", "OTLP proxy", port: 4319, detached: true), state: .running),
-            Service(spec: spec("tunnel-demo", "demo.julianjab.link → :5173", url: "https://demo.julianjab.link", group: "Túneles", tunnel: true), state: .starting),
         ], runner: RunnerModel.fixture())
     }
 }
