@@ -71,7 +71,8 @@ export function issueOfUrl(url: string): IssueRef | undefined {
 }
 
 /** Los blockers abiertos de una task con su PR abierto, si tienen uno: lo que pide `stackOf`. Un
- *  blocker cuya URL no es la de un issue no está: quien llama lo cuenta como pendiente. */
+ *  blocker cuya URL no es la de un issue no está: quien llama lo cuenta como pendiente. Uno cuyo PR
+ *  no se pudo leer va sin PR. */
 export async function stackBlockers(
   reader: { openPullRequest(ref: IssueRef): Promise<OpenPr | undefined> },
   blockers: Array<{ state: string; html_url: string }>,
@@ -82,7 +83,9 @@ export async function stackBlockers(
     .filter((ref): ref is IssueRef => ref !== undefined)
   return Promise.all(
     open.map(async (ref) => {
-      const pr = await reader.openPullRequest(ref)
+      // Un PR que no se pudo leer (un repo que la app no ve, la red) cuenta como no construido:
+      // el blocker sigue pendiente y la task se publica igual.
+      const pr = await reader.openPullRequest(ref).catch(() => undefined)
       return pr
         ? { ...ref, pr: { number: pr.number, headRef: pr.headRef, baseRef: pr.baseRef } }
         : ref

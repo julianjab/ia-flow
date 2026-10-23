@@ -351,6 +351,11 @@ class ProjectResolver {
       known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx)),
     )
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
+    // Apilada y con PR: ya se construyó sobre el prerrequisito, el merge no la destraba (si estaba
+    // apilada sobre su rama, le llega `issue.base_merged`). Sin PR, todavía esperaba: sí.
+    if (options.onlyIfUnblocked && stack && context.openPr) {
+      return { skip: `${ref} ya se construyó sobre sus prerrequisitos` }
+    }
     const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
     const event = deriveEvent(ctx.event, built.type, payload, {
       scope: built.scope,
