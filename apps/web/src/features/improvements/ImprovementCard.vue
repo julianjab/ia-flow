@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: 'run', status?: string): void;
   (e: 'dismiss'): void;
   (e: 'open', ref: string): void;
+  (e: 'ask'): void;
 }>();
 
 const session = useGithubSessionStore();
@@ -88,6 +89,9 @@ const column = ref(columns.value.find(isTodo) ?? columns.value[0]);
       </button>
       <button type="button" class="btn" data-test="dismiss" :disabled="running" @click="emit('dismiss')">
         Descartar
+      </button>
+      <button type="button" class="btn btn--ghost ic__ask" data-test="why" @click="emit('ask')">
+        <span class="ic__ai" aria-hidden="true">✦</span> ¿Por qué?
       </button>
     </div>
     <p v-if="!session.github && !done" class="ic__hint">

@@ -44,10 +44,12 @@ const end = ref<HTMLElement | null>(null);
 // curso —la de esa tarea, o la del contexto que se acaba de dejar, que tarda un tick en cortarse—
 // espera a que termine: `send` la descartaría y lo escrito se perdería.
 watch(
-  () => [ui.request, ui.message, chat.streaming] as const,
+  () => [ui.request, ui.message, ui.topic, chat.streaming] as const,
   () => {
     const scope = ui.consumeRequest();
     if (scope) chat.setScope(scope);
+    const about = ui.consumeTopic();
+    if (about) chat.startTopic(about.title, about.context);
     if (!ui.message || chat.streaming) return;
     const question = ui.consumeMessage();
     if (question) void chat.send(question, { voice: voice.wantsSpeech });

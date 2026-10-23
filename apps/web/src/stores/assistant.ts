@@ -20,12 +20,29 @@ export const useAssistantStore = defineStore('assistant', () => {
   const message = ref<string | null>(null)
   /** Una respuesta terminó con el asistente cerrado: la marca quien lo abre (burbuja o pestaña). */
   const unread = ref(false)
+  /**
+   * Un tema con contexto propio (una mejora y su «¿Por qué?»): arranca una conversación nueva, se
+   * dice de qué es (`title`) y `context` viaja delante de la primera pregunta sin mostrarse —el
+   * asistente lo lee, quien pregunta no lo tiene que pegar—.
+   */
+  const topic = ref<{ title: string; context: string } | null>(null)
 
-  function open(scope?: AssistantScope, question?: string): void {
+  function open(
+    scope?: AssistantScope,
+    question?: string,
+    about?: { title: string; context: string },
+  ): void {
     if (scope) request.value = scope
+    if (about) topic.value = about
     if (question?.trim()) message.value = question.trim()
     isOpen.value = true
     unread.value = false
+  }
+
+  function consumeTopic(): { title: string; context: string } | null {
+    const about = topic.value
+    topic.value = null
+    return about
   }
 
   function close(): void {
@@ -44,5 +61,16 @@ export const useAssistantStore = defineStore('assistant', () => {
     return text
   }
 
-  return { isOpen, request, message, unread, open, close, consumeRequest, consumeMessage }
+  return {
+    isOpen,
+    request,
+    message,
+    unread,
+    topic,
+    open,
+    close,
+    consumeRequest,
+    consumeMessage,
+    consumeTopic,
+  }
 })

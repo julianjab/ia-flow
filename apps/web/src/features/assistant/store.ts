@@ -217,6 +217,14 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     reset()
   }
 
+  /** Una conversación nueva sobre un tema con contexto propio (el «¿Por qué?» de una mejora): una
+   *  nota en pantalla dice de qué es y `context` viaja delante de la primera pregunta, sin verse. */
+  function startTopic(title: string, context: string): void {
+    reset()
+    notes = [context]
+    push({ kind: 'note', text: `Sobre ${title}` })
+  }
+
   /** Retoma una conversación guardada: sus turnos en pantalla y su historia para el modelo. */
   function resume(conversation: AssistantConversation): void {
     setScope(conversation.scope)
@@ -481,6 +489,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
     setScope,
     setAgent,
     newConversation,
+    startTopic,
     resume,
     send,
     stop,

@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted } from 'vue';
+import type { ImprovementProposal } from '@ia-flow/shared';
+import { useAssistantStore } from '@/stores/assistant';
 import ImprovementCard from './ImprovementCard.vue';
 import { useImprovementsStore } from './store';
+import { WHY_QUESTIONS, whyContext, whyScope } from './why';
 
 // «Mejoras propuestas»: lo que dejó el agente de la retrospectiva al mergearse un PR. Una persona
 // decide cada una: abrirla como issue o descartarla. Sin pendientes (ni una recién abierta con su
@@ -11,6 +14,13 @@ import { useImprovementsStore } from './store';
 defineEmits<{ (e: 'open', ref: string): void }>();
 
 const store = useImprovementsStore();
+const assistant = useAssistantStore();
+
+/** «¿Por qué?»: el asistente sobre la tarea que la originó, con la mejora como contexto oculto y la
+ *  primera pregunta ya hecha (se sigue preguntando en el chat). */
+function ask(p: ImprovementProposal) {
+  assistant.open(whyScope(p), WHY_QUESTIONS[0], { title: `la mejora «${p.title}»`, context: whyContext(p) });
+}
 
 onMounted(() => void store.load());
 </script>
@@ -31,6 +41,7 @@ onMounted(() => void store.load());
         :state="store.states[p.id]"
         @run="store.open(p, $event)"
         @dismiss="store.dismiss(p)"
+        @ask="ask(p)"
         @open="$emit('open', $event)"
       />
     </div>
