@@ -177,7 +177,7 @@ describe('Qué le das al pipeline', () => {
     )
   })
 
-  it('en el teléfono arranca plegado', () => {
+  it('arranca abierto también en el teléfono: Todo no queda escondido', () => {
     mobile.value = true
     const pinia = setup()
     const q = buildQueue({ items: [], feed, now: NOW })
@@ -185,7 +185,7 @@ describe('Qué le das al pipeline', () => {
       props: { feed: q.feed as NonNullable<typeof q.feed> },
       global: { plugins: [pinia] },
     })
-    expect(w.get('details').attributes('open')).toBeUndefined()
+    expect(w.get('details').attributes('open')).toBeDefined()
   })
 
   it('sin listas lo dice en el encabezado; sin capacity no habla de lugares', () => {

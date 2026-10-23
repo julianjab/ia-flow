@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
-// «Para mí» entera (la cola y, debajo, las mejoras): un solo primario, el de
+// «Para mí» entera (la cola y, al pie, la fila de las mejoras): un solo primario, el de
 // «Lo primero». Las mejoras se dibujan con botones normales.
 
 const item = (over: Partial<InboxItem>): InboxItem => ({
@@ -78,7 +78,8 @@ describe('InboxView', () => {
     // La bandeja la arranca el shell (AppShell): acá, a mano.
     useInboxStore().start()
     await flushPromises()
-    expect(w.find('[data-test="improvements"]').exists()).toBe(true)
+    // Las mejoras, en una fila que lleva a su pantalla (v5): no compiten con «Lo primero».
+    expect(w.find('[data-test="improvements-link"]').exists()).toBe(true)
     const primaries = w.findAll('.btn--primary')
     expect(primaries).toHaveLength(1)
     expect(w.get('[data-test="first"]').find('.btn--primary').exists()).toBe(true)
