@@ -188,6 +188,11 @@ describe('DecisionRow', () => {
     const kids = w.findAll('.dc')
     expect(kids.map((k) => k.get('a.ref').text())).toEqual(['seller#7 ↗', 'seller#8 ↗'])
     expect(kids.every((k) => k.find('[data-action="merge"] button, button').exists())).toBe(true)
+    // Cada PR del grupo abre su propio detalle desde su título.
+    await kids[1]?.get('[data-test="child-open"]').trigger('click')
+    expect(useInboxStore().openRef).toBe('la-haus/lh-seller-v2-frontend#8')
+    expect(useInboxStore().expanded).toBe(true)
+    useInboxStore().collapse()
 
     await w.get('.dr__head [data-action="merge"]').trigger('click')
     expect(w.get('[data-test="inline-confirm"]').text()).toContain('seller#7 y seller#8')
