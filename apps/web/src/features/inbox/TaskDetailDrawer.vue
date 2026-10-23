@@ -7,6 +7,8 @@ import { KIND_LABEL } from '@/features/inbox/labels';
 import { TYPE_META, typeOf } from '@/features/inbox/queue/kinds';
 import { shortRef } from '@/features/inbox/queue/shortRef';
 import { useInboxStore } from '@/features/inbox/store';
+import MoveToSelect from '@/features/inbox/pipeline/MoveToSelect.vue';
+import { moveTargets } from '@/features/inbox/queue/columns';
 import TaskDetailPanel from '@/features/inbox/TaskDetailPanel.vue';
 
 // El detalle de una tarea en grande: la traza entera en vivo y todos los
@@ -40,6 +42,10 @@ function setLock(on: boolean) {
   else document.removeEventListener('keydown', onKeydown);
 }
 
+/** A qué columnas se puede mover (las de su proyecto menos la suya): «Mover a ▾» junto a la columna. */
+const moveTo = computed(() =>
+  item.value ? moveTargets(store.projects, { projectId: item.value.project_id, ...(item.value.status ? { status: item.value.status } : {}) }) : [],
+);
 /** Una decisión (te necesita o falló) dice por qué en su recuadro; lo demás, en una línea. */
 const needsYou = computed(() => item.value?.group === 'need' || item.value?.group === 'fail');
 const meta = computed(() => (item.value ? TYPE_META[typeOf(item.value)] : null));
@@ -93,10 +99,13 @@ useBackClose(
           <span class="dd__meta"><RefLink :short="shortRef(item.ref)" :url="item.url" /></span>
         </header>
         <div class="dd__body">
-          <p class="dd__pill" :style="tone">
+          <div class="dd__state">
+            <p class="dd__pill" :style="tone">
             <span v-if="meta" aria-hidden="true">{{ meta.glyph }}</span>
             {{ KIND_LABEL[item.kind] }}<template v-if="item.status"> · {{ item.status }}</template>
           </p>
+            <MoveToSelect v-if="moveTo.length" :task-ref="item.ref" :short="shortRef(item.ref)" :columns="moveTo" />
+          </div>
           <h2 class="dd__title">{{ item.title }}</h2>
           <section v-if="why && needsYou" class="dd__need" aria-labelledby="dd-need-h" data-test="needs-you">
             <h3 id="dd-need-h" class="dd__need-h">Por qué te necesita</h3>
@@ -158,6 +167,8 @@ useBackClose(
 .dd__body { display: flex; flex-direction: column; align-items: flex-start; flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0.75rem 0 0; }
 .dd__body > * { align-self: stretch; }
 .dd__body > .dd__pill { align-self: flex-start; }
+.dd__state { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0 1rem; }
+.dd__state .dd__pill { margin: 0; }
 .dd__title { margin: 0; padding: 0 1rem; color: var(--fg); font-size: var(--fs-num); line-height: 1.25; overflow-wrap: anywhere; }
 .dd__why { margin: 0.25rem 0 0; padding: 0 1rem; color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 /* El detalle ya trae su borde de arriba: acá es el cuerpo del panel. */
