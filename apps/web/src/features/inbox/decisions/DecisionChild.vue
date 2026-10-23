@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useInboxStore } from '@/features/inbox/store';
 import ActionButton from '@/features/inbox/decisions/ActionButton.vue';
 import AgeStamp from '@/features/inbox/decisions/AgeStamp.vue';
 import ReasonChips from '@/features/inbox/decisions/ReasonChips.vue';
@@ -9,12 +10,22 @@ import type { QueueEntry } from '@/features/inbox/queue/entries';
 // propio botón, con su confirmación y su error. Si el botón del grupo corta en ésta, el error queda acá.
 
 defineProps<{ entry: QueueEntry }>();
+/** Tocar el título abre la tarea en grande, como cualquier fila. */
+const store = useInboxStore();
 </script>
 
 <template>
   <li :id="`card-${entry.ref}`" class="dc">
     <div class="dc__what">
-      <span class="dc__title">{{ entry.title }}</span>
+      <button
+        type="button"
+        class="dc__title"
+        :aria-label="`Ver el detalle de ${entry.title}`"
+        data-test="child-open"
+        @click="store.expand(entry.ref)"
+      >
+        {{ entry.title }} <span class="dc__chev" aria-hidden="true">›</span>
+      </button>
       <span class="dc__why">
         <RefLink :short="entry.short" :url="entry.url" />
         <ReasonChips :reasons="entry.reasons.slice(0, 1)" />
@@ -29,7 +40,10 @@ defineProps<{ entry: QueueEntry }>();
 .dc { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; padding: 0.35rem 0.35rem 0.35rem 0.75rem; }
 .dc + .dc { border-top: 1px solid var(--border-mute); }
 .dc__what { flex: 1 1 14rem; min-width: 0; display: flex; flex-direction: column; }
-.dc__title { color: var(--fg); font-size: var(--fs-body-sm); line-height: 1.4; overflow-wrap: anywhere; }
+.dc__title { align-self: flex-start; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--fs-body-sm); font-weight: 600; line-height: 1.4; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
+.dc__title:hover { color: var(--info); }
+.dc__title:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.dc__chev { color: var(--fg-dim); }
 .dc__why { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; }
 .dc :deep(.btn--ghost) { color: var(--fg-mute); }
 </style>

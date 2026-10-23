@@ -276,8 +276,8 @@ pre {
 }
 
 ::selection {
-  background: var(--accent);
-  color: var(--panel);
+  background: var(--blue-bg);
+  color: var(--fg);
 }
 
 /* Links. El video inverso es del link de texto corrido: un <a> SIN clase. Un link dentro de una
