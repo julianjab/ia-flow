@@ -113,6 +113,21 @@ describe('useAssistantChatStore', () => {
     ])
   })
 
+  it('un tema con contexto propio: la nota se ve, el contexto viaja sólo en la primera pregunta', async () => {
+    const chat = useAssistantChatStore()
+    chat.setScope({ kind: 'task', ref: 'acme/api#7' })
+    chat.startTopic('la mejora «Tests de contrato»', 'CONTEXTO DE LA MEJORA')
+    expect(chat.turns.map((t) => t.kind)).toEqual(['note'])
+    await chat.send('¿Por qué?')
+    await chat.send('¿Y si no?')
+    expect(requests[0]?.messages[0]?.content).toBe('CONTEXTO DE LA MEJORA\n¿Por qué?')
+    expect(requests[1]?.messages.at(-1)?.content).toBe('¿Y si no?')
+    const asked = chat.turns
+      .filter((t) => t.kind === 'user')
+      .map((t) => (t as { text: string }).text)
+    expect(asked).toEqual(['¿Por qué?', '¿Y si no?'])
+  })
+
   it('cambiar de contexto aparca la conversación, y volver la trae de vuelta', async () => {
     const chat = useAssistantChatStore()
     chat.setScope({ kind: 'task', ref: 'acme/api#7' })

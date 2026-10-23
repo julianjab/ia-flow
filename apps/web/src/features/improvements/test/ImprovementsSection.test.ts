@@ -10,6 +10,7 @@ vi.mock('../api', () => ({
   dismissImprovement: vi.fn(),
 }))
 
+import { useAssistantStore } from '@/stores/assistant'
 import ImprovementsSection from '../ImprovementsSection.vue'
 
 async function mountSection() {
@@ -43,5 +44,17 @@ describe('ImprovementsSection', () => {
     expect(wrapper.findAll('[data-test="title"]')).toHaveLength(2)
     await wrapper.findAll('[data-test="task"]')[0]?.trigger('click')
     expect(wrapper.emitted('open')?.[0]).toEqual(['acme/api#7'])
+  })
+
+  it('«¿Por qué?» abre el asistente sobre la tarea de origen, con la mejora como contexto', async () => {
+    getImprovements.mockResolvedValue({ items: [proposal()] })
+    const wrapper = await mountSection()
+    await wrapper.get('[data-test="why"]').trigger('click')
+    const assistant = useAssistantStore()
+    expect(assistant.isOpen).toBe(true)
+    expect(assistant.request).toEqual({ kind: 'task', ref: 'acme/api#7' })
+    expect(assistant.message).toBe('¿Por qué propusiste esto?')
+    expect(assistant.topic?.title).toBe('la mejora «Documentar el comando de tests»')
+    expect(assistant.topic?.context).toContain('Pregunto por la mejora imp-1')
   })
 })
