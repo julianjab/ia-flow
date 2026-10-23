@@ -8,6 +8,8 @@ import {
   type IssueRef,
   type IssueRefResolver,
   issueFromPayload,
+  type StackBaseResolver,
+  stackBaseFromPayload,
 } from './issueRef.js'
 
 /** Nada que decida el modelo: el issue y la rama salen del evento. */
@@ -18,6 +20,8 @@ export interface EnsurePullRequestActionOptions {
   client: GithubClient
   issue?: IssueRefResolver
   branch?: BranchResolver
+  /** La rama sobre la que se apila la de la task (`task.stack.branch`): la base del PR nuevo. */
+  stackBase?: StackBaseResolver
   id?: string
 }
 
@@ -62,7 +66,8 @@ function escapeRegExp(value: string): string {
 }
 
 /**
- * Garantiza que la rama de la task tenga un PR abierto contra la default branch, y que ese PR
+ * Garantiza que la rama de la task tenga un PR abierto contra la default branch —o contra la rama
+ * del prerrequisito sobre la que se apila (`task.stack.branch`)—, y que ese PR
  * cierre el issue (`Closes #n`). El modelo sigue escribiendo el PR — título y descripción son
  * suyos —, esto cubre lo que no puede depender de él: que el PR exista y quede vinculado al issue.
  *
@@ -83,12 +88,14 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
   private readonly client: GithubClient
   private readonly resolveIssue: IssueRefResolver
   private readonly resolveBranch: BranchResolver
+  private readonly resolveStackBase: StackBaseResolver
 
   constructor(options: EnsurePullRequestActionOptions) {
     super({ id: options.id ?? 'ensure_pull_request' })
     this.client = options.client
     this.resolveIssue = options.issue ?? issueFromPayload
     this.resolveBranch = options.branch ?? branchFromPayload
+    this.resolveStackBase = options.stackBase ?? stackBaseFromPayload
   }
 
   async execute(_input: EnsurePullRequestInput, ctx: PipelineExecutionContext): Promise<string> {
@@ -135,7 +142,7 @@ export class EnsurePullRequestAction extends Action<typeof EnsurePullRequestInpu
       this.client.requestJson<{ default_branch: string }>(repo()),
       this.client.requestJson<{ title: string }>(issuePath(issue.owner, issue.repo, issue.number)),
     ])
-    const base = repository.default_branch
+    const base = this.resolveStackBase(ctx) ?? repository.default_branch
     const compare = await this.client.request(
       repo(`/compare/${encodeURIComponent(base)}...${encodeURIComponent(branch)}`),
     )

@@ -150,6 +150,18 @@ describe('EnsurePullRequestAction', () => {
     expect(result).toContain('PR #1700 abierto')
   })
 
+  it('opens a stacked PR against the prerequisite branch (task.stack.branch)', async () => {
+    const { client, calls, writes } = fakeGithub()
+    const payload = { ...TASK, task: { ...TASK.task, stack: { branch: 'feat/a', pr: 10 } } }
+
+    await new EnsurePullRequestAction({ client }).run(ctxFor(payload), {})
+
+    expect(calls.map((c) => c.path)).toContain(
+      '/repos/la-haus/subscriptions/compare/feat%2Fa...ia-flow-local%2F1640',
+    )
+    expect(writes()[0]?.body).toMatchObject({ head: 'ia-flow-local/1640', base: 'feat/a' })
+  })
+
   it('fails when the branch is not on the remote', async () => {
     const { client, writes } = fakeGithub({ compareStatus: 404 })
     await expect(new EnsurePullRequestAction({ client }).run(ctxFor(), {})).rejects.toThrow(

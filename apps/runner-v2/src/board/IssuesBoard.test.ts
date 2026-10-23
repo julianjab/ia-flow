@@ -105,6 +105,20 @@ const boardWith = (client: GithubClient, statuses = scheme.statuses) =>
   new IssuesBoard('p', client, { repos: [repo], statuses })
 
 describe('IssuesBoard cards', () => {
+  it('asks for the PR of a linked branch only with `stacking`', async () => {
+    const seen: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        seen.push(query)
+        return { repository: { issues: { pageInfo: { hasNextPage: false }, nodes: [] } } }
+      },
+    } as unknown as GithubClient
+    await boardWith(client).cards()
+    await new IssuesBoard('p', client, { repos: [repo], stackingLabel: 'epic-early' }).cards()
+    expect(seen[0]).not.toContain('linkedBranches')
+    expect(seen[1]).toContain('linkedBranches')
+  })
+
   it('lists the open issues of every repo, across pages', async () => {
     const { client } = github([[raw({ number: 1 })], [raw({ number: 2 })]])
     const cards = await boardWith(client).cards()

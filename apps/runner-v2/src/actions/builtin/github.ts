@@ -24,6 +24,7 @@ import {
   RemoveBlockedByAction,
   ReplyPrReviewThreadAction,
   ResolvePrReviewThreadAction,
+  RetargetPullRequestAction,
   ReviewPullRequestAction,
   UpdateIssueAction,
   UpdateIssueBodyAction,
@@ -133,5 +134,10 @@ export default [
   withClient(
     'ensure_pull_request',
     (ctx) => new EnsurePullRequestAction({ client: ctx.services.github }),
+  ),
+  // Un PR apilado cuya base se mergeó (`issue.base_merged`): a la rama en la que entró.
+  withClient(
+    'retarget_pr',
+    (ctx) => new RetargetPullRequestAction({ client: ctx.services.github }),
   ),
 ]

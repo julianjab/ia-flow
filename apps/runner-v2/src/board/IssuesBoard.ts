@@ -23,6 +23,7 @@ import {
   statusOfLabels,
   valueOfField,
 } from './labelScheme.js'
+import { withBuiltBlockers } from './stacking.js'
 
 export interface IssuesBoardOptions {
   /** Los repos del catálogo del proyecto: el board son sus issues abiertos. */
@@ -37,6 +38,8 @@ export interface IssuesBoardOptions {
   /** El label que dice "trabada esperando a una persona" (`inbox.labels.blocked`): una card en la
    *  columna `Blocked` lo trae aunque el issue sólo tenga `status:blocked`. Default `blocked`. */
   blockedLabel?: string
+  /** `stacking.label` del proyecto: sus cards no cuentan los blockers con PR abierto. */
+  stackingLabel?: string
 }
 
 interface RawRef {
@@ -54,6 +57,13 @@ export interface RawIssueCard {
   updatedAt: string
   labels?: { nodes: Array<{ name: string }> }
   closedByPullRequestsReferences?: { nodes: RawRef[] }
+  /** Las ramas vinculadas al issue y su PR abierto: el de un PR apilado, que GitHub no lista en
+   *  `closedByPullRequestsReferences` (no vincula un PR que no apunta a la default branch). */
+  linkedBranches?: {
+    nodes: Array<{
+      ref?: { associatedPullRequests?: { nodes: Array<{ number: number; url?: string }> } } | null
+    }>
+  }
   blockedBy?: { nodes: RawRef[] }
 }
 
@@ -68,8 +78,13 @@ interface IssuesPage {
 
 const REF = 'number state url repository { name owner { login } }'
 
+/** El PR de un issue desde la rama vinculada a él: el de un PR apilado, que GitHub no vincula. */
+const LINKED_PR =
+  'linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }'
+
 const issuesQuery = (
   withBlockers: boolean,
+  stacking: boolean,
 ) => `query($owner: String!, $repo: String!, $after: String) {
   repository(owner: $owner, name: $repo) {
     issues(states: OPEN, first: 100, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
@@ -78,6 +93,7 @@ const issuesQuery = (
         number title url updatedAt
         labels(first: 100) { nodes { name } }
         closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${REF} } }
+        ${stacking ? LINKED_PR : ''}
         ${withBlockers ? `blockedBy(first: 20) { nodes { ${REF} } }` : ''}
       }
     }
@@ -113,7 +129,9 @@ export function toIssueCard(
     own.some((label) => label.toLowerCase() === `${scheme.prefix}blocked`.toLowerCase())
   const labels = inBlockedColumn && !own.includes(blockedLabel) ? [...own, blockedLabel] : own
   const taskType = valueOfField(labels, 'Task Type', scheme)
-  const pr = raw.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
+  const pr =
+    raw.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN') ??
+    raw.linkedBranches?.nodes.flatMap((node) => node.ref?.associatedPullRequests?.nodes ?? [])[0]
   const ref = refString({ ...repo, number: raw.number })
   return {
     ref,
@@ -160,6 +178,7 @@ export class IssuesBoard implements Board {
   /** Los prefijos de los labels de los otros campos que escribe el runner (`task-type:`, `working:`). */
   private readonly fieldPrefixes: string[]
   private readonly blockedLabel: string
+  private readonly stackingLabel?: string
   private readonly log = createLogger('runner.issues-board')
   /** GitHub todavía no expone `blockedBy` en todos lados: si la query lo rechaza, sin él. */
   private withBlockers = true
@@ -179,6 +198,7 @@ export class IssuesBoard implements Board {
     }
     this.fields = new IssueLabelFields(client, this.scheme)
     this.blockedLabel = options.blockedLabel ?? DEFAULT_BLOCKED_LABEL
+    if (options.stackingLabel) this.stackingLabel = options.stackingLabel
     this.fieldPrefixes = (options.fields ?? []).map((field) => fieldPrefix(field, this.scheme))
     this.intake = {
       cardOf: (issue) => this.cardOf(issue),
@@ -192,8 +212,8 @@ export class IssuesBoard implements Board {
 
   /** Las cards, cacheadas un minuto; un webhook o una acción desde la bandeja relee. */
   @memoize({ ttlMs: 60_000, key: () => 'cards' })
-  cards(): Promise<BoardCard[]> {
-    return this.readAll()
+  async cards(): Promise<BoardCard[]> {
+    return withBuiltBlockers(await this.readAll(), this.stackingLabel)
   }
 
   async meta(): Promise<BoardMeta> {
@@ -352,11 +372,17 @@ export class IssuesBoard implements Board {
   private async page(repo: { owner: string; repo: string }, after: string | null) {
     const variables = { owner: repo.owner, repo: repo.repo, after }
     try {
-      return await this.client.graphql<IssuesPage>(issuesQuery(this.withBlockers), variables)
+      return await this.client.graphql<IssuesPage>(
+        issuesQuery(this.withBlockers, this.stackingLabel !== undefined),
+        variables,
+      )
     } catch (err) {
       if (!this.withBlockers || !/blockedBy/.test((err as Error).message)) throw err
       this.withBlockers = false
-      return this.client.graphql<IssuesPage>(issuesQuery(false), variables)
+      return this.client.graphql<IssuesPage>(
+        issuesQuery(false, this.stackingLabel !== undefined),
+        variables,
+      )
     }
   }
 }

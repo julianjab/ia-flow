@@ -69,6 +69,16 @@ describe('notifySiblingConflicts', () => {
     expect(asked).not.toContain(90)
   })
 
+  it('no avisa del conflicto a un hermano apilado sobre el mergeado: ése recibe base_merged', async () => {
+    const { port, published, asked } = portOf({ 2001: [false], 2002: [false] })
+    port.stackedOnMerged = async (sibling) => sibling.number === 1993
+
+    await notifySiblingConflicts(port, ctx, merged)
+
+    expect(published.map((p) => p.task.number)).toEqual([1994])
+    expect(asked).not.toContain(2001)
+  })
+
   it('espera a que GitHub termine de calcular el mergeable', async () => {
     const { port, published } = portOf({ 2001: [null, null, false], 2002: [true] })
 

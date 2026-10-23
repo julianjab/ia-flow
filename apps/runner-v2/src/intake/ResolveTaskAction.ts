@@ -24,11 +24,19 @@ import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import { heldComments, isHumanComment } from './heldComments.js'
 import { eventMessage } from './message.js'
-import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
+import {
+  type ChildLocation,
+  labelToParent,
+  notifyParent,
+  type ParentPort,
+  type Resolved,
+  statusToParent,
+} from './parentEvents.js'
 import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
-
 import { locateSlack, type SlackLocateDeps } from './slack.js'
+import { stackedOn, taskStack } from './stack.js'
 import { taskPayload } from './task.js'
+import { type MergedPr, notifyDependents } from './unblock.js'
 
 /** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
 export interface ResolveTaskProject {
@@ -41,6 +49,9 @@ export interface ResolveTaskProject {
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
   reposText: string
+  /** Las tasks con este label avanzan sobre prerrequisitos construidos (ver `stacking` en
+   *  `project.yaml`). */
+  stacking?: { label: string }
   /** Cómo lee el intake la card de un issue de este proyecto. Sin esto, la de un Project v2 sobre
    *  `board` (que comparte el cache por webhook del `GithubTaskReader`). */
   intake?: IntakeBoard
@@ -63,6 +74,10 @@ const Input = z.strictObject({
    *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
    *  quedó refinado sin que ningún evento del hijo la interrumpa. */
   notifyParentOfStatus: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
+   *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
+   *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
+  notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
   /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
    *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
    *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
@@ -98,12 +113,10 @@ interface TaskRef {
   pullRequestOnly?: boolean
 }
 
-const UNBLOCKED = 'issue.unblocked'
 /** Un comentario humano que el `when` del intake descartó (la task trabada): queda en el journal de
  *  la task con el motivo, y se vuelve a publicar al destrabarla (ver `replayHeld`). */
 const COMMENT_HELD = 'issue_comment.held'
 const CHILD_CLOSED = 'issue.child_closed'
-const CHILD_STATUS_CHANGED = 'issue.child_status_changed'
 
 /** Por qué `payload` no cumple `when` (las filas que dan false, con lo que vino), o `undefined`. */
 function unmet(when: Condition[], payload: unknown): string | undefined {
@@ -169,11 +182,12 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     const reader = this.reader.withItemCache()
     const results = await Promise.all(
       projects.map((project) =>
-        new ProjectResolver(project, reader, this.userComments, this.announced).resolve(
-          input,
-          ctx,
-          slackLocation,
-        ),
+        new ProjectResolver(
+          project,
+          project.stacking ? reader.withStacking() : reader,
+          this.userComments,
+          this.announced,
+        ).resolve(input, ctx, slackLocation),
       ),
     )
     const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))
@@ -212,7 +226,8 @@ class ProjectResolver {
     if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
-    if (input.notifyParentOfStatus) return this.childStatusChanged(location, ctx, when)
+    const toParent = this.toParent(input, location, ctx, when)
+    if (toParent) return toParent
     if ('skip' in location) return { skipped: location.skip }
     const prOnly = input.pullRequestsWithoutIssue?.map((row) => new Condition(row))
     const task =
@@ -225,6 +240,24 @@ class ProjectResolver {
     return 'skip' in published
       ? { skipped: published.skip }
       : { emitted: [String(published.scope?.issue)] }
+  }
+
+  /** Lo que un hijo le avisa a su épica (`notifyParentOfStatus`, `notifyParentOfLabels`), si el
+   *  intake lo pide en vez del evento de la task. */
+  private toParent(
+    input: z.infer<typeof Input>,
+    location: Location,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> | undefined {
+    const child = (at: ChildLocation) =>
+      'item' in at ? this.itemTask(at.item) : this.issueTask(at)
+    const port = this.parentPort(when)
+    if (input.notifyParentOfStatus) return statusToParent(port, ctx, location, child)
+    if (input.notifyParentOfLabels) {
+      return labelToParent(port, ctx, location, child, input.notifyParentOfLabels)
+    }
+    return undefined
   }
 
   /** El issue detrás de un item, si el item es del board de este proyecto. */
@@ -288,11 +321,19 @@ class ProjectResolver {
     const branches = new TaskBranches(this.reader, this.project.branchPrefix)
     const known = await branches.known(task)
     const context = await this.reader.context(task)
+    const stack = await taskStack(
+      this.reader,
+      this.project.stacking?.label,
+      task,
+      context,
+      options.closedBlocker,
+    )
     const build = (branch: string) =>
       taskPayload({
         ...task,
         ...fields,
         ...context,
+        ...(stack ? { stack } : {}),
         card,
         ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
         projectId: this.project.id,
@@ -311,6 +352,11 @@ class ProjectResolver {
       known ?? (await branches.propose(task, { ...context.issue, type: card.type }, ctx)),
     )
     if (options.onlyIfUnblocked && built.blocked) return { skip: `${ref} sigue bloqueada` }
+    // Apilada y con PR: ya se construyó sobre el prerrequisito, el merge no la destraba (si estaba
+    // apilada sobre su rama, le llega `issue.base_merged`). Sin PR, todavía esperaba: sí.
+    if (options.onlyIfUnblocked && stack && context.openPr) {
+      return { skip: `${ref} ya se construyó sobre sus prerrequisitos` }
+    }
     const payload = { ...built.payload, message: eventMessage(built.type, built.payload) }
     const event = deriveEvent(ctx.event, built.type, payload, {
       scope: built.scope,
@@ -431,9 +477,7 @@ class ProjectResolver {
     return event
   }
 
-  /** `issue.unblocked` para cada dependiente abierto de los issues que cierra el PR mergeado que ya
-   *  no tienen otro blocker abierto. El recién cerrado no cuenta: el webhook del merge puede llegar
-   *  antes que su cierre. */
+  /** `issue.unblocked` / `issue.base_merged` a las tasks que el issue del PR mergeado bloqueaba. */
   private async unblocked(
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
@@ -441,30 +485,28 @@ class ProjectResolver {
   ): Promise<Resolved> {
     const merged = mergedPullRequest(raw)
     if ('skip' in merged) return { skipped: merged.skip }
-    const blockers = (await this.reader.closingIssues(merged.owner, merged.repo, merged.pr)).filter(
-      (issue) => this.inCatalog(issue.owner, issue.repo),
+    const { reader } = this
+    return notifyDependents(
+      {
+        closingIssues: async (pr) =>
+          (await reader.closingIssues(pr.owner, pr.repo, pr.pr)).filter((issue) =>
+            this.inCatalog(issue.owner, issue.repo),
+          ),
+        dependents: async (blocker) =>
+          issueRefs(
+            await reader.dependents(blocker.owner, blocker.repo, blocker.number),
+            this.project.repos,
+          ),
+        // Sólo un proyecto con `stacking` apila PRs: sin él, ni una lectura de más.
+        ...(this.project.stacking
+          ? { stackedOn: (pr: MergedPr, dependent: TaskRef) => stackedOn(reader, pr, dependent) }
+          : {}),
+        publish: (ctx, task, fields, options) =>
+          this.publish(ctx, task, fields, { ...options, when }),
+      },
+      ctx,
+      merged,
     )
-    if (blockers.length === 0) return { skipped: `PR #${merged.pr} no cierra ningún issue` }
-    const emitted: string[] = []
-    for (const blocker of blockers) {
-      const closedBlocker = `https://github.com/${blocker.owner}/${blocker.repo}/issues/${blocker.number}`
-      const dependents = issueRefs(
-        await this.reader.dependents(blocker.owner, blocker.repo, blocker.number),
-        this.project.repos,
-      )
-      for (const dependent of dependents) {
-        const published = await this.publish(
-          ctx,
-          dependent,
-          { emit: UNBLOCKED, extra: {} },
-          { closedBlocker, onlyIfUnblocked: true, when },
-        )
-        if (!('skip' in published)) emitted.push(String(published.scope?.issue))
-      }
-    }
-    return emitted.length > 0
-      ? { emitted }
-      : { skipped: `PR #${merged.pr} no deja ninguna task sin prerrequisitos` }
   }
 
   /** `issue.child_closed` sobre el padre del issue recién cerrado. */
@@ -480,22 +522,6 @@ class ProjectResolver {
     })
   }
 
-  /** `issue.child_status_changed` sobre el padre del issue que cambió de columna. */
-  private async childStatusChanged(
-    location: Location,
-    ctx: PipelineExecutionContext,
-    when: Condition[],
-  ): Promise<Resolved> {
-    if ('skip' in location) return { skipped: location.skip }
-    if (location.emit !== 'issue.status_changed') {
-      return { skipped: `${location.emit} no es un cambio de columna` }
-    }
-    const child =
-      'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
-    if ('skipped' in child) return child
-    return notifyParent(this.parentPort(when), ctx, child, CHILD_STATUS_CHANGED, location.extra)
-  }
-
   /** `issue.pr_conflict` sobre los hermanos que el merge de este PR dejó en conflicto. */
   private async siblingConflicts(
     raw: Record<string, unknown>,
@@ -509,16 +535,22 @@ class ProjectResolver {
     }
     // La branch en la que entró: un hermano apilado sobre otra no recibió este merge.
     const { base } = await this.reader.mergeability(merged.owner, merged.repo, merged.pr)
-    return notifySiblingConflicts(this.siblingPort(when), ctx, {
+    return notifySiblingConflicts(this.siblingPort(when, merged), ctx, {
       ...merged,
       ...(base ? { base } : {}),
     })
   }
 
   /** Lo que `notifySiblingConflicts` necesita de esta acción. */
-  private siblingPort(when: Condition[]): SiblingPort {
+  private siblingPort(when: Condition[], merged: MergedPr): SiblingPort {
     const { reader } = this
     return {
+      ...(this.project.stacking
+        ? {
+            stackedOnMerged: async (sibling: TaskRef) =>
+              (await stackedOn(reader, merged, sibling)) !== undefined,
+          }
+        : {}),
       closingIssues: async (owner, repo, pr) =>
         (await reader.closingIssues(owner, repo, pr)).filter((issue) =>
           this.inCatalog(issue.owner, issue.repo),

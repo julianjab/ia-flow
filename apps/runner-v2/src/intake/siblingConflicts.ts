@@ -42,6 +42,9 @@ export interface SiblingPort {
     task: IssueRef & { pr: number },
     fields: EventFields,
   ): Promise<DomainEvent<unknown> | { skip: string }>
+  /** Si el PR del hermano estaba apilado sobre el mergeado (`stacking`): ése recibe
+   *  `issue.base_merged`, que ya trae la base, y no hace falta avisarle además del conflicto. */
+  stackedOnMerged?(sibling: IssueRef): Promise<boolean>
   /** Lo ya avisado (o por avisar) por (PR mergeado, hermano): el mismo merge no avisa dos veces. */
   announced: { has(key: string): boolean; add(key: string): void; delete(key: string): void }
   sleep?: (ms: number) => Promise<void>
@@ -168,6 +171,10 @@ export async function notifySiblingConflicts(
       port.announced.add(key)
       let result: DomainEvent<unknown> | { skip: string }
       try {
+        if (await port.stackedOnMerged?.(sibling)) {
+          port.announced.delete(key)
+          return { skip: `${refOf(sibling)} estaba apilado sobre ${mergedPr}: recibe base_merged` }
+        }
         const hit = await conflicted(port, sibling, merged.base)
         result =
           'skip' in hit

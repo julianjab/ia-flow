@@ -7,6 +7,8 @@ import {
   branchFromPayload,
   type IssueRefResolver,
   issueFromPayload,
+  type StackBaseResolver,
+  stackBaseFromPayload,
 } from './issueRef.js'
 
 /** Nada que decida el modelo: el issue y la rama salen del evento. */
@@ -17,6 +19,8 @@ export interface LinkBranchActionOptions {
   client: GithubClient
   issue?: IssueRefResolver
   branch?: BranchResolver
+  /** La rama sobre la que se apila la de la task (`task.stack.branch`): sin una, la default. */
+  stackBase?: StackBaseResolver
   id?: string
 }
 
@@ -56,7 +60,7 @@ const CREATE_LINKED_BRANCH = `mutation($issueId: ID!, $repositoryId: ID!, $oid: 
  * pero determinista: el nombre sale del evento (`task.branch`), no de un modelo.
  *
  * GitHub sólo vincula al CREAR la rama (`createLinkedBranch` la crea desde el HEAD de la default
- * branch). Por eso es idempotente y nunca pisa trabajo: si la rama ya está vinculada no hace
+ * branch, o de la rama del prerrequisito sobre la que se apila la task: `task.stack.branch`). Por eso es idempotente y nunca pisa trabajo: si la rama ya está vinculada no hace
  * nada, y si ya existe en el remoto sin vínculo (una corrida anterior la subió) lo informa y sigue
  * — el vínculo en ese caso lo da el `Closes #n` del PR.
  */
@@ -66,12 +70,14 @@ export class LinkBranchAction extends Action<typeof LinkBranchInput> {
   private readonly client: GithubClient
   private readonly resolveIssue: IssueRefResolver
   private readonly resolveBranch: BranchResolver
+  private readonly resolveStackBase: StackBaseResolver
 
   constructor(options: LinkBranchActionOptions) {
     super({ id: options.id ?? 'link_branch' })
     this.client = options.client
     this.resolveIssue = options.issue ?? issueFromPayload
     this.resolveBranch = options.branch ?? branchFromPayload
+    this.resolveStackBase = options.stackBase ?? stackBaseFromPayload
   }
 
   async execute(_input: LinkBranchInput, ctx: PipelineExecutionContext): Promise<string> {
@@ -94,7 +100,10 @@ export class LinkBranchAction extends Action<typeof LinkBranchInput> {
     if (repository.ref) {
       return `${target}: ${branch} ya existe en el remoto sin vínculo — GitHub sólo vincula al crear la rama; el PR la vincula con Closes #${issue.number}`
     }
-    const oid = repository.defaultBranchRef?.target?.oid
+    const stackBase = this.resolveStackBase(ctx)
+    const oid = stackBase
+      ? await this.tipOf(issue, stackBase)
+      : repository.defaultBranchRef?.target?.oid
     if (!oid) throw new Error(`link_branch: ${issue.owner}/${issue.repo} no tiene default branch`)
 
     await this.client.graphql(CREATE_LINKED_BRANCH, {
@@ -103,6 +112,18 @@ export class LinkBranchAction extends Action<typeof LinkBranchInput> {
       oid,
       name: branch,
     })
-    return `${target}: ${branch} creada desde la default branch y vinculada al issue`
+    const from = stackBase ? `${stackBase} (apilada sobre el prerrequisito)` : 'la default branch'
+    return `${target}: ${branch} creada desde ${from} y vinculada al issue`
+  }
+
+  /** El commit en la punta de `branch`. */
+  private async tipOf(issue: { owner: string; repo: string }, branch: string): Promise<string> {
+    const ref = await this.client.requestJson<{ object?: { sha?: string } }>(
+      `/repos/${issue.owner}/${issue.repo}/git/ref/heads/${branch}`,
+    )
+    const sha = ref.object?.sha
+    if (!sha)
+      throw new Error(`link_branch: ${issue.owner}/${issue.repo} no tiene la rama ${branch}`)
+    return sha
   }
 }
