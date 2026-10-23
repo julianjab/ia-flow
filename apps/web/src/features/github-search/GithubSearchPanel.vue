@@ -180,7 +180,7 @@ function select(name: string | null): void {
   cursor: pointer;
 }
 .gs__scope:hover { color: var(--fg); border-color: var(--border-hi); }
-.gs__scope:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.gs__scope:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .gs__scope-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs__input { flex: 1 1 14rem; min-width: 0; min-height: var(--tap-h); font-size: var(--fs-input); }
 .gs__hint { margin: 0; color: var(--fg-dim); font-size: var(--fs-chrome); }

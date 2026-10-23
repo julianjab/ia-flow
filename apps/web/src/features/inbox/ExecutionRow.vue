@@ -139,7 +139,7 @@ watch(
   cursor: pointer;
 }
 .xr__row:hover { background: var(--panel-alt); }
-.xr__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.xr__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .xr__glyph { font-family: var(--font-mono); line-height: 1.45; color: var(--fg-dim); }
 .xr[data-status='failed'] .xr__glyph { color: var(--danger); }
 .xr[data-status='running'] .xr__glyph { color: var(--accent); }

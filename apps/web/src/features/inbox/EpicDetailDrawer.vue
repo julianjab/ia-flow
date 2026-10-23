@@ -159,7 +159,7 @@ useBackClose(() => store.epicRef !== null, () => store.closeEpic());
   cursor: pointer;
 }
 .ed__row:hover { background: var(--panel-hi); color: var(--fg); }
-.ed__row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ed__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .ed__glyph { flex: none; width: 1rem; color: var(--fg-dim); line-height: 1.35; }
 .ed__child[data-state='closed'] .ed__glyph { color: var(--accent); }
 .ed__child[data-state='closed'] .ed__name { color: var(--fg-dim); }

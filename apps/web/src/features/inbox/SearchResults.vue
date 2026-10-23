@@ -77,8 +77,8 @@ const store = useInboxStore();
   text-align: left;
   cursor: pointer;
 }
-.sr__row:hover .sr__title { color: var(--accent); }
-.sr__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.sr__row:hover .sr__title { color: var(--info); }
+.sr__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .sr__title { overflow-wrap: anywhere; line-height: 1.35; }
 .sr__where { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .sr__empty { margin: 0; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--fg-mute); }

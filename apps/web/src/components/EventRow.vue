@@ -63,7 +63,7 @@ const line = computed(() => eventSummary(props.event.summary, props.hide));
 .er__row { display: flex; align-items: flex-start; gap: 0.5rem; min-height: var(--tap-h); padding: 0.4rem 0; cursor: pointer; list-style: none; }
 .er__row::-webkit-details-marker { display: none; }
 .er__row:hover .er__type { text-decoration: underline; }
-.er__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.er__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .er__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); line-height: 1.7; transition: transform 120ms ease; }
 .er[open] .er__chev { transform: rotate(90deg); }
 .er__main { display: flex; flex: 1; flex-direction: column; gap: 0.1rem; min-width: 0; }

@@ -64,5 +64,5 @@ const store = useInboxStore();
 .why--epic { color: var(--info); }
 .why-btn:hover .why--epic { color: var(--fg); text-decoration: underline; }
 .why-btn:focus-visible { outline: none; }
-.why-btn:focus-visible .why--epic { outline: 2px solid var(--accent); outline-offset: 1px; }
+.why-btn:focus-visible .why--epic { outline: 2px solid var(--primary); outline-offset: 1px; }
 </style>

@@ -164,7 +164,7 @@ const failure = computed(() =>
 .td__exec { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; margin: 0; font-size: var(--fs-body-sm); }
 .td__dim { color: var(--fg-dim); }
 .td__goto { min-height: var(--tap-h); padding: 0 0.25rem; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
-.td__goto:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.td__goto:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .td__unlocks { color: var(--accent); }
 .td__links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; margin: 0; }
 .td__links .uc-label + :deep(.ref) { margin-right: 0.75rem; }
@@ -173,7 +173,7 @@ const failure = computed(() =>
 .td__tabs { display: flex; gap: 1.25rem; margin: 0 -1rem; padding: 0 1rem; border-bottom: 1px solid var(--border); }
 .td__tab { min-height: var(--tap-h); margin-bottom: -1px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-dim); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
 .td__tab:hover { color: var(--fg); }
-.td__tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--fg); }
+.td__tab[aria-selected='true'] { border-bottom-color: var(--fg); color: var(--fg); }
 .td__n { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .td__pane { min-width: 0; }
 /* La pestaña ya dice qué es y cuántas hay: el título de la lista sobra. */

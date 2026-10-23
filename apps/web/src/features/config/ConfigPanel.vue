@@ -92,7 +92,7 @@ const projects = computed(() => config.value?.projects ?? []);
 .cfg__tabs { display: flex; gap: 1.25rem; border-bottom: 1px solid var(--border); }
 .cfg__tab { min-height: var(--tap-h); margin-bottom: -1px; padding: 0; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--fg-dim); font: inherit; font-size: var(--fs-body-sm); cursor: pointer; }
 .cfg__tab:hover { color: var(--fg); }
-.cfg__tab[aria-selected='true'] { border-bottom-color: var(--accent); color: var(--fg); }
+.cfg__tab[aria-selected='true'] { border-bottom-color: var(--fg); color: var(--fg); }
 .cfg__n { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .cfg__err { display: flex; flex-direction: column; align-items: flex-start; gap: 0.35rem; padding: 0.75rem; border: 1px solid var(--danger); border-radius: var(--radius); background: var(--red-bg); }
 .cfg__err p { margin: 0; color: var(--danger); overflow-wrap: anywhere; }

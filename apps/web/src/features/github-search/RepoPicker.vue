@@ -77,7 +77,7 @@ function first(): void {
   cursor: pointer;
 }
 .rp__row:hover { background: var(--panel-hi); }
-.rp__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.rp__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .rp__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rp__check { color: var(--accent); }
 </style>

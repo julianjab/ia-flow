@@ -99,7 +99,7 @@ const clipped = (shown: string, total: number) => shown.length < total;
 .cc__row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem; min-height: var(--tap-h); padding: 0.5rem 0.75rem; cursor: pointer; list-style: none; }
 .cc__row::-webkit-details-marker { display: none; }
 .cc__row:not(.cc__row--flat):hover { background: var(--panel-alt); }
-.cc__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.cc__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 /* Una fila que no se abre no es presionable: se lee a `--row-h` (R11). */
 .cc__row--flat { min-height: 0; cursor: default; }
 .cc__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); transition: transform 120ms ease; }

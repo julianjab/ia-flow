@@ -84,7 +84,7 @@ const emit = defineEmits<{ press: [id: string] }>();
 .tb__item.router-link-exact-active,
 .tb__item[aria-current='page'] { color: var(--fg); }
 .tb__item.router-link-exact-active .tb__ic,
-.tb__item[aria-current='page'] .tb__ic { color: var(--accent); }
+.tb__item[aria-current='page'] .tb__ic { color: var(--info); }
 .tb__ic { display: grid; place-items: center; width: 1.35rem; height: 1.35rem; }
 .tb__ic :deep(svg) { width: 100%; height: 100%; }
 .tb__label { font-size: var(--fs-micro); }

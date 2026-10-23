@@ -156,8 +156,8 @@ function saveToken() {
   border-radius: var(--radius);
   background: var(--panel);
 }
-.card:has(.card__enter:not(:disabled)):hover { border-color: var(--accent); }
-.card:has(.card__enter:focus-visible) { outline: 1px solid var(--accent); outline-offset: 2px; }
+.card:has(.card__enter:not(:disabled)):hover { border-color: var(--info); }
+.card:has(.card__enter:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; }
 .card--current { border-color: var(--accent); }
 .card--down { opacity: 0.55; }
 
@@ -220,7 +220,7 @@ function saveToken() {
   word-break: break-all;
   cursor: pointer;
 }
-.card__enter:hover:not(:disabled) { color: var(--accent); text-decoration: underline; }
+.card__enter:hover:not(:disabled) { color: var(--info); text-decoration: underline; }
 .card__enter:disabled { cursor: default; }
 
 .card__stats {

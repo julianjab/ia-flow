@@ -40,7 +40,7 @@ const store = useInboxStore();
   font-size: var(--fs-input);
 }
 .is__input::placeholder { color: var(--fg-dim); }
-.is__input:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.is__input:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; border-color: var(--primary); }
 @media (min-width: 768px) {
   .is__input { font-size: var(--fs-body); }
 }

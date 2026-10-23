@@ -98,7 +98,7 @@ const options = computed<Array<{ scope: AssistantScope; title: string; hint: str
   cursor: pointer;
 }
 .st__opt:hover { border-color: var(--border-hi); }
-.st__opt[aria-pressed='true'] { border-color: var(--accent); }
+.st__opt[aria-pressed='true'] { border-color: var(--border-hi); background: var(--panel-top); }
 .st__title { font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 .st__hint { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .st__lbl { margin: 0.6rem 0 0; }

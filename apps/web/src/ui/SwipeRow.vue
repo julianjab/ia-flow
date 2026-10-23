@@ -227,7 +227,7 @@ const openRow = sharedRef<symbol | null>(null);
 .sw__act[data-tone='danger'] { color: var(--danger); }
 .sw__act[data-tone='warn'] { background: var(--warn); color: var(--bg); }
 .sw__act:disabled { opacity: 0.5; cursor: default; }
-.sw__act:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sw__act:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 @media (prefers-reduced-motion: reduce) {
   .sw__face { transition: none; }
 }

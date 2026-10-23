@@ -69,7 +69,7 @@ const groups = computed(() => {
 .cp__row { display: flex; align-items: flex-start; gap: 0.5rem; min-height: var(--tap-h); padding: 0.5rem 0.75rem; cursor: pointer; list-style: none; }
 .cp__row::-webkit-details-marker { display: none; }
 .cp__row:hover { background: var(--panel-alt); }
-.cp__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.cp__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .cp__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); line-height: 1.8; transition: transform 120ms ease; }
 .cp__item[open] .cp__chev { transform: rotate(90deg); }
 .cp__main { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }

@@ -76,7 +76,7 @@ const emit = defineEmits<{ (e: 'open', ref: string): void }>();
 .tl__row[data-group='fail'] { --c: var(--danger); }
 .tl__row[data-group='run'] { --c: var(--accent); }
 .tl__row:hover { background: var(--panel-alt); }
-.tl__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tl__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 
 .tl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.1rem 0.5rem; min-width: 0; }
 .tl__kind { color: var(--c); font-size: var(--fs-chrome); font-weight: 600; }

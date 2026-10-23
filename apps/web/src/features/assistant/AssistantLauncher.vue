@@ -266,7 +266,7 @@ watch(
 }
 .cw__icon svg { width: 1.2rem; height: 1.2rem; }
 .cw__icon:hover { background: var(--panel-hi); color: var(--fg); }
-.cw__icon[aria-pressed='true'] { color: var(--accent); }
+.cw__icon[aria-pressed='true'] { color: var(--ai); }
 /* Una línea: ✦ y el título (el contexto ya está en el chip de la caja de pregunta). */
 .cw__heading { display: flex; flex: 1; align-items: baseline; gap: 0.4rem; min-width: 0; padding-left: 0.25rem; }
 .cw__ai { flex: none; color: var(--ai); }

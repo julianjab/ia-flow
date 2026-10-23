@@ -134,7 +134,7 @@ const current = computed(() => ingress.value?.sources.find((s) => s.id === selec
 .ig__src + .ig__src { border-top: 1px solid var(--border-mute); }
 .ig__src:hover { background: var(--panel-alt); }
 .ig__src[aria-pressed='true'] { background: var(--panel-hi); }
-.ig__src:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.ig__src:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .ig__dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--fg-dimmer); }
 .ig__src[data-ok='true'] .ig__dot { background: var(--accent); }
 .ig__name { min-width: 0; color: var(--fg); font-weight: 500; }

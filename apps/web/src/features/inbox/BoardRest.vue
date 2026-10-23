@@ -134,7 +134,7 @@ watch(
   cursor: pointer;
 }
 .br__row:hover { background: var(--panel-alt); }
-.br__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.br__row:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .br__title { color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 .br__meta { color: var(--fg-dim); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
 .br__row--closed { text-decoration: none; }

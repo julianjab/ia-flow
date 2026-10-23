@@ -99,7 +99,7 @@ async function choose(projectId: string, status: string | undefined): Promise<vo
 }
 .atb__option:first-child { border-top: 0; }
 .atb__option:hover { background: var(--panel-hi); }
-.atb__option:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.atb__option:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .atb__empty { margin: 0; padding: 0.5rem 0.75rem; color: var(--fg-dim); }
 .atb__fail { margin: 0; color: var(--danger); font-size: var(--fs-body-sm); }
 </style>

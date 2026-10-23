@@ -92,7 +92,7 @@ const voice = useVoiceStore();
 }
 .vs__switch:checked { background: var(--accent); }
 .vs__switch:checked::after { background: var(--bg); transform: translateX(1.05rem); }
-.vs__switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.vs__switch:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .vs__field { display: flex; flex-direction: column; gap: 0.35rem; padding-top: 0.6rem; }
 .vs__select { min-height: var(--tap-h); }
 .vs__rates { display: flex; gap: 0.4rem; }
@@ -109,7 +109,7 @@ const voice = useVoiceStore();
   cursor: pointer;
 }
 .vs__rate:hover { border-color: var(--border-hi); color: var(--fg); }
-.vs__rate[aria-pressed='true'] { border-color: var(--accent); background: var(--green-bg); color: var(--accent); }
+.vs__rate[aria-pressed='true'] { border-color: var(--border-hi); background: var(--panel-top); color: var(--fg); }
 @media (prefers-reduced-motion: reduce) {
   .vs__switch,
   .vs__switch::after { transition: none; }

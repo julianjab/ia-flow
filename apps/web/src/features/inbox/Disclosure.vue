@@ -64,7 +64,7 @@ const emit = defineEmits<{ (e: 'toggle', open: boolean): void }>();
 /* El encabezado para lectores de pantalla: fuera de la vista, no fuera del árbol. */
 .dz__sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .dz__sum::-webkit-details-marker { display: none; }
-.dz__sum:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.dz__sum:focus-visible { outline: 2px solid var(--primary); outline-offset: -1px; }
 .dz__chev { flex: none; margin-right: -0.4rem; color: var(--fg-dim); font-size: var(--fs-micro); transition: transform 120ms ease; }
 .dz__det[open] > .dz__sum .dz__chev { transform: rotate(90deg); }
 .dz__title { margin: 0; }
