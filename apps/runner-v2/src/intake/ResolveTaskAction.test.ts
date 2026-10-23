@@ -26,6 +26,7 @@ function reader(
 ): GithubTaskReader {
   const fake = {
     withItemCache: () => fake,
+    withStacking: () => fake,
     itemsOfIssue: async () => [
       {
         id: 'PVTI_1',
@@ -230,6 +231,7 @@ describe('resolve_task on a pull request', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       closingIssues: async () => closing.map((number) => ({ owner: 'o', repo: 'r', number })),
       context: async (task: Record<string, unknown>) => {
         contexts.push(task)
@@ -399,6 +401,7 @@ describe('resolve_task notifyParent', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       parentOf: async (owner: string, repo: string, number: number) => {
         asked.push(`${owner}/${repo}#${number}`)
         if (options.parent === null) return undefined
@@ -502,6 +505,7 @@ describe('resolve_task notifyParentOfStatus', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       issueOfItem: async () => ({
         board: { owner: 'o', number: 1 },
         owner: 'o',
@@ -696,6 +700,7 @@ describe('resolve_task notifySiblingConflicts', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       closingIssues: async () => [{ owner: 'o', repo: 'r', number: 12 }],
       parentOf: async () => ({ owner: 'o', repo: 'r', number: 5 }),
       subIssues: async () => [
@@ -752,6 +757,7 @@ describe('resolve_task stacking', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       context: async () => ({
         issue: { title: 't', body: '', html_url: 'https://github.com/o/r/issues/7', labels },
         blockers: [
@@ -800,6 +806,27 @@ describe('resolve_task stacking', () => {
     const payload = await publish([])
     expect(payload).toMatchObject({ item: { blocked: true } })
     expect((payload.task as Record<string, unknown>).stack).toBeUndefined()
+  })
+
+  it('sólo un proyecto con `stacking` lee con los vínculos de un PR apilado', async () => {
+    const used: string[] = []
+    const plain = blocked([]) as unknown as Record<string, unknown>
+    const fake = {
+      ...plain,
+      withItemCache: () => fake,
+      withStacking: () => {
+        used.push('stacking')
+        return fake
+      },
+    } as unknown as GithubTaskReader
+    const ctx = {
+      event: comment,
+      bus: new EventBus(),
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project, stacking], fake)
+    await action.execute(action.input.parse({}), ctx)
+    expect(used).toEqual(['stacking'])
   })
 })
 
@@ -850,6 +877,7 @@ describe('resolve_task unblockDependents', () => {
       ...base,
       ...(built ? { context: builtContext } : {}),
       withItemCache: () => fake,
+      withStacking: () => fake,
       closingIssues: async () => [{ owner: 'o', repo: 'r', number: 3 }],
       dependents: async () => [
         { number: 7, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
@@ -923,6 +951,7 @@ describe('resolve_task notifyParentOfLabels', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       parentOf: async () => ({ owner: 'o', repo: 'r', number: 7 }),
     }
     const bus = new EventBus()

@@ -1,7 +1,7 @@
 import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
 import { describe, expect, it, vi } from 'vitest'
-import { GithubTaskReader } from '../GithubTaskReader.js'
+import { GithubTaskReader, type GithubTaskReaderOptions } from '../GithubTaskReader.js'
 import { stackBlockers } from '../stack.js'
 
 /** El repo de la task, como lo devuelve GitHub (mayúsculas incluidas). */
@@ -202,7 +202,11 @@ describe('GithubTaskReader.contains', () => {
 })
 
 /** Un GitHub cuyo GraphQL contesta `data` y cuyo REST contesta por ruta. */
-function graphqlReader(data: Record<string, unknown>, rest: Record<string, unknown> = {}) {
+function graphqlReader(
+  data: Record<string, unknown>,
+  rest: Record<string, unknown> = {},
+  options: GithubTaskReaderOptions = { stacking: true },
+) {
   const fetchImpl = vi.fn(async (url: string | URL) => {
     const path = new URL(String(url)).pathname
     if (path === '/graphql') return new Response(JSON.stringify({ data }))
@@ -212,7 +216,7 @@ function graphqlReader(data: Record<string, unknown>, rest: Record<string, unkno
     auth: new GithubTokenAuth('t'),
     fetchImpl: fetchImpl as unknown as typeof fetch,
   })
-  return new GithubTaskReader(client)
+  return new GithubTaskReader(client, options)
 }
 
 describe('GithubTaskReader.closingIssues — PR apilado', () => {
@@ -240,6 +244,10 @@ describe('GithubTaskReader.closingIssues — PR apilado', () => {
 
   it('un PR contra la default sin vínculo no se inventa uno', async () => {
     expect(await graphqlReader(pr('main')).closingIssues('o', 'r', 20)).toEqual([])
+  })
+
+  it('sin `stacking` no lee el body: sólo vale lo que GitHub vincula', async () => {
+    expect(await graphqlReader(pr('feat/a'), {}, {}).closingIssues('o', 'r', 20)).toEqual([])
   })
 })
 
@@ -275,5 +283,23 @@ describe('GithubTaskReader.openPullRequest — PR apilado', () => {
       headRef: 'feat/b',
       baseRef: 'feat/a',
     })
+  })
+
+  it('sin `stacking` la rama vinculada no cuenta: sin PR que cierre el issue, no hay PR', async () => {
+    const reader = graphqlReader(
+      {
+        repository: {
+          issue: {
+            closedByPullRequestsReferences: { nodes: [] },
+            linkedBranches: {
+              nodes: [{ ref: { associatedPullRequests: { nodes: [{ number: 20 }] } } }],
+            },
+          },
+        },
+      },
+      {},
+      {},
+    )
+    expect(await reader.openPullRequest({ owner: 'o', repo: 'r', number: 5 })).toBeUndefined()
   })
 })

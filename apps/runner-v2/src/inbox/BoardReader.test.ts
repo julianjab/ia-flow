@@ -193,6 +193,21 @@ describe('BoardReader', () => {
     expect(queries[0]).toContain('items(first: 100, after: $after, query: "is:open")')
   })
 
+  it('asks for the PR of a linked branch only for a project that stacks PRs', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        return page({})
+      },
+    } as unknown as GithubClient
+    const reader = new BoardReader(client)
+    await reader.cards(spec)
+    await reader.cards({ ...spec, stacking: true })
+    expect(queries[0]).not.toContain('linkedBranches')
+    expect(queries[1]).toContain('linkedBranches')
+  })
+
   it('if GitHub rejects items(query:), it pages everything and filters the closed ones itself', async () => {
     const queries: string[] = []
     const client = {
