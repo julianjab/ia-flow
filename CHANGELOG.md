@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.27.0](https://github.com/julianjab/ia-flow/compare/v2.26.1...v2.27.0) (2026-10-23)
+
+
+### Features
+
+* **runner-v2:** stacking — tasks que avanzan sobre prerrequisitos construidos (PRs apilados) ([#337](https://github.com/julianjab/ia-flow/issues/337)) ([87cfbc4](https://github.com/julianjab/ia-flow/commit/87cfbc485a27392c79f3d58edd223d525e012de0))
+
 ## [2.26.1](https://github.com/julianjab/ia-flow/compare/v2.26.0...v2.26.1) (2026-10-23)
 
 
