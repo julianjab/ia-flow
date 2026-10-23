@@ -207,7 +207,8 @@ Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 | `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`, `maxMemoryMb`) |
 | `issue_body` | del proyecto: las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
 | `blockedReport` | del proyecto: el reporte de una corrida que falló (el `onError` del proyecto) |
-| `resolve_task` | el intake: de un webhook crudo al evento de su task (`unblockDependents` para el unblock) |
+| `resolve_task` | el intake: de un webhook crudo al evento de su task (`unblockDependents` para el unblock; `notifyParent`, `notifyParentOfStatus`, `notifyParentOfLabels` para avisarle a la épica) |
+| `link_branch`, `ensure_pull_request`, `retarget_pr` | la rama de la task (apilada con `task.stack`), su PR, y el PR apilado que pasa a la base de su prerrequisito mergeado (`issue.base_merged`) |
 
 ## Correr
 
@@ -668,6 +669,37 @@ GitHub los issues que ése bloqueaba (`dependencies/blocking`) y emite `issue.un
 uno que quedó sin bloqueadores abiertos. Las pipelines de
 reentrada de cada columna lo escuchan, así que la card vuelve al agente que le toca donde esté.
 Vale para PRs de cualquier repo del catálogo.
+
+### Avanzar sobre prerrequisitos construidos (`stacking:` de `project.yaml`)
+
+Con `stacking`, una task que lleva su label no espera el merge de sus prerrequisitos: espera a
+que estén **construidos** (con PR abierto). Lo usa una épica para construir todos sus hijos a la vez
+y dejar a la persona sólo los merges.
+
+```yaml
+# project.yaml
+stacking:
+  label: epic-early
+```
+
+- **`item.blocked`** sólo cuenta los blockers sin PR abierto (`stackOf` en `@ia-flow/github-tools`).
+  El board hace lo mismo con `blockedBy`, así revalidar una task, la bandeja y la vista de la épica
+  coinciden con las pipelines.
+- **Un prerrequisito de otro repo** no cambia nada más: la task se construye contra el contrato de
+  su PRD.
+- **Un prerrequisito del mismo repo** apila la rama: el evento trae `task.stack` (`branch`, `pr`,
+  `issue`), `link_branch` crea la rama de la task desde la punta de la suya y `ensure_pull_request`
+  abre el PR contra ella. Si hay varios del mismo repo, tienen que formar una cadena (cada PR
+  apilado sobre el anterior); dos ramas independientes frenan hasta que se mergee alguna.
+- **Al mergearse el prerrequisito**, `intake-unblock` emite `issue.base_merged` (con `from`, `to`
+  y `mergedPr`) en vez de `issue.unblocked` para el dependiente cuyo PR estaba apilado sobre esa
+  rama —tenga o no otros blockers—. La pipeline que lo escucha corre `retarget_pr` (el PR pasa a
+  `to`, salvo que GitHub ya lo haya hecho) y después al implementer, que trae la base nueva.
+
+**Una épica que se entera de un hijo trabado.** `resolve_task` con `notifyParentOfLabels: [blocked]`
+publica `issue.child_labeled` (`child`, `label`) sobre el padre cuando un sub-issue recibe uno de
+esos labels, como `notifyParent` (`issue.child_closed`) y `notifyParentOfStatus`
+(`issue.child_status_changed`).
 
 ## Lo que no se portó del ejemplo
 
