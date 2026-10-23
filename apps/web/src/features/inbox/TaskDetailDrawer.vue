@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useBackClose } from '@/composables/useBackClose';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import { KIND_LABEL } from '@/features/inbox/labels';
@@ -15,6 +16,11 @@ import TaskDetailPanel from '@/features/inbox/TaskDetailPanel.vue';
 // TIPO (glifo y caso en la cabecera), como en la cola; nada de borde por grupo.
 
 const store = useInboxStore();
+
+/** La ruta de vuelta dice a qué vista se vuelve (v5: «‹ Para mí / repo#n»). */
+const BACK: Record<string, string> = { inbox: 'Para mí', running: 'En curso', next: 'Próximo' };
+const route = useRoute();
+const backTo = computed(() => BACK[String(route?.name ?? '')] ?? 'Volver');
 
 const item = computed(() => {
   const ref = store.openRef;
@@ -34,6 +40,8 @@ function setLock(on: boolean) {
   else document.removeEventListener('keydown', onKeydown);
 }
 
+/** Una decisión (te necesita o falló) dice por qué en su recuadro; lo demás, en una línea. */
+const needsYou = computed(() => item.value?.group === 'need' || item.value?.group === 'fail');
 const meta = computed(() => (item.value ? TYPE_META[typeOf(item.value)] : null));
 const tone = computed(() => (meta.value ? { '--tone': `var(--${meta.value.tone})` } : {}));
 /** El porqué, salvo que repita lo que ya está a la vista: el caso de la pastilla o el error de su
@@ -77,9 +85,11 @@ useBackClose(
     <div v-if="item" class="dd-backdrop" @click.self="store.collapse()">
       <section class="dd" role="dialog" aria-modal="true" :aria-label="`Detalle de ${item.ref}`">
         <header class="dd__head">
-          <button type="button" class="dd__close" aria-label="Volver a la bandeja" @click="store.collapse()">
+          <button type="button" class="dd__close" :aria-label="`Volver a ${backTo}`" data-test="detail-back" @click="store.collapse()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
+            <span class="dd__back">{{ backTo }}</span>
           </button>
+          <span class="dd__sep" aria-hidden="true">/</span>
           <span class="dd__meta"><RefLink :short="shortRef(item.ref)" :url="item.url" /></span>
         </header>
         <div class="dd__body">
@@ -88,7 +98,11 @@ useBackClose(
             {{ KIND_LABEL[item.kind] }}<template v-if="item.status"> · {{ item.status }}</template>
           </p>
           <h2 class="dd__title">{{ item.title }}</h2>
-          <p v-if="why" class="dd__why">{{ why }}</p>
+          <section v-if="why && needsYou" class="dd__need" aria-labelledby="dd-need-h" data-test="needs-you">
+            <h3 id="dd-need-h" class="dd__need-h">Por qué te necesita</h3>
+            <p class="dd__need-p">{{ why }}</p>
+          </section>
+          <p v-else-if="why" class="dd__why">{{ why }}</p>
           <TaskDetailPanel :item="item" :detail="store.details[item.ref]" @reload="store.loadDetail(item.ref)" />
         </div>
       </section>
@@ -119,6 +133,12 @@ useBackClose(
 .dd__meta { display: flex; flex: 1; align-items: center; min-width: 0; }
 .dd__close { flex: none; display: grid; place-items: center; width: var(--tap-h); height: var(--tap-h); border: none; border-radius: var(--radius); background: none; color: var(--fg-mute); cursor: pointer; }
 .dd__close svg { width: 1.25rem; height: 1.25rem; }
+.dd__close { width: auto; gap: 0.15rem; padding: 0 0.5rem; color: var(--info); }
+.dd__back { font-weight: 500; }
+.dd__sep { color: var(--fg-dimmer); }
+.dd__need { display: flex; flex-direction: column; gap: 0.2rem; margin: 0.5rem 1rem 0; padding: 0.75rem 0.9rem; border: 1px solid var(--border-hi); border-radius: var(--radius-lg); background: var(--blue-bg); }
+.dd__need-h { margin: 0; color: var(--info); font-family: var(--font-body); font-size: var(--fs-chrome); font-weight: 600; }
+.dd__need-p { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
 .dd__close:hover { background: var(--panel-hi); color: var(--fg); }
 /* El caso como pastilla: glifo y color del tipo, en minúscula normal (antes, caja alta en la cabecera). */
 .dd__pill {
