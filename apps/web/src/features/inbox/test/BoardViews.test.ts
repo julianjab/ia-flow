@@ -142,6 +142,28 @@ describe('InboxBoard', () => {
     expect(wrapper.findAll('.btn--primary')).toHaveLength(1)
   })
 
+  it('el detalle ofrece mover la card a otra columna de su board', async () => {
+    getInbox.mockResolvedValue(
+      inbox(
+        [merge],
+        [
+          {
+            id: 'core',
+            board: { owner: 'acme', number: 1 },
+            statuses: ['Todo', 'Build', 'Review'],
+          },
+        ],
+      ),
+    )
+    getTaskDetail.mockResolvedValue(detail(merge))
+    const { wrapper } = await mountBoard()
+    await wrapper.get('[data-test="first-see"]').trigger('click')
+    await flushPromises()
+    const panel = document.body.querySelector('[role="dialog"]')
+    expect(panel?.querySelector('[data-test="move-to"]')).not.toBeNull()
+    wrapper.unmount()
+  })
+
   it('toda referencia es un link corto a GitHub', async () => {
     getInbox.mockResolvedValue(inbox([merge]))
     const { wrapper } = await mountBoard()
