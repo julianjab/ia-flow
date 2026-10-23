@@ -823,10 +823,32 @@ describe('resolve_task unblockDependents', () => {
       ...project,
       stacking: { label: 'epic-early' },
     },
+    /** El dependiente lleva el label de stacking y ya tiene su PR (`openPr` del contexto). */
+    built = false,
   ) {
-    const base = reader([]) as unknown as Record<string, unknown>
+    const base = reader(built ? ['epic-early'] : []) as unknown as Record<string, unknown>
+    const builtContext = async () => ({
+      issue: {
+        title: 't',
+        body: '',
+        html_url: 'https://github.com/o/r/issues/7',
+        labels: ['epic-early'],
+      },
+      blockers: [],
+      issueComments: [],
+      openPr: {
+        number: 70,
+        url: '',
+        headSha: 'x',
+        title: 't',
+        author: 'a',
+        headRef: 'feat/b',
+        baseRef: 'main',
+      },
+    })
     const fake = {
       ...base,
+      ...(built ? { context: builtContext } : {}),
       withItemCache: () => fake,
       closingIssues: async () => [{ owner: 'o', repo: 'r', number: 3 }],
       dependents: async () => [
@@ -853,6 +875,12 @@ describe('resolve_task unblockDependents', () => {
   it('un dependiente sin PR apilado recibe issue.unblocked', async () => {
     const { published } = await unblock(null)
     expect(published.map((event) => event.type)).toEqual(['issue.unblocked'])
+  })
+
+  it('apilada y con su PR (prerrequisito de otro repo): el merge no la destraba de nuevo', async () => {
+    const { published, result } = await unblock(null, undefined, true)
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: PR #30 no deja ninguna task sin prerrequisitos' })
   })
 
   it('sin stacking en el proyecto, nunca issue.base_merged: issue.unblocked como siempre', async () => {

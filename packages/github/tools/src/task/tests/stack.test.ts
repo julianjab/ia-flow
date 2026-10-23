@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closingRefs, issueOfUrl, type StackBlocker, stackOf } from '../stack.js'
+import { closingRefs, issueOfUrl, type StackBlocker, stackBlockers, stackOf } from '../stack.js'
 
 const task = { owner: 'la-haus', repo: 'api' }
 const blocker = (
@@ -100,5 +100,18 @@ describe('issueOfUrl', () => {
       number: 7,
     })
     expect(issueOfUrl('https://github.com/o/r/pull/7')).toBeUndefined()
+  })
+})
+
+describe('stackBlockers', () => {
+  it('un PR que no se pudo leer deja al blocker sin PR (pendiente), sin tirar', async () => {
+    const reader = {
+      openPullRequest: async () => {
+        throw new Error('403')
+      },
+    }
+    expect(
+      await stackBlockers(reader, [{ state: 'open', html_url: 'https://github.com/o/r/issues/1' }]),
+    ).toEqual([{ owner: 'o', repo: 'r', number: 1 }])
   })
 })
