@@ -3,6 +3,7 @@ import {
   type EventLogEntry,
   type ExecutionSummary,
   InboxSchema,
+  RepoIssuesSchema,
   type RunnerCapacity,
   TasksSchema,
 } from '@ia-flow/shared'
@@ -11,6 +12,7 @@ import type { BoardMeta, BoardSpec } from './BoardReader.js'
 import type { BoardCard } from './classify.js'
 import { InboxSection } from './InboxSection.js'
 import { InboxService } from './InboxService.js'
+import type { RepoIssuesRead } from './RepoIssuesReader.js'
 
 const now = new Date('2026-09-29T12:00:00Z')
 const card = (ref: string, patch: Partial<BoardCard> = {}): BoardCard => ({
@@ -421,5 +423,100 @@ describe('InboxService — los agentes de una ejecución', () => {
     ])
     const detail = await inbox.detail('o/r#1')
     expect(detail?.executions.map((execution) => execution.agents?.length)).toEqual([2, undefined])
+  })
+})
+
+describe('InboxService.repoIssues', () => {
+  const row = (ref: string, updatedAt: string) => ({
+    ref,
+    title: ref,
+    url: `https://github.com/${ref.replace('#', '/issues/')}`,
+    labels: [],
+    updatedAt,
+  })
+
+  function withRepos(reads: Record<string, RepoIssuesRead>) {
+    const asked: string[] = []
+    const boards: Record<string, BoardCard[]> = {
+      p: [card('o/api#1')],
+      // Una card de otro board (que no cumple el `when` de nadie) igual cuenta como card.
+      q: [card('O/Web#7', { projectId: 'q' })],
+    }
+    const inbox = new InboxService({
+      projects: [
+        { projectId: 'p', board: { owner: 'o', number: 1 }, repos: ['o/api', 'o/web'] },
+        {
+          projectId: 'q',
+          board: { owner: 'o', number: 2 },
+          repos: ['o/web', 'o/gone'],
+          when: [{ field: 'item.status', op: 'eq', value: 'Nunca' }],
+        },
+      ],
+      board: { cards: async (spec) => boards[spec.projectId] ?? [] },
+      repoIssues: {
+        issues: async (repo) => {
+          asked.push(repo)
+          return reads[repo] ?? { issues: [], more: false }
+        },
+      },
+      activity: fakeActivity(),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+    })
+    return { inbox, asked }
+  }
+
+  it('lists, per catalog repo, the open issues without a card on any board of the runner', async () => {
+    const { inbox, asked } = withRepos({
+      'o/api': {
+        issues: [row('o/api#1', '2026-10-03T00:00:00Z'), row('o/api#2', '2026-10-02T00:00:00Z')],
+        more: false,
+      },
+      'o/web': {
+        issues: [row('o/web#7', '2026-10-05T00:00:00Z'), row('o/web#8', '2026-10-01T00:00:00Z')],
+        more: true,
+      },
+      'o/gone': { issues: [], more: false, error: 'El repo no existe o el runner no tiene acceso' },
+    })
+    const result = RepoIssuesSchema.parse(await inbox.repoIssues())
+    // Un repo en el catálogo de dos proyectos se lee y se muestra una vez, con el primero.
+    expect(asked).toEqual(['o/api', 'o/web', 'o/gone'])
+    expect(result.repos).toEqual([
+      {
+        repo: 'o/api',
+        project_id: 'p',
+        items: [expect.objectContaining({ ref: 'o/api#2', project_id: 'p' })],
+      },
+      {
+        repo: 'o/web',
+        project_id: 'p',
+        items: [expect.objectContaining({ ref: 'o/web#8' })],
+        truncated: true,
+      },
+      {
+        repo: 'o/gone',
+        project_id: 'q',
+        items: [],
+        error: 'El repo no existe o el runner no tiene acceso',
+      },
+    ])
+  })
+
+  it('narrows to the repos of one project, still excluding the cards of every board', async () => {
+    const { inbox, asked } = withRepos({
+      'o/web': { issues: [row('o/web#7', '2026-10-05T00:00:00Z')], more: false },
+    })
+    const result = await inbox.repoIssues('q')
+    expect(asked).toEqual(['o/web', 'o/gone'])
+    expect(result?.repos.map((repo) => [repo.repo, repo.project_id, repo.items.length])).toEqual([
+      ['o/web', 'q', 0],
+      ['o/gone', 'q', 0],
+    ])
+  })
+
+  it('without a repo reader there is nothing to answer', async () => {
+    const { inbox } = service([], fakeActivity())
+    expect(await inbox.repoIssues()).toBeUndefined()
   })
 })

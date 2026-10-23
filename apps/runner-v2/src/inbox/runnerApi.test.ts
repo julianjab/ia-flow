@@ -240,8 +240,21 @@ async function start(
   const improvements = new SqliteImprovementStore(new Database(':memory:'))
   const logs = new RunnerLogs(10)
   const inbox = new InboxService({
-    projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+    projects: [{ projectId: 'p', board: { owner: 'o', number: 1 }, repos: ['o/r'] }],
     board: { cards: async () => cards },
+    // `o/r#1` ya es card; `o/r#2` no.
+    repoIssues: {
+      issues: async () => ({
+        issues: [cards[0]!.ref, 'o/r#2'].map((ref) => ({
+          ref,
+          title: ref,
+          url: `https://github.com/${ref.replace('#', '/issues/')}`,
+          labels: [],
+          updatedAt: '2026-10-01T00:00:00Z',
+        })),
+        more: false,
+      }),
+    },
     activity,
     waitingKeys: () => [],
     explain: async () => [],
@@ -385,6 +398,31 @@ describe('runner API', () => {
     const epic = await (await call('/api/tasks/o/r/10/epic')).json()
     expect(epic).toMatchObject({ epic: { ref: 'o/r#10' }, children: [{ ref: 'o/r#1' }] })
     expect((await call('/api/tasks/o/r/404/epic')).status).toBe(404)
+  })
+
+  it('serves the open issues of the catalog repos that have no card', async () => {
+    const { call } = await start()
+    const res = await call('/api/repos/issues?project=p')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      repos: [
+        {
+          repo: 'o/r',
+          project_id: 'p',
+          items: [
+            {
+              ref: 'o/r#2',
+              project_id: 'p',
+              title: 'o/r#2',
+              url: 'https://github.com/o/r/issues/2',
+              labels: [],
+              updated_at: '2026-10-01T00:00:00Z',
+            },
+          ],
+        },
+      ],
+    })
+    expect(await (await call('/api/repos/issues?project=otro')).json()).toEqual({ repos: [] })
   })
 
   it('an action needs the GitHub login, applies only if it fits, and is signed by that user', async () => {
