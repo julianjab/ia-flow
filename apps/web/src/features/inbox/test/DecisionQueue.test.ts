@@ -36,7 +36,7 @@ function render(list: InboxItem[], filter: QueueType | null = null) {
 describe('DecisionQueue', () => {
   it('encabezado «Después · K más» y filas numeradas desde el 2', () => {
     const w = render(items)
-    expect(w.get('h2').text()).toBe('Después')
+    expect(w.get('h2').text()).toBe('▾Después')
     expect(w.text()).toContain('4 más')
     expect(w.findAll('.dr__rank').map((r) => r.text())).toEqual(['2', '3', '4', '5'])
   })
