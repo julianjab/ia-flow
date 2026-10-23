@@ -11,6 +11,8 @@ import {
   type Inbox,
   InboxSchema,
   type MoveTaskRequest,
+  type RepoIssues,
+  RepoIssuesSchema,
   type TaskActionRequest,
   type TaskActionResult,
   TaskActionResultSchema,
@@ -50,6 +52,20 @@ export async function getTasks(project?: string): Promise<Tasks | null> {
   if (res.status === 404) return null
   if (res.status >= 400) throw new Error(`El runner respondió ${res.status} en /api/tasks`)
   return TasksSchema.parse(res.data)
+}
+
+/**
+ * Los issues abiertos de los repos del catálogo que no tienen card en el board, por repo. Un runner
+ * que todavía no lo publica (404 o 501) devuelve `null`: la sección no se dibuja.
+ */
+export async function getRepoIssues(project?: string): Promise<RepoIssues | null> {
+  const res = await axios.get<unknown>('/api/repos/issues', {
+    params: project ? { project } : undefined,
+    validateStatus: (status) => status < 500 || status === 501,
+  })
+  if (res.status === 404 || res.status === 501) return null
+  if (res.status >= 400) throw new Error(`El runner respondió ${res.status} en /api/repos/issues`)
+  return RepoIssuesSchema.parse(res.data)
 }
 
 /** Lo que la bandeja no muestra, por columna: se pide al abrir «Resto del board». */

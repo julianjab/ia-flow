@@ -1,11 +1,13 @@
 import { defineStore } from 'pinia'
 import { createActions } from '@/features/inbox/state/actions'
+import { createArrange } from '@/features/inbox/state/arrange'
 import { createDetails } from '@/features/inbox/state/details'
 import { createEpic } from '@/features/inbox/state/epic'
 import { createLive } from '@/features/inbox/state/live'
 import { createBoardLoad } from '@/features/inbox/state/load'
 import { createMoves } from '@/features/inbox/state/moves'
 import { createQueue } from '@/features/inbox/state/queue'
+import { createRepoIssues } from '@/features/inbox/state/repoIssues'
 import { createRest } from '@/features/inbox/state/rest'
 import { createSearch } from '@/features/inbox/state/search'
 import { useImprovementsSignalStore } from '@/stores/improvementsSignal'
@@ -25,12 +27,18 @@ export const useInboxStore = defineStore('inbox', () => {
   const detail = createDetails()
   const epic = createEpic()
   const board = createRest(() => load.project.value)
-  const queue = createQueue(load)
+  const repos = createRepoIssues(() => load.project.value)
+  const prefs = createArrange()
+  const queue = createQueue(load, prefs)
   const act = createActions(async (ref) => {
     await load.refresh()
     if (detail.openRef.value === ref) void detail.loadDetail(ref, { silent: true })
   })
-  const moves = createMoves(() => load.refresh())
+  // Agregar un issue al board lo saca de «En los repos, sin card»: se relee también esa lista.
+  const moves = createMoves(async () => {
+    await load.refresh()
+    if (repos.repoIssues.value) void repos.loadRepoIssues()
+  })
   const search = createSearch({
     scoped: queue.scoped,
     inbox: load.inbox,
@@ -57,10 +65,12 @@ export const useInboxStore = defineStore('inbox', () => {
     detail.open(ref)
   }
 
+  const { sort, isPinned, togglePin, snooze, wake, undoSnooze, lastSnoozed } = prefs
   const { openRef, expanded, details, loadDetail, toggle, expand, collapse } = detail
   return {
     ...load,
     ...board,
+    ...repos,
     ...act,
     ...moves,
     ...live,
@@ -75,5 +85,13 @@ export const useInboxStore = defineStore('inbox', () => {
     expand,
     collapse,
     focus,
+    sort,
+    isPinned,
+    togglePin,
+    snooze,
+    wake,
+    undoSnooze,
+    lastSnoozed,
+    reloadPrefs: prefs.reload,
   }
 })
