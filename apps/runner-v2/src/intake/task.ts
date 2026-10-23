@@ -10,6 +10,7 @@ import {
   type RawReview,
   type RawThread,
   rollupCi,
+  type Stack,
   taskTimeline,
 } from '@ia-flow/github-tools'
 import { assemblePayload, type EventArgs } from './payload.js'
@@ -66,16 +67,28 @@ export interface TaskInput {
   statuses?: Array<{ state: string }>
   workflowRuns?: Array<{ status: string }>
   projectId: string
+  /** Con `stacking` en el proyecto y su label en la task: qué blockers la siguen frenando y sobre
+   *  qué rama se apila (`stackOf`). Sin esto, frena cualquier blocker abierto. */
+  stack?: Stack
   /** La rama de la task (`task.branch`). */
   branch: string
   /** `{{project.repos}}` de los prompts. */
   repos: string
 }
 
+/** `https://github.com/o/r/issues/n` → `o/r#n`, la forma de `Stack.pending`. */
+function refOfUrl(url: string): string {
+  const match = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(url)
+  return match ? `${match[1]}/${match[2]}#${match[3]}` : url
+}
+
 export function taskPayload(input: TaskInput) {
-  const blockers = (input.blockers ?? []).filter(
+  const open = (input.blockers ?? []).filter(
     (b) => b.state === 'open' && b.html_url !== input.closedBlocker,
   )
+  // Apilada, sólo frena lo que todavía no está construido.
+  const pending = input.stack ? new Set(input.stack.pending) : undefined
+  const blockers = pending ? open.filter((b) => pending.has(refOfUrl(b.html_url))) : open
   const status = input.status ?? input.card.status
   // Un `to` sin valor (GitHub no siempre lo manda en un cambio de Status) es el status que quedó.
   const own =
@@ -110,6 +123,9 @@ export function taskPayload(input: TaskInput) {
       ...(input.openPr ? { pr: input.openPr } : {}),
       // `{{task.blockers}}`: qué la frena, legible para el prompt.
       blockers: blockers.map((b) => `#${b.number} ${b.title} (${b.html_url})`).join('\n'),
+      // `task.stack`: la rama del prerrequisito sobre la que sale la suya (`link_branch`,
+      // `ensure_pull_request`).
+      ...(input.stack?.base ? { stack: input.stack.base } : {}),
     },
     // Lo que filtra el gate de las pipelines (`item.blocked`): hay prerrequisitos abiertos.
     // `item.kind`: `pr` para una task que es sólo un PR (sin card ni PRD), `issue` para el resto.
