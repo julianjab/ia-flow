@@ -2,14 +2,16 @@ import { describe, expect, it } from 'bun:test'
 import type { GithubTaskReader } from '@ia-flow/github-tools'
 import { refOfUrl, stackedOn, taskStack } from './stack.js'
 
-const merged = { owner: 'o', repo: 'r', head: 'feat/a', headSha: 'abc', base: 'main' }
+const merged = { owner: 'o', repo: 'r', pr: 10, head: 'feat/a', headSha: 'abc', base: 'main' }
 const dependent = { owner: 'o', repo: 'r', number: 7 }
 
+/** `carries`: si la rama del dependiente trae el PRIMER commit del PR mergeado (`first`). */
 function reader(baseRef: string | undefined, carries = false) {
   return {
+    firstCommit: async () => 'first',
     openPullRequest: async () =>
       baseRef === undefined ? undefined : { number: 70, headRef: 'feat/b', baseRef },
-    contains: async () => carries,
+    contains: async (_o: string, _r: string, sha: string) => carries && sha === 'first',
   } as unknown as GithubTaskReader
 }
 
@@ -18,7 +20,7 @@ describe('stackedOn', () => {
     expect(await stackedOn(reader('feat/a'), merged, dependent)).toBe(70)
   })
 
-  it('el PR que GitHub ya reapuntó, pero trae la rama mergeada, también', async () => {
+  it('el PR que GitHub ya reapuntó, pero trae el primer commit del mergeado, también (aunque el prerrequisito haya recibido commits después)', async () => {
     expect(await stackedOn(reader('main', true), merged, dependent)).toBe(70)
     expect(await stackedOn(reader('main', false), merged, dependent)).toBeUndefined()
   })
@@ -33,6 +35,7 @@ describe('stackedOn — GitHub que no contesta', () => {
   it('un compare que falla (la rama ya no está) no estaba apilado, y no tira', async () => {
     const failing = {
       openPullRequest: async () => ({ number: 70, headRef: 'feat/b', baseRef: 'main' }),
+      firstCommit: async () => 'first',
       contains: async () => {
         throw new Error('404')
       },

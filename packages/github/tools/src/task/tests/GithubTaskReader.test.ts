@@ -179,6 +179,13 @@ describe('stackBlockers (con GithubTaskReader)', () => {
   })
 })
 
+describe('GithubTaskReader.firstCommit', () => {
+  it('el primer commit del PR', async () => {
+    const reader = routedReader({}, { '/repos/o/r/pulls/10/commits': [{ sha: 'first' }] })
+    expect(await reader.firstCommit('o', 'r', 10)).toBe('first')
+  })
+})
+
 describe('GithubTaskReader.contains', () => {
   it('ahead o identical: la rama ya trae el commit', async () => {
     const reader = routedReader(
