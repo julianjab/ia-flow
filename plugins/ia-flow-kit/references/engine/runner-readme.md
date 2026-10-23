@@ -696,7 +696,12 @@ stacking:
 - **Al mergearse el prerrequisito**, `intake-unblock` emite `issue.base_merged` (con `from`, `to`
   y `mergedPr`) en vez de `issue.unblocked` para el dependiente cuyo PR estaba apilado sobre esa
   rama —tenga o no otros blockers—. La pipeline que lo escucha corre `retarget_pr` (el PR pasa a
-  `to`, salvo que GitHub ya lo haya hecho) y después al implementer, que trae la base nueva.
+  `to`, salvo que GitHub ya lo haya hecho) y después al implementer, que trae la base nueva. Ese
+  hermano no recibe además `issue.pr_conflict`.
+- **GitHub no vincula un PR que no apunta a la default branch** (ignora su `Closes #n`). El lector
+  lo cubre sin ese vínculo: del PR al issue, por las palabras clave de su body; del issue al PR,
+  por el PR abierto de su rama vinculada (`link_branch`). Al apuntarlo a la default, `retarget_pr`
+  vuelve a guardar el body para que GitHub lo vincule y el merge cierre el issue.
 
 **Una épica que se entera de un hijo trabado.** `resolve_task` con `notifyParentOfLabels: [blocked]`
 publica `issue.child_labeled` (`child`, `label`) sobre el padre cuando un sub-issue recibe uno de
