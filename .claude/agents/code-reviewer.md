@@ -84,6 +84,10 @@ aparecen, con su severidad sugerida:
   popover anclado bajo 768px en vez de un bottom sheet (**R6**); una acción que sólo existe en
   `:hover` (**R7**); un contador en cero dibujado (**R10**); un header de página que repite la
   identidad que ya está en el chrome (**R9**/**R12**).
+- `minor` — DS v5: el verde (`--accent`) usado como foco, selección o hover (va `--primary` /
+  `--info` / `--panel-top`; el verde sólo dice «corre / ok»); un segundo `.btn--primary` en la
+  pantalla; un detalle en un modal en vez de una pantalla o columna con ruta de vuelta; una
+  pantalla que no se parece a la suya en `docs/design/ui-unificada/mockup.html`.
 - Hex hardcodeado, radio a mano (`6px`), fuente escrita a mano (`'SF Mono'`), o una copia de
   `.settings-section` / `.uc-label` / `.ff-field` / `.drag-handle` con prefijo propio: siempre
   hallazgo.

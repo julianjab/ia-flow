@@ -8,7 +8,7 @@ Subagentes, comandos, hooks y settings de este repo. Las reglas del proyecto est
 ### Verificadores (read-only, model: haiku)
 | Agent | Cuándo se dispara | Qué hace |
 |---|---|---|
-| `web-verifier` | Cambios en `apps/web/**` | Biome + `vue-tsc --noEmit` + vitest |
+| `web-verifier` | Cambios en `apps/web/**` | Biome + `vue-tsc --noEmit` + vitest, y el DS v5 sobre el diff (`apps/web/DESIGN_SYSTEM.md`, maqueta en `docs/design/ui-unificada/`) |
 
 Para `apps/runner-v2` y `packages/**`: `bun run typecheck:<pkg>` + `bun run test:<pkg>` (o `/check`).
 

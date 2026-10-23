@@ -20,6 +20,11 @@ Verificador del frontend Vue 3 de ia-flow.
    - **Breakpoint inventado (R8)**: `grep -nE '@media[^{]*(max|min)-width: *([0-9]+)px' <archivos>` — sólo se aceptan `768`, `640` y `1100`, y un `max-width` nuevo hay que justificarlo.
    - **Scroll horizontal (R2)**: un `min-width` en `rem` sobre una tabla dentro de un `overflow-x: auto`.
    - **Hover como único camino (R7)**: una acción que sólo se dibuja bajo `:hover`.
+   - **Color de v4 (DS v5)**: `var(--accent)` en un foco, una selección, un hover o una pestaña
+     actual (`grep -nE "(focus|hover|aria-(selected|pressed|current))[^}]*var\(--accent\)" <archivos>`)
+     — en v5 el foco es `--primary`, el hover de un link `--info` y lo elegido `--panel-top`;
+     el verde sólo dice «corre / ok». Un `.btn--primary` más de uno por pantalla, o un detalle
+     abierto en un modal en vez de una pantalla o columna con ruta de vuelta.
    Repórtalos con `file:line`; no los arregles.
 6. **Fronteras feature-sliced** (sólo sobre archivos del diff):
    - Import cruzado entre features: `grep -rn "from '@/features/" apps/web/src/features` — cada hit debe apuntar a su **propia** feature.
