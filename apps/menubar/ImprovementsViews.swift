@@ -10,17 +10,13 @@ struct ImprovementsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.goBack() }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Mejoras propuestas").font(.lh(17, .bold))
-                    Text("Las deja la retrospectiva al mergearse un PR").font(.lh(12)).foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
+            RouteHeader(back: runner.backLabel, title: "Mejoras · \(runner.improvements.count)", onBack: { runner.goBack() }) {
                 if runner.loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
             }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 4)
+            Text("Las deja la retrospectiva al mergearse un PR: abrir el issue, preguntar por qué o descartarla.")
+                .font(.lh(11.5)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.bottom, 10)
 
             FittingScroll {
                 VStack(alignment: .leading, spacing: 0) {
@@ -50,13 +46,10 @@ struct ImprovementChatScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver a las mejoras") { runner.goBack() }
-                Text("¿Por qué?").font(.lh(17, .bold))
-                Spacer()
+            RouteHeader(back: runner.backLabel, title: "¿Por qué?", onBack: { runner.goBack() }) {
                 IconButton(symbol: "square.and.pencil", help: "Conversación nueva") { chat.discuss(improvement) }
             }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
 
             ImprovementRow(runner: runner, improvement: improvement, detailed: true)
                 .card().padding(.horizontal, 14).padding(.bottom, 8)
@@ -145,15 +138,15 @@ struct ImprovementRow: View {
                 Button { runner.decide(improvement, open: true) } label: {
                     if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) } else { Text("Abrir issue…") }
                 }
-                .buttonStyle(PillButtonStyle(tint: Palette.blue, compact: true)).fixedSize().disabled(busy)
+                .buttonStyle(PillButtonStyle(prominent: true, compact: true)).fixedSize().disabled(busy)
                 Button("Descartar…") { runner.decide(improvement, open: false) }
                     .buttonStyle(PillButtonStyle(tint: .secondary, compact: true)).fixedSize().disabled(busy)
                 if detailed {
                     Button(showBody ? "Ocultar el issue" : "Ver el issue") { withAnimation(.easeOut(duration: 0.15)) { showBody.toggle() } }
                         .buttonStyle(PillButtonStyle(tint: .secondary, compact: true)).fixedSize()
                 } else {
-                    Button { runner.discuss(improvement) } label: { Label("¿Por qué?", systemImage: "bubble.left.and.text.bubble.right") }
-                        .buttonStyle(PillButtonStyle(tint: .orange, compact: true)).fixedSize()
+                    Button { runner.discuss(improvement) } label: { Text("✦ ¿Por qué?").foregroundStyle(Palette.ai) }
+                        .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
                         .help("Preguntarle al asistente por qué el agente propuso esto")
                 }
                 Spacer(minLength: 0)

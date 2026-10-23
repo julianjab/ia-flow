@@ -18,8 +18,10 @@ struct RunnerScreen: View {
             if let improvement = runner.discussing, let chat = runner.improvementChat {
                 ImprovementChatScreen(runner: runner, improvement: improvement, chat: chat)
             } else { ImprovementsScreen(runner: runner) }
-        case .run, .task:
+        case .run:
             if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { gone }
+        case .task:
+            if let watch = runner.watching { TaskDetailScreen(runner: runner, watch: watch) } else { gone }
         case .epic:
             if runner.epicRef != nil { EpicScreen(runner: runner) } else { gone }
         // la bandeja y «Runners» los dibuja RootContent
@@ -437,19 +439,12 @@ struct RunnerLogsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.goBack() }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Logs del server").font(.lh(17, .bold))
-                    Text(runner.selected.name).font(.lh(12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Picker("", selection: $runner.logLevel) {
-                    ForEach(["debug", "info", "warn", "error"], id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 190)
-            }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            RouteHeader(back: runner.backLabel, title: "Logs del server") { runner.goBack() }
+                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+            Segmented(options: [SegmentOption(id: "info", title: "Todo"), SegmentOption(id: "warn", title: "Avisos"),
+                                SegmentOption(id: "error", title: "Errores"), SegmentOption(id: "debug", title: "Debug")],
+                      selected: runner.logLevel, compact: true) { runner.logLevel = $0 }
+            .padding(.horizontal, 14).padding(.bottom, 10)
 
             if let error = runner.logError {
                 Banner(text: error, tone: .bad, icon: "xmark.octagon.fill").padding(.horizontal, 14).padding(.bottom, 8)

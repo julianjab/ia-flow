@@ -20,9 +20,13 @@ struct EpicScreen: View {
                             Text("Esta épica no tiene sub-issues.").font(.lh(12)).foregroundStyle(.tertiary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        ForEach(Array(detail.children.enumerated()), id: \.element.ref) { i, child in
-                            if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                            EpicChildRow(runner: runner, child: child)
+                        ForEach(epicGroups(detail.children), id: \.title) { group in
+                            Text("\(group.title) \(group.items.count)").font(.lh(12, .semibold)).foregroundStyle(.secondary)
+                                .padding(.top, group.title == epicGroups(detail.children).first?.title ? 0 : 12).padding(.bottom, 4)
+                            ForEach(Array(group.items.enumerated()), id: \.element.ref) { i, child in
+                                if i > 0 { Divider().opacity(0.4).padding(.vertical, 5) }
+                                EpicChildRow(runner: runner, child: child)
+                            }
                         }
                     } else if runner.epicError == nil {
                         HStack { ProgressView().controlSize(.small); Text("Leyendo los sub-issues…").foregroundStyle(.secondary) }
@@ -39,24 +43,64 @@ struct EpicScreen: View {
     private var header: some View {
         let ref = runner.epicRef ?? ""
         let epic = runner.epicDetail?.epic
-        return HStack(alignment: .top, spacing: 8) {
-            IconButton(symbol: "chevron.left", help: "Volver") { runner.closeEpic() }
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Épica").font(.lh(17, .bold))
-                if let epic {
-                    Text(cleanTitle(epic.title)).font(.lh(12)).foregroundStyle(.secondary).lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
+        return VStack(alignment: .leading, spacing: 8) {
+            RouteHeader(back: runner.backLabel, title: "Épica · \(epic.map { shortEpic(cleanTitle($0.title)) } ?? shortRef(ref))") { runner.closeEpic() }
+            if let epic {
+                Text(cleanTitle(epic.title)).font(.lh(15, .semibold)).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    ProgressBar(value: epic.total == 0 ? 0 : Double(epic.done) / Double(epic.total))
+                    Text("\(epic.done) de \(epic.total)").font(.lh(11.5, .semibold)).foregroundStyle(.secondary).fixedSize()
                 }
-                HStack(spacing: 6) {
-                    Button { runner.openTask(ref) } label: { refTag(ref) }.buttonStyle(.plain).fixedSize()
-                        .help("Abrir \(ref) en GitHub")
-                    if let epic { Chip(text: "\(epic.done)/\(epic.total) cerrados", tone: .ok, icon: "checkmark") }
-                }
-                if let epic { ProgressBar(value: epic.total == 0 ? 0 : Double(epic.done) / Double(epic.total)) }
+                if !summary.isEmpty { Text(summary).font(.lh(12)).foregroundStyle(.secondary) }
             }
-            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                Button("Abrir la épica en GitHub ↗") { runner.openTask(ref) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                if let item = runner.inbox?.items.first(where: { $0.epic?.ref == ref }), let onAsk = runner.onAsk {
+                    Button { onAsk(item) } label: { Text("✦ ¿Qué le falta?").foregroundStyle(Palette.ai) }
+                        .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                        .help("Preguntarle al asistente (con una tarea de la épica como contexto)")
+                }
+            }
         }
     }
+
+    /// «2 te esperan · 2 corriendo · 1 bloqueada», con lo que la bandeja sabe de sus hijos.
+    private var summary: String {
+        let ref = runner.epicRef ?? ""
+        let items = runner.inbox?.items.filter { $0.epic?.ref == ref } ?? []
+        let waiting = items.filter(\.isDecision).count, running = items.filter { $0.group == "run" }.count
+        let blocked = runner.epicDetail?.children.filter { $0.state == "open" && !($0.blocked_by ?? []).isEmpty }.count ?? 0
+        var parts: [String] = []
+        if waiting > 0 { parts.append("\(waiting) te \(waiting == 1 ? "espera" : "esperan")") }
+        if running > 0 { parts.append("\(running) corriendo") }
+        if blocked > 0 { parts.append("\(blocked) bloqueada\(blocked == 1 ? "" : "s")") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Los sub-issues agrupados por columna (Done arriba, como el board) y «Fuera del board» al final: cerrados o sin card.
+func epicGroups(_ children: [EpicChild]) -> [(title: String, items: [EpicChild])] {
+    var order: [String] = []
+    var byStatus: [String: [EpicChild]] = [:]
+    var away: [EpicChild] = []
+    for child in children {
+        guard child.state == "open", let status = child.status else {
+            // un cerrado con columna (Done) va en su columna; uno sin card, afuera
+            if child.state == "closed", let status = child.status {
+                if byStatus[status] == nil { order.append(status) }
+                byStatus[status, default: []].append(child)
+            } else {
+                away.append(child)
+            }
+            continue
+        }
+        if byStatus[status] == nil { order.append(status) }
+        byStatus[status, default: []].append(child)
+    }
+    let rank = { (s: String) -> Int in ["done": 0, "review": 1, "build": 2, "refined": 3, "refine": 4, "todo": 5][s.lowercased()] ?? 6 }
+    var groups = order.sorted { rank($0) < rank($1) }.map { (title: $0, items: byStatus[$0] ?? []) }
+    if !away.isEmpty { groups.append((title: "Fuera del board", items: away)) }
+    return groups
 }
 
 /// Un sub-issue: ✓ si cerró; su título, la ref, la columna (o «fuera del board»), el PR y qué lo bloquea.
@@ -81,6 +125,11 @@ struct EpicChildRow: View {
                         refTag(child.ref)
                         Chip(text: closed ? "cerrado" : child.status ?? "fuera del board", tone: onBoard ? .info : .neutral)
                         if let pr = child.pr { Chip(text: "PR #\(pr.number)", tone: .info) }
+                        if let item = runner.inbox?.items.first(where: { $0.ref == child.ref }) {
+                            if item.isDecision { Chip(text: "te espera", tone: .warn) } else if item.group == "run" { Chip(text: "corriendo", tone: .ok) }
+                        }
+                        let unlocks = runner.epicDetail?.children.filter { $0.state == "open" && ($0.blocked_by ?? []).contains(child.ref) }.count ?? 0
+                        if !closed, unlocks > 0 { Chip(text: "cerrarla destraba \(unlocks)", tone: .ok, icon: "lock.open.fill") }
                         if let blockers = child.blocked_by, !blockers.isEmpty {
                             Chip(text: "espera \(blockers.map(shortRef).joined(separator: ", "))", tone: .warn, icon: "lock.fill")
                         }

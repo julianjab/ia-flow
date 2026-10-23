@@ -45,6 +45,59 @@ struct RunDetail: Decodable {
     /// De la más nueva a la más vieja.
     let executions: [ExecutionSummary]
     let trace: [TraceEntry]
+    /// Los eventos que recibió la tarea y qué decidió cada pipeline (de lo más nuevo a lo más viejo). Un runner viejo
+    /// no los manda.
+    var events: [TaskEvent]? = nil
+}
+
+/// Un valor del resumen de un evento: texto, número o booleano.
+struct EventValue: Decodable, Hashable {
+    let text: String
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let s = try? c.decode(String.self) { text = s }
+        else if let b = try? c.decode(Bool.self) { text = b ? "sí" : "no" }
+        else if let d = try? c.decode(Double.self) { text = d == d.rounded() ? String(Int(d)) : String(d) }
+        else { text = "" }
+    }
+}
+
+/// Lo que decidió una pipeline con un evento (`PipelineDecisionSchema`).
+struct PipelineDecision: Decodable, Hashable {
+    let pipeline_id: String
+    let verdict: String
+    var reason: String? = nil
+
+    /// «review · no corrió: no tiene PR».
+    var line: String {
+        let what = verdict == "ran" ? "arrancó" : verdict == "lost_to_exclusive" ? "no corrió: ganó otra" : "no corrió"
+        return "\(pipeline_id) · \(what)" + (reason.map { verdict == "lost_to_exclusive" ? " (\($0))" : ": \($0)" } ?? "")
+    }
+}
+
+/// Una fila de `event_log` de la tarea (`EventLogEntrySchema`).
+struct TaskEvent: Decodable, Hashable, Identifiable {
+    let id: String
+    let type: String
+    let occurred_at: String
+    var summary: [String: EventValue]? = nil
+    var outcome: String? = nil
+    var decisions: [PipelineDecision]? = nil
+    var execution_id: String? = nil
+
+    /// Lo que dice el evento, sin la tarea misma: «label e2e-test», «Build → Review».
+    var detail: String {
+        (summary ?? [:]).filter { $0.key != "issue" }.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.text)" }.joined(separator: " · ")
+    }
+}
+
+/// `GET /api/explain?ref=`: qué decidiría cada pipeline con el último evento de la tarea.
+struct ExplainResult: Decodable {
+    struct Event: Decodable { let type: String; var summary: [String: EventValue]? = nil }
+    let event: Event
+    let source: String
+    let decisions: [PipelineDecision]
 }
 
 struct ExecutionUsage: Codable, Hashable {
@@ -59,6 +112,11 @@ struct ExecutionFailure: Codable, Hashable {
 }
 
 extension RunnerClient {
+    func explain(_ ref: String) async throws -> ExplainResult {
+        let query = ref.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ref
+        return try await get("/api/explain?ref=\(query)")
+    }
+
     func run(ref: String, execution: String?) async throws -> RunDetail {
         guard let parts = RunnerSearch.split(ref) else { throw RunnerError(status: 0, message: "ref inválida: \(ref)") }
         let query = execution.map { "?execution=\($0)" } ?? ""

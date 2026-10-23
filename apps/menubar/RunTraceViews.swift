@@ -28,12 +28,13 @@ struct RunTraceScreen: View {
     // MARK: encabezado: la tarea y qué ejecución
 
     private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+        RouteHeader(back: runner.backLabel, title: refLabel(watch.ref), mono: true, onBack: { runner.closeRun() }) {
+            if watch.executions.count > 1 { executionMenu }
+        }
         HStack(alignment: .top, spacing: 8) {
-            IconButton(symbol: "chevron.left", help: "Volver") { runner.closeRun() }
-            // El título solo en su línea (con los chips al lado se partía en dos); la ref y el PR, debajo del nombre.
             VStack(alignment: .leading, spacing: 4) {
-                Text(watch.running ? "En vivo" : "Ejecución").font(.lh(17, .bold)).lineLimit(1).fixedSize()
-                Text(watch.item.displayTitle).font(.lh(12)).foregroundStyle(.secondary).lineLimit(2)
+                Text(watch.item.displayTitle).font(.lh(15, .semibold)).lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     Button { runner.open(watch.item) } label: { refTag(watch.ref) }.buttonStyle(.plain).fixedSize()
@@ -46,7 +47,7 @@ struct RunTraceScreen: View {
                 BlockersLine(runner: runner, item: watch.item)
             }
             Spacer(minLength: 4)
-            if watch.executions.count > 1 { executionMenu }
+        }
         }
     }
 
@@ -163,7 +164,8 @@ struct RunTraceScreen: View {
                     .menuStyle(.button).buttonStyle(PillButtonStyle(compact: true)).menuIndicator(.hidden).fixedSize()
                     .disabled(busy)
             }
-            IconButton(symbol: "bubble.left.and.text.bubble.right", help: "Preguntarle al asistente sobre esta tarea") { runner.onAsk?(watch.item) }
+            Button { runner.onAsk?(watch.item) } label: { Text("✦ Preguntar").foregroundStyle(Palette.ai) }
+                .buttonStyle(PillButtonStyle(compact: true)).fixedSize().help("Preguntarle al asistente sobre esta tarea")
             Spacer(minLength: 4)
             Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
             Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }
@@ -224,7 +226,7 @@ struct StepRow: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
                             Text(step.title).font(.lh(12, step.kind == .stage ? .bold : .semibold))
-                                .foregroundStyle(step.kind == .model ? Color.secondary : step.state == .failed ? Color.red : Color.primary)
+                                .foregroundStyle(step.kind == .model ? Color.secondary : step.state == .failed ? Palette.red : Color.primary)
                                 .lineLimit(step.kind == .note ? 3 : 1)
                             if let summary { Text(summary).font(.lh(12)).foregroundStyle(.secondary).lineLimit(1) }
                         }

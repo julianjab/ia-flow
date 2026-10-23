@@ -216,8 +216,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             runner.showTask(first)
             popoverMaxScroll = 520
             shot("detail")
-            popoverMaxScroll = 2000
             runner.goHome()
+            if let question = runner.decisions.first(where: { $0.kind == "doubt" }) {
+                runner.showTask(question)
+                shot("detail-question", both: false)
+                runner.goHome()
+            }
+            popoverMaxScroll = 2000
         }
         if let epic = runner.epics.first {
             runner.showEpic(epic.epic.ref)
