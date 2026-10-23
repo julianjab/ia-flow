@@ -247,6 +247,39 @@ describe('SqliteActivity', () => {
     })
   })
 
+  it('finds the event that opened an execution, past the ones that only woke its pause', () => {
+    const { events, activity } = setup()
+    const at = (minute: number) => `2026-10-23T15:${String(minute).padStart(2, '0')}:00.000Z`
+    const scope = { scope: { issue: 'o/r#1', projectId: 'p' }, depth: 1 }
+    const ran = (pipelineId: string) => [{ pipelineId, sourceId: 'p', verdict: 'ran' as const }]
+    // Antes: otra etapa, con su propia pipeline.
+    const refine = createEvent(
+      'issue.status_changed',
+      { to: 'Refine' },
+      { ...scope, occurredAt: at(0) },
+    )
+    events.record({ event: refine, decisions: ran('refine'), outcome: 'dispatched' })
+    // La que abrió la ejecución de `build-reentry` (arrancó a las 15:02).
+    const edited = createEvent('projects_v2_item.edited', { n: 1 }, { ...scope, occurredAt: at(1) })
+    events.record({ event: edited, decisions: ran('build-reentry'), outcome: 'dispatched' })
+    // Después: el CI verde que despertó su pausa — el último de la task.
+    const green = createEvent(
+      'check_suite',
+      { conclusion: 'success' },
+      { ...scope, occurredAt: at(10) },
+    )
+    events.record({ event: green, decisions: [], outcome: 'resumed' })
+
+    expect(activity.lastDispatchedEvent('o/r#1')?.id).toBe(green.id)
+    expect(
+      activity.lastDispatchedEvent('o/r#1', { pipelineId: 'build-reentry', startedAt: at(2) }),
+    ).toMatchObject({ id: edited.id, type: 'projects_v2_item.edited', payload: { n: 1 } })
+    // Ninguno abrió una ejecución de `review` antes de las 15:02.
+    expect(
+      activity.lastDispatchedEvent('o/r#1', { pipelineId: 'review', startedAt: at(2) }),
+    ).toBeUndefined()
+  })
+
   it('events keep what each pipeline decided; retry re-dispatches the last domain event', () => {
     const { events, activity } = setup()
     const raw = createEvent(
