@@ -139,6 +139,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         model.onDetach = { [weak self] in self?.openWindow() }
         model.onFloating = { [weak self] on in self?.window?.level = on ? .floating : .normal }
         installMainMenu()
+        // ⌘V y compañía en el popover (con `.accessory` no llegan al menú Edición)
+        EditShortcuts.install { [weak self] window in
+            guard let self, let window else { return false }
+            return window === self.window || window === self.popover.contentViewController?.view.window
+        }
         refreshIcon()
         if UserDefaults.standard.bool(forKey: "windowOpen") || args.contains("--window") { DispatchQueue.main.async { [self] in openWindow() } }
         if args.contains("--open"), let button = statusItem.button {
