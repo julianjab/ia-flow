@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   boardRepoNames,
   githubWebUrl,
+  numberCandidates,
   parseQuery,
   planSearch,
   shownRepos,
@@ -31,12 +32,19 @@ describe('planSearch', () => {
     expect(planSearch('other/web#3', api)).toEqual({ kind: 'ref', ref: 'other/web#3' })
   })
 
-  it('un número va al repo elegido; sin repo, pide elegir uno', () => {
+  it('un número va al repo elegido; sin repo, se busca en los repos candidatos', () => {
     expect(planSearch('12', api)).toEqual({ kind: 'ref', ref: 'acme/api#12' })
-    expect(planSearch('12', all)).toEqual({
-      kind: 'note',
-      note: 'Elige un repo para buscar #12: GitHub no busca por número en toda la organización.',
-    })
+    expect(planSearch('12', all)).toEqual({ kind: 'number', number: 12 })
+  })
+
+  it('los candidatos de un número: los del board primero, después los más activos, sin repetir', () => {
+    expect(numberCandidates(['api', 'web'], ['cli', 'API', 'docs'], 4)).toEqual([
+      'api',
+      'web',
+      'cli',
+      'docs',
+    ])
+    expect(numberCandidates(['api'], ['a', 'b', 'c'], 2)).toEqual(['api', 'a'])
   })
 
   it('el texto busca desde 3 letras', () => {

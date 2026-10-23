@@ -91,7 +91,7 @@ describe('GithubSearchPanel', () => {
     expect(api.search).toHaveBeenCalledWith('etapa', 'acme', null)
     expect(w.get('[data-test="scope"]').text()).toContain('Toda acme')
     expect(w.text()).toContain(
-      'Usa tu login de GitHub (sólo lectura). Con un repo elegido, un número va directo a ese issue o PR.',
+      'Usa tu login de GitHub (sólo lectura). Un número se busca en los repos del board y los más activos; con un repo elegido, va directo.',
     )
     expect(row(w, 'acme/api#7').text()).toContain('Abierto · issue')
     expect(row(w, 'acme/api#12').text()).toContain('Abierto · PR')
@@ -154,11 +154,16 @@ describe('GithubSearchPanel', () => {
     expect(session.loginOpen).toBe(true)
   })
 
-  it('un número sin repo pide elegir uno; con el repo elegido (recordado) va directo', async () => {
+  it('un número sin repo se busca en los del board y los más activos; con el repo elegido (recordado) va directo', async () => {
     const { w, api } = render({ query: '12' })
     await settle()
-    expect(w.get('[data-test="note"]').text()).toContain('Elige un repo para buscar #12')
-    expect(api.issue).not.toHaveBeenCalled()
+    // Los del board (api) primero, después el resto de la org por actividad.
+    expect(api.issue).toHaveBeenCalledWith('acme/api#12')
+    expect(api.issue).toHaveBeenCalledWith('acme/web#12')
+    expect(api.issue).toHaveBeenCalledWith('acme/cli#12')
+    expect(w.get('[data-test="note"]').text()).toContain('Buscado en 3 repos de acme')
+    expect(w.findAll('[data-test="result"]').length).toBe(3)
+    api.issue.mockClear()
     await w.get('[data-test="scope"]').trigger('click')
     await settle()
     const picker = w.get('[data-test="repo-picker"]')
