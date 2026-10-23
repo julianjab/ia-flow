@@ -290,10 +290,29 @@ describe('DecisionRow', () => {
     postTaskAction.mockResolvedValue({ ok: true, message: 'relanzada' })
     const { pinia } = setup()
     const w = mountRow(rows([stale])[0] as QueueRow, pinia)
-    expect(w.findAll('.sw__act').map((b) => b.text())).toEqual(['Relanzar'])
+    // A la izquierda la acción y Posponer; a la derecha, Fijar arriba.
+    expect(w.findAll('.sw__acts:not(.sw__acts--lead) .sw__act').map((b) => b.text())).toEqual([
+      'Relanzar',
+      'Posponer',
+    ])
+    expect(w.findAll('.sw__acts--lead .sw__act').map((b) => b.text())).toEqual(['Fijar arriba'])
     await w.get('[data-test="swipe-act"]').trigger('click')
     await flushPromises()
     expect(postTaskAction).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('deslizada, Posponer la saca de la cola y Fijar arriba la marca como fijada', async () => {
+    const { pinia } = setup()
+    const w = mountRow(rows([stale])[0] as QueueRow, pinia)
+    const store = useInboxStore()
+    await w.get('[data-test="swipe-pin"]').trigger('click')
+    expect(store.isPinned('la-haus/subscriptions#20')).toBe(true)
+    expect(w.find('.dr__pin').text()).toBe('Fijada')
+    await w.get('[data-test="swipe-snooze"]').trigger('click')
+    expect(store.lastSnoozed?.ref).toBe('la-haus/subscriptions#20')
+    expect(store.isPinned('la-haus/subscriptions#20')).toBe(false)
+    store.wake('la-haus/subscriptions#20')
     w.unmount()
   })
 
