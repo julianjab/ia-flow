@@ -202,6 +202,59 @@ describe('SqliteExecutionStore across a restart', () => {
   })
 })
 
+describe('SqliteExecutionStore — una corrida que esperaba lugar cuando el proceso murió', () => {
+  /** Un refiner por task; `hold` lo deja corriendo hasta que se resuelva. */
+  function refine(ran: string[], hold?: Promise<void>) {
+    const refiner = new Agent(
+      { id: 'refiner', provider: 'p', prompt: 'p' },
+      new ProviderRegistry().register({
+        id: 'p',
+        run: async (ctx) => {
+          ran.push(String(ctx.ctx.event.scope?.issue))
+          if (hold) await hold
+          await ctx.tools.find((tool) => tool.name === 'submit_done')?.handler({})
+          return { outcome: 'success' }
+        },
+      }),
+    )
+    return new Pipeline({ id: 'refine', on: ['issue.status_changed'], do: [refiner] })
+  }
+  const onTask = (issue: number) =>
+    createEvent('issue.status_changed', { to: 'Refine' }, { scope: { projectId: 'p', issue } })
+
+  it('su evento se re-despacha al reiniciar y la pipeline corre (subscriptions#1762)', async () => {
+    const path = dbFile()
+    const ran: string[] = []
+    const before = new SqliteExecutionStore({ database: openNodeSqlite(path), maxConcurrent: 1 })
+    const first = new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => [refine(ran, new Promise(() => {}))] },
+      executions: before,
+    })
+    void first.dispatch(onTask(2039))
+    void first.dispatch(onTask(2040))
+    for (let i = 0; i < 20 && ran.length === 0; i++) await tick()
+    await tick()
+    // Uno corre; el otro espera lugar. El proceso muere (un deploy).
+    expect(ran).toEqual(['2039'])
+    expect(before.database.waiting().map((run) => run.event.scope?.issue)).toEqual([2040])
+    before.close()
+
+    const after = new SqliteExecutionStore({ database: openNodeSqlite(path), maxConcurrent: 1 })
+    const again: string[] = []
+    new Engine({
+      bus: new EventBus(),
+      pipelines: { list: () => [refine(again)] },
+      executions: after,
+    })
+    for (let i = 0; i < 50 && again.length === 0; i++) await tick()
+
+    expect(again).toEqual(['2040'])
+    expect(after.database.waiting()).toEqual([])
+    after.close()
+  })
+})
+
 describe('SqliteExecutionStore — maxRuns', () => {
   it('la cuenta de corridas sobrevive a un reinicio', () => {
     const file = dbFile()
