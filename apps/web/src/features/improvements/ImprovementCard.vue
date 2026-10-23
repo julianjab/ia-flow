@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import type { ImprovementProposal, ImprovementTarget } from '@ia-flow/shared';
+import type { ImprovementProposal } from '@ia-flow/shared';
 import { computed, ref } from 'vue';
+import { TARGETS } from './targets';
 import { useGithubSessionStore } from '@/stores/githubSession';
 import type { DecisionState } from './store';
 
@@ -21,11 +22,6 @@ const emit = defineEmits<{
 
 const session = useGithubSessionStore();
 
-const TARGETS: Record<ImprovementTarget, string> = {
-  docs: 'Docs del repo',
-  config: 'Config del runner',
-  engine: 'Engine',
-};
 
 const running = computed(() => props.state?.status === 'running');
 const issueUrl = computed(() => props.state?.url ?? props.proposal.issue_url);

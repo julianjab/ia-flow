@@ -1,61 +1,83 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
 import type { ImprovementProposal } from '@ia-flow/shared';
+import { computed, onMounted, ref } from 'vue';
 import { useAssistantStore } from '@/stores/assistant';
+import BottomSheet from '@/ui/BottomSheet.vue';
 import ImprovementCard from './ImprovementCard.vue';
+import ImprovementRow from './ImprovementRow.vue';
 import { useImprovementsStore } from './store';
 import { WHY_QUESTIONS, whyContext, whyScope } from './why';
 
-// «Mejoras propuestas»: lo que dejó el agente de la retrospectiva al mergearse un PR. Una persona
-// decide cada una: abrirla como issue o descartarla. Sin pendientes (ni una recién abierta con su
-// link) no se dibuja: un contador en cero no se muestra (R10). Arranca abierta porque hay una
-// decisión esperando.
+// «Mejoras propuestas»: lo que dejó el agente de la retrospectiva al mergearse un PR. Una fila corta
+// por mejora (v5); tocarla abre su detalle en un sheet —el porqué, el issue, la columna y las
+// acciones—, donde una persona decide: abrirla como issue, descartarla o preguntar por qué. Sin
+// pendientes (ni una recién abierta con su link) no se dibuja: un contador en cero no se muestra (R10).
 
-defineEmits<{ (e: 'open', ref: string): void }>();
+const emit = defineEmits<{ (e: 'open', ref: string): void }>();
 
 const store = useImprovementsStore();
 const assistant = useAssistantStore();
 
+/** La mejora abierta en el detalle. */
+const selectedId = ref<string | null>(null);
+const selected = computed(() => store.items.find((p) => p.id === selectedId.value) ?? null);
+
 /** «¿Por qué?»: el asistente sobre la tarea que la originó, con la mejora como contexto oculto y la
  *  primera pregunta ya hecha (se sigue preguntando en el chat). */
 function ask(p: ImprovementProposal) {
+  selectedId.value = null;
   assistant.open(whyScope(p), WHY_QUESTIONS[0], { title: `la mejora «${p.title}»`, context: whyContext(p) });
+}
+
+/** Ir a la tarea de origen cierra el detalle: la tarea se abre en la bandeja. */
+function openTask(ref: string) {
+  selectedId.value = null;
+  emit('open', ref);
 }
 
 onMounted(() => void store.load());
 </script>
 
 <template>
-  <details v-if="store.items.length" class="imp" open data-test="improvements">
-    <summary class="imp__head">
-      <span class="imp__chev" aria-hidden="true">▸</span>
-      <span class="uc-label">Mejoras propuestas</span>
-      <span v-if="store.count" class="imp__n mono" data-test="count">{{ store.count }}</span>
-      <span class="imp__dim">propuestas por un agente: vos decidís si se abren</span>
-    </summary>
-    <div class="imp__body">
-      <ImprovementCard
+  <section v-if="store.items.length" class="imp" aria-labelledby="imp-h" data-test="improvements">
+    <header class="imp__head">
+      <h2 id="imp-h" class="imp__title">Mejoras propuestas</h2>
+      <span v-if="store.count" class="imp__n" data-test="count">{{ store.count }}</span>
+      <span class="imp__dim">las propuso un agente: vos decidís si se abren</span>
+    </header>
+    <div class="imp__list">
+      <ImprovementRow
         v-for="p in store.items"
         :key="p.id"
         :proposal="p"
         :state="store.states[p.id]"
-        @run="store.open(p, $event)"
-        @dismiss="store.dismiss(p)"
-        @ask="ask(p)"
-        @open="$emit('open', $event)"
+        @select="selectedId = p.id"
       />
     </div>
-  </details>
+
+    <BottomSheet :open="selected !== null" title="Mejora propuesta" @close="selectedId = null">
+      <div v-if="selected" class="imp__detail">
+        <ImprovementCard
+          :proposal="selected"
+          :state="store.states[selected.id]"
+          @run="store.open(selected, $event)"
+          @dismiss="store.dismiss(selected); selectedId = null"
+          @ask="ask(selected)"
+          @open="openTask"
+        />
+      </div>
+    </BottomSheet>
+  </section>
 </template>
 
 <style scoped>
-.imp { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); }
-.imp__head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; min-height: var(--tap-h); padding: 0 0.75rem; cursor: pointer; list-style: none; }
-.imp__head::-webkit-details-marker { display: none; }
-.imp__head:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
-.imp__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); transition: transform 120ms ease; }
-.imp[open] > .imp__head .imp__chev { transform: rotate(90deg); }
+.imp { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.imp__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+.imp__title { margin: 0; color: var(--fg-dim); font-family: var(--font-body); font-size: var(--fs-chrome); font-weight: 600; }
 .imp__n { color: var(--fg); font-size: var(--fs-chrome); font-weight: 600; }
-.imp__dim { color: var(--fg-dim); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
-.imp__body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0 0.75rem 0.75rem; }
+.imp__dim { color: var(--fg-dim); font-size: var(--fs-chrome); }
+.imp__list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel-alt); overflow: hidden; }
+/* Dentro del sheet la card no lleva su caja: el sheet ya es la caja. */
+.imp__detail { padding: 0 1rem 1rem; }
+.imp__detail :deep(.ic) { padding: 0; border: 0; background: none; }
 </style>
