@@ -5,10 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getBoardRest = vi.fn()
 const getTaskDetail = vi.fn()
+const getClosedCards = vi.fn()
 vi.mock('@/features/inbox/api', () => ({
   getInbox: vi.fn(),
   getBoardRest: (...a: unknown[]) => getBoardRest(...a),
   getTaskDetail: (...a: unknown[]) => getTaskDetail(...a),
+  getClosedCards: (...a: unknown[]) => getClosedCards(...a),
   postTaskAction: vi.fn(),
 }))
 
@@ -92,5 +94,24 @@ describe('BoardRest', () => {
     const store = useInboxStore()
     expect(store.openRef).toBe('o/r#1')
     expect(store.expanded).toBe(true)
+  })
+
+  it('«Cerrados» se pide recién al abrirlo y cada uno se abre en GitHub', async () => {
+    getBoardRest.mockResolvedValue(rest)
+    getClosedCards.mockResolvedValue([
+      { ...row('o/r#9', 'Done'), closed_at: '2026-09-29T10:00:00Z' },
+    ])
+    const w = render()
+    await flushPromises()
+    expect(getClosedCards).not.toHaveBeenCalled()
+    const closed = w.get('[data-test="closed"] details')
+    ;(closed.element as HTMLDetailsElement).open = true
+    await closed.trigger('toggle')
+    await flushPromises()
+    expect(getClosedCards).toHaveBeenCalledTimes(1)
+    const item = w.get('[data-test="closed-o/r#9"]')
+    expect(item.text()).toContain('título o/r#9')
+    expect(item.text()).toContain('Done · cerrada')
+    expect(item.get('a.br__row').attributes('href')).toBe('https://github.com/o/r#9')
   })
 })
