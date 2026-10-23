@@ -82,6 +82,7 @@ src/
 │   ├── Execution.ts         UNA ejecución: ciclo de vida + ExecutionRecord + ExecutionJournal
 │   ├── Inbox.ts             lo que le llega a una ejecución (entregado / no aceptado)
 │   ├── ExecutionStore.ts    una por task + tope + ifPaused + recuperación, sobre un repositorio
+│   ├── ResumeLimits.ts      cuándo y cuántas veces se retoma lo que el proceso cortó (espera + escalón)
 │   ├── ExecutionScheduler.ts, KeyedQueue.ts, Semaphore.ts   turno por task + tope global
 │   ├── ExecutionRepository.ts   el puerto de persistencia (síncrono)
 │   ├── RunCounter.ts, InMemoryRunCounter.ts   dónde se cuentan las corridas de `maxRuns`
@@ -421,12 +422,18 @@ Reglas que no son obvias al leer el código:
 - **Retomar tras un reinicio.** Un paso de `do[]` (o el que se retoma) guarda su progreso con
   `ctx.saveProgress` — un agente, la conversación que el provider le pasa en cada vuelta
   (`saveConversation`) — y lo borra al terminar. `Execution.progress` lo anota en el
-  `Checkpoint` del registro mientras corre. Al arrancar, el store retoma la que corría con
-  progreso: la deja pausada y vencida (el próximo `tick`, o el que hace el runner al montar, la
-  corre por `timeout`), con `RESTART_NOTE` + lo que recibió sin leer como aviso. Topes: 10
-  intentos seguidos y 24 h desde que guardó (`ExecutionStoreOptions.resume`); pasados, cierra
-  `failed/interrupted` como antes. Un agente anidado (destino de una salida) no guarda progreso:
-  no hay cómo seguir una lista de destinos a medias.
+  `Checkpoint` del registro mientras corre. Una pausa que despierta (`Execution.resumeBy`) deja su
+  checkpoint anotado con la rama (`Checkpoint.branch`) hasta que otro paso guarde el suyo: si el
+  proceso muere en la rama (una acción, o el agente antes de su primera vuelta), no se pierde
+  (subscriptions#1977: murió en la rama `green` de `wait-ci` y la task quedó varada en Build). Al
+  arrancar, el store retoma la que corría con progreso o recién despertada: la deja pausada con un
+  vencimiento (un `tick` la corre por `timeout`, o por la rama anotada), con `RESTART_NOTE` + lo
+  que recibió sin leer como aviso. Lo que la rama ya hizo puede correr dos veces. El vencimiento
+  crece con los intentos y se escalona entre las de un mismo reinicio (`ResumeLimits`): si fue la
+  corrida la que tumbó al proceso (memoria), retomarlas todas en el acto lo vuelve a tumbar.
+  Topes: 10 intentos seguidos y 24 h desde que guardó (`ExecutionStoreOptions.resume`); pasados,
+  cierra `failed/interrupted` como antes. Un agente anidado (destino de una salida) no guarda
+  progreso: no hay cómo seguir una lista de destinos a medias.
 - **Una corrida que espera turno o lugar sobrevive al reinicio por su evento.** La espera vive en
   memoria (`ExecutionScheduler`); sin más, un deploy perdía sin rastro las que esperaban
   (subscriptions#1762: 5 refiners de una épica en cola, ninguno corrió). Con `start({ event })` —

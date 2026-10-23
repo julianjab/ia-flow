@@ -11,11 +11,27 @@ import type {
   StoredTraceRecord,
 } from '@ia-flow/agent-engine-datasource-sqlite'
 import type { EventLogEntry, ExecutionSummary, TraceEntry } from '@ia-flow/shared'
-import { type ActivityPort, type StoredEvent, taskOfKey } from './ActivityPort.js'
+import { type ActivityPort, type OpenedBy, type StoredEvent, taskOfKey } from './ActivityPort.js'
 import { estimateCost, type Pricing, pricingTable } from './pricing.js'
 
 /** Los eventos que el engine despachó a algo (lo que tiene sentido volver a despachar). */
 const DISPATCHED = new Set(['dispatched', 'injected', 'resumed'])
+/** Cuántos eventos de la task se miran buscando el que abrió una ejecución: una task con un PR
+ *  junta decenas en minutos (cada `check_suite`, `workflow_run` y `pull_request`). */
+const OPENING_SCAN = 500
+
+/** Si `event` es el que abrió esa ejecución: despachado ANTES de que arrancara, y su pipeline
+ *  corrió con él. Uno que sólo despertó una pausa (`resumed`) no abre nada. */
+function opened(event: LoggedEvent, by: OpenedBy): boolean {
+  return (
+    event.outcome === 'dispatched' &&
+    event.depth > 0 &&
+    event.occurredAt <= by.startedAt &&
+    event.decisions.some(
+      (decision) => decision.pipelineId === by.pipelineId && decision.verdict === 'ran',
+    )
+  )
+}
 
 function toEntry(event: LoggedEvent): EventLogEntry {
   return {
@@ -201,11 +217,15 @@ export class SqliteActivity implements ActivityPort {
     return (limit === undefined ? all : all.slice(-limit)).map(toTraceEntry)
   }
 
-  /** El último evento de dominio (el que armó el intake, con su payload) que el engine despachó. */
-  lastDispatchedEvent(taskRef: string): StoredEvent | undefined {
-    const candidate = this.reader
-      .eventsForTask(taskRef, 50)
-      .find((event) => DISPATCHED.has(event.outcome) && event.depth > 0)
+  /** El último evento de dominio (el que armó el intake, con su payload) que el engine despachó.
+   *  Con `openedBy`, el que abrió esa ejecución — no el último de la task, que puede ser uno que
+   *  sólo despertó su pausa. */
+  lastDispatchedEvent(taskRef: string, openedBy?: OpenedBy): StoredEvent | undefined {
+    const candidate = openedBy
+      ? this.reader.eventsForTask(taskRef, OPENING_SCAN).find((event) => opened(event, openedBy))
+      : this.reader
+          .eventsForTask(taskRef, 50)
+          .find((event) => DISPATCHED.has(event.outcome) && event.depth > 0)
     const stored = candidate ? this.reader.event(candidate.id) : undefined
     if (!stored || stored.payload === undefined) return undefined
     return {

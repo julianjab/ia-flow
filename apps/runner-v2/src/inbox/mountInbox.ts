@@ -28,6 +28,7 @@ import { IngressService } from './IngressService.js'
 import { issueBoards } from './issueBoards.js'
 import { RunnerLogs } from './RunnerLogs.js'
 import { redispatchEvent } from './redispatchEvent.js'
+import { noOpReason, relaunchEvent } from './relaunch.js'
 import { resumeStage } from './resumeStage.js'
 import { runnerApi } from './runnerApi.js'
 import { toTraceEntry } from './SqliteActivity.js'
@@ -150,9 +151,19 @@ export function mountInbox(
   // `services.tasks`, las actions `redispatch_task` y `rerun_review` de una `taskActions`.
   const taskDesk = {
     redispatch: async (ref: string, by: string) => {
-      const last = store.activity.lastDispatchedEvent(ref)
+      const last = relaunchEvent(store.activity, ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)
       const event = redispatchEvent(last)
+      // Con algo vivo en la task el evento le puede llegar a ella (inyectado, o despertando su
+      // pausa) aunque ninguna pipeline lo tome: sólo sin nada vivo un despacho vacío es un no-op.
+      const live = store.activity.executions({
+        taskRef: ref,
+        statuses: ['running', 'paused'],
+        limit: 1,
+      })
+      const noOp =
+        live.length > 0 ? undefined : noOpReason(last, await mounted.engine.explain(event))
+      if (noOp) throw new Error(`${ref}: ${noOp}`)
       options.log(`relanzar ${ref}: ${last.type} (por ${by})`)
       // Corre en segundo plano: una corrida de un agente dura minutos.
       mounted.engine.dispatch(event).catch((err: unknown) => {

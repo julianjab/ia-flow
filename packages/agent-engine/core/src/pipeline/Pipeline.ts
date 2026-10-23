@@ -49,6 +49,10 @@ export interface Checkpoint {
    * corría cuando el proceso murió. Opaco para el engine (lo arma y lo lee el provider).
    */
   state?: unknown
+  /** La rama por la que ya despertó `pauseId` (la anota la ejecución al reanudarse): si el proceso
+   *  muere antes de que otro paso guarde su progreso, se retoma por esa misma rama — no por
+   *  `timeout`, ni se pierde. Lo que la rama ya había hecho puede correr dos veces. */
+  branch?: string
   /** Qué pasó mientras tanto, para quien retoma (ej. el runner se reinició). */
   note?: string
   /** Cuántas veces ya se retomó tras un reinicio: el store deja de reintentar pasado un tope. */

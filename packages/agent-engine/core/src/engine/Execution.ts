@@ -45,7 +45,8 @@ export interface ExecutionRecord {
   /** Con qué se despierta, mientras está pausada. */
   pause?: PauseJSON
   /** Por dónde sigue: mientras está pausada, desde su pausa; mientras corre, desde el paso que
-   *  guarda su progreso (`progress`), si alguno — con eso se retoma tras un reinicio. */
+   *  guarda su progreso (`progress`) o, recién despertada, desde la pausa y la rama que la
+   *  despertó — con eso se retoma tras un reinicio. */
   checkpoint?: Checkpoint
 }
 
@@ -282,9 +283,11 @@ export class Execution {
     return this.status === 'paused' && (this.paused?.pause.expired(now) ?? false)
   }
 
-  /** La despierta por la rama `timeout`. Lo llama el engine con una pausa vencida. */
+  /** La despierta por la rama `timeout` — o, si el proceso la cortó después de que despertara (su
+   *  checkpoint anota la rama), por esa misma rama. Lo llama el engine con una pausa vencida. */
   wakeOnTimeout(): Wake | undefined {
-    return this.status === 'paused' && this.paused ? this.resumeBy(TIMEOUT_BRANCH) : undefined
+    if (this.status !== 'paused' || !this.paused) return undefined
+    return this.resumeBy(this.paused.checkpoint.branch ?? TIMEOUT_BRANCH)
   }
 
   /** Corre `work` como esta ejecución: queda `done` o `failed` según termine, y se cierra — o,
@@ -353,6 +356,10 @@ export class Execution {
     const { checkpoint } = this.paused as { checkpoint: Checkpoint }
     this.status = 'running'
     this.paused = undefined
+    // Despierta con su checkpoint todavía anotado, y la rama: si el proceso muere antes de que un
+    // paso guarde su progreso (la rama es una acción, o el agente no llegó a su primera vuelta),
+    // el store la retoma por la misma rama en vez de cerrarla `failed`.
+    this.progressed = { ...checkpoint, branch }
     this.inbox.takeMissed()
     this.journal?.save(this.toRecord())
     this.log.info(`${this.id} se reanuda por "${branch}"`, {
