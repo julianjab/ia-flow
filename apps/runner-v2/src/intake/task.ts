@@ -14,6 +14,7 @@ import {
   taskTimeline,
 } from '@ia-flow/github-tools'
 import { assemblePayload, type EventArgs } from './payload.js'
+import { refOfUrl } from './stack.js'
 
 type Input = Record<string, unknown>
 
@@ -74,12 +75,6 @@ export interface TaskInput {
   branch: string
   /** `{{project.repos}}` de los prompts. */
   repos: string
-}
-
-/** `https://github.com/o/r/issues/n` → `o/r#n`, la forma de `Stack.pending`. */
-function refOfUrl(url: string): string {
-  const match = /github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/.exec(url)
-  return match ? `${match[1]}/${match[2]}#${match[3]}` : url
 }
 
 export function taskPayload(input: TaskInput) {

@@ -24,11 +24,19 @@ import { z } from 'zod'
 import { TaskBranches } from './branch.js'
 import { heldComments, isHumanComment } from './heldComments.js'
 import { eventMessage } from './message.js'
-import { notifyParent, type ParentPort, type Resolved } from './parentEvents.js'
+import {
+  type ChildLocation,
+  labelToParent,
+  notifyParent,
+  type ParentPort,
+  type Resolved,
+  statusToParent,
+} from './parentEvents.js'
 import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { stackedOn, taskStack } from './stack.js'
 import { taskPayload } from './task.js'
+import { type MergedPr, notifyDependents } from './unblock.js'
 
 /** Un proyecto para el que resuelve: su board, su prefijo de rama y su catálogo de repos. */
 export interface ResolveTaskProject {
@@ -105,15 +113,10 @@ interface TaskRef {
   pullRequestOnly?: boolean
 }
 
-const UNBLOCKED = 'issue.unblocked'
-/** Se mergeó el prerrequisito sobre cuya rama estaba apilado el PR de la task. */
-const BASE_MERGED = 'issue.base_merged'
 /** Un comentario humano que el `when` del intake descartó (la task trabada): queda en el journal de
  *  la task con el motivo, y se vuelve a publicar al destrabarla (ver `replayHeld`). */
 const COMMENT_HELD = 'issue_comment.held'
 const CHILD_CLOSED = 'issue.child_closed'
-const CHILD_STATUS_CHANGED = 'issue.child_status_changed'
-const CHILD_LABELED = 'issue.child_labeled'
 
 /** Por qué `payload` no cumple `when` (las filas que dan false, con lo que vino), o `undefined`. */
 function unmet(when: Condition[], payload: unknown): string | undefined {
@@ -246,9 +249,12 @@ class ProjectResolver {
     ctx: PipelineExecutionContext,
     when: Condition[],
   ): Promise<Resolved> | undefined {
-    if (input.notifyParentOfStatus) return this.childStatusChanged(location, ctx, when)
+    const child = (at: ChildLocation) =>
+      'item' in at ? this.itemTask(at.item) : this.issueTask(at)
+    const port = this.parentPort(when)
+    if (input.notifyParentOfStatus) return statusToParent(port, ctx, location, child)
     if (input.notifyParentOfLabels) {
-      return this.childLabeled(location, ctx, when, input.notifyParentOfLabels)
+      return labelToParent(port, ctx, location, child, input.notifyParentOfLabels)
     }
     return undefined
   }
@@ -465,11 +471,7 @@ class ProjectResolver {
     return event
   }
 
-  /** `issue.unblocked` para cada dependiente abierto de los issues que cierra el PR mergeado que ya
-   *  no tienen otro blocker abierto. El recién cerrado no cuenta: el webhook del merge puede llegar
-   *  antes que su cierre. Un dependiente cuyo PR estaba apilado sobre la rama mergeada recibe en
-   *  cambio `issue.base_merged` —tenga o no otros blockers—: su PR tiene que pasar a la rama en la
-   *  que entró y traerla. */
+  /** `issue.unblocked` / `issue.base_merged` a las tasks que el issue del PR mergeado bloqueaba. */
   private async unblocked(
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
@@ -477,46 +479,28 @@ class ProjectResolver {
   ): Promise<Resolved> {
     const merged = mergedPullRequest(raw)
     if ('skip' in merged) return { skipped: merged.skip }
-    const blockers = (await this.reader.closingIssues(merged.owner, merged.repo, merged.pr)).filter(
-      (issue) => this.inCatalog(issue.owner, issue.repo),
+    const { reader } = this
+    return notifyDependents(
+      {
+        closingIssues: async (pr) =>
+          (await reader.closingIssues(pr.owner, pr.repo, pr.pr)).filter((issue) =>
+            this.inCatalog(issue.owner, issue.repo),
+          ),
+        dependents: async (blocker) =>
+          issueRefs(
+            await reader.dependents(blocker.owner, blocker.repo, blocker.number),
+            this.project.repos,
+          ),
+        // Sólo un proyecto con `stacking` apila PRs: sin él, ni una lectura de más.
+        ...(this.project.stacking
+          ? { stackedOn: (pr: MergedPr, dependent: TaskRef) => stackedOn(reader, pr, dependent) }
+          : {}),
+        publish: (ctx, task, fields, options) =>
+          this.publish(ctx, task, fields, { ...options, when }),
+      },
+      ctx,
+      merged,
     )
-    if (blockers.length === 0) return { skipped: `PR #${merged.pr} no cierra ningún issue` }
-    const emitted: string[] = []
-    for (const blocker of blockers) {
-      const closedBlocker = `https://github.com/${blocker.owner}/${blocker.repo}/issues/${blocker.number}`
-      const dependents = issueRefs(
-        await this.reader.dependents(blocker.owner, blocker.repo, blocker.number),
-        this.project.repos,
-      )
-      for (const dependent of dependents) {
-        const stacked = await stackedOn(this.reader, merged, dependent)
-        const published =
-          stacked !== undefined
-            ? await this.publish(
-                ctx,
-                { ...dependent, pr: stacked },
-                {
-                  emit: BASE_MERGED,
-                  extra: {
-                    from: merged.head,
-                    to: merged.base,
-                    mergedPr: `${merged.owner}/${merged.repo}#${merged.pr}`,
-                  },
-                },
-                { closedBlocker, when },
-              )
-            : await this.publish(
-                ctx,
-                dependent,
-                { emit: UNBLOCKED, extra: {} },
-                { closedBlocker, onlyIfUnblocked: true, when },
-              )
-        if (!('skip' in published)) emitted.push(String(published.scope?.issue))
-      }
-    }
-    return emitted.length > 0
-      ? { emitted }
-      : { skipped: `PR #${merged.pr} no deja ninguna task sin prerrequisitos` }
   }
 
   /** `issue.child_closed` sobre el padre del issue recién cerrado. */
@@ -532,43 +516,6 @@ class ProjectResolver {
     })
   }
 
-  /** `issue.child_status_changed` sobre el padre del issue que cambió de columna. */
-  private async childStatusChanged(
-    location: Location,
-    ctx: PipelineExecutionContext,
-    when: Condition[],
-  ): Promise<Resolved> {
-    if ('skip' in location) return { skipped: location.skip }
-    if (location.emit !== 'issue.status_changed') {
-      return { skipped: `${location.emit} no es un cambio de columna` }
-    }
-    const child =
-      'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
-    if ('skipped' in child) return child
-    return notifyParent(this.parentPort(when), ctx, child, CHILD_STATUS_CHANGED, location.extra)
-  }
-
-  /** `issue.child_labeled` sobre el padre del issue que recibió uno de `labels`. */
-  private async childLabeled(
-    location: Location,
-    ctx: PipelineExecutionContext,
-    when: Condition[],
-    labels: string[],
-  ): Promise<Resolved> {
-    if ('skip' in location) return { skipped: location.skip }
-    const label = location.extra.label
-    if (location.emit !== 'issue.labeled' || typeof label !== 'string') {
-      return { skipped: `${location.emit} no es un label nuevo` }
-    }
-    if (!labels.some((wanted) => same(wanted, label))) {
-      return { skipped: `el label ${label} no se avisa al padre` }
-    }
-    const child =
-      'item' in location ? await this.itemTask(location.item) : await this.issueTask(location)
-    if ('skipped' in child) return child
-    return notifyParent(this.parentPort(when), ctx, child, CHILD_LABELED, { label })
-  }
-
   /** `issue.pr_conflict` sobre los hermanos que el merge de este PR dejó en conflicto. */
   private async siblingConflicts(
     raw: Record<string, unknown>,
@@ -582,16 +529,22 @@ class ProjectResolver {
     }
     // La branch en la que entró: un hermano apilado sobre otra no recibió este merge.
     const { base } = await this.reader.mergeability(merged.owner, merged.repo, merged.pr)
-    return notifySiblingConflicts(this.siblingPort(when), ctx, {
+    return notifySiblingConflicts(this.siblingPort(when, merged), ctx, {
       ...merged,
       ...(base ? { base } : {}),
     })
   }
 
   /** Lo que `notifySiblingConflicts` necesita de esta acción. */
-  private siblingPort(when: Condition[]): SiblingPort {
+  private siblingPort(when: Condition[], merged: MergedPr): SiblingPort {
     const { reader } = this
     return {
+      ...(this.project.stacking
+        ? {
+            stackedOnMerged: async (sibling: TaskRef) =>
+              (await stackedOn(reader, merged, sibling)) !== undefined,
+          }
+        : {}),
       closingIssues: async (owner, repo, pr) =>
         (await reader.closingIssues(owner, repo, pr)).filter((issue) =>
           this.inCatalog(issue.owner, issue.repo),
