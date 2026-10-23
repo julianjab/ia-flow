@@ -16,7 +16,10 @@ import ImprovementsSection from '../ImprovementsSection.vue'
 async function mountSection() {
   const pinia = createPinia()
   setActivePinia(pinia)
-  const wrapper = mount(ImprovementsSection, { global: { plugins: [pinia] } })
+  const wrapper = mount(ImprovementsSection, {
+    global: { plugins: [pinia] },
+    attachTo: document.body,
+  })
   await flushPromises()
   return wrapper
 }
@@ -34,22 +37,36 @@ describe('ImprovementsSection', () => {
     expect((await mountSection()).find('[data-test="improvements"]').exists()).toBe(false)
   })
 
-  it('con pendientes muestra el conteo y una card por propuesta; la tarea se reemite', async () => {
+  it('con pendientes muestra el conteo y una fila corta por propuesta; tocarla abre su detalle', async () => {
     getImprovements.mockResolvedValue({
       items: [proposal(), proposal({ id: 'imp-2', title: 'Otra' })],
     })
     const wrapper = await mountSection()
     expect(wrapper.text()).toContain('Mejoras propuestas')
     expect(wrapper.get('[data-test="count"]').text()).toBe('2')
-    expect(wrapper.findAll('[data-test="title"]')).toHaveLength(2)
-    await wrapper.findAll('[data-test="task"]')[0]?.trigger('click')
+    const rows = wrapper.findAll('[data-test="improvement-row"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.text()).toContain('Docs del repo')
+    // La card entera sólo vive en el detalle.
+    expect(document.body.querySelector('[data-test="title"]')).toBeNull()
+    await rows[0]?.trigger('click')
+    await flushPromises()
+    expect(document.body.querySelector('[data-test="title"]')?.textContent).toBe(
+      'Documentar el comando de tests',
+    )
+    ;(document.body.querySelector('[data-test="task"]') as HTMLElement).click()
+    await flushPromises()
     expect(wrapper.emitted('open')?.[0]).toEqual(['acme/api#7'])
+    wrapper.unmount()
   })
 
   it('«¿Por qué?» abre el asistente sobre la tarea de origen, con la mejora como contexto', async () => {
     getImprovements.mockResolvedValue({ items: [proposal()] })
     const wrapper = await mountSection()
-    await wrapper.get('[data-test="why"]').trigger('click')
+    await wrapper.get('[data-test="improvement-row"]').trigger('click')
+    await flushPromises()
+    ;(document.body.querySelector('[data-test="why"]') as HTMLElement).click()
+    await flushPromises()
     const assistant = useAssistantStore()
     expect(assistant.isOpen).toBe(true)
     expect(assistant.request).toEqual({ kind: 'task', ref: 'acme/api#7' })
