@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.26.1](https://github.com/julianjab/ia-flow/compare/v2.26.0...v2.26.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **agent-engine:** una corrida que espera lugar sobrevive al reinicio por su evento ([b09fddb](https://github.com/julianjab/ia-flow/commit/b09fddb210249baed45d2322dfffeef3be6e80d8))
+
 ## [2.26.0](https://github.com/julianjab/ia-flow/compare/v2.25.0...v2.26.0) (2026-10-22)
 
 
