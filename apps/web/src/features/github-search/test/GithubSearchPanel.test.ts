@@ -117,6 +117,10 @@ describe('GithubSearchPanel', () => {
     await settle()
     expect(row(w, 'acme/web#3').find('[data-test="open"]').exists()).toBe(false)
     expect(row(w, 'acme/web#4').find('[data-test="add-toggle"]').exists()).toBe(false)
+    // No ofrece nada, pero dice por qué.
+    expect(row(w, 'acme/web#4').get('[data-test="not-addable"]').text()).toBe(
+      'Está cerrado: no entra al board.',
+    )
     expect(row(w, 'acme/api#12').find('[data-test="add-toggle"]').exists()).toBe(false)
     await row(w, 'acme/web#3').get('[data-test="add-toggle"]').trigger('click')
     const options = row(w, 'acme/web#3').findAll('[data-test="add-column"]')
