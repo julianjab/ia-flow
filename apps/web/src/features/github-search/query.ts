@@ -34,6 +34,8 @@ export function parseQuery(input: string): ParsedQuery | null {
 export type SearchPlan =
   | { kind: 'ref'; ref: string }
   | { kind: 'text'; text: string }
+  /** Un número con toda la organización: GitHub no lo busca, así que se pide en cada repo candidato. */
+  | { kind: 'number'; number: number }
   | { kind: 'note'; note: string }
 
 export function planSearch(
@@ -45,14 +47,33 @@ export function planSearch(
   if (q.number !== undefined) {
     if (q.repo) return { kind: 'ref', ref: `${q.owner ?? scope.org}/${q.repo}#${q.number}` }
     if (scope.repo) return { kind: 'ref', ref: `${scope.org}/${scope.repo}#${q.number}` }
-    return {
-      kind: 'note',
-      note: `Elige un repo para buscar #${q.number}: GitHub no busca por número en toda la organización.`,
-    }
+    return { kind: 'number', number: q.number }
   }
   const text = q.text ?? ''
   if (text.length < 3) return { kind: 'note', note: 'Escribe al menos 3 letras.' }
   return { kind: 'text', text }
+}
+
+/** Cuántos repos se consultan con un número en toda la organización. */
+export const NUMBER_REPOS = 40
+
+/** Dónde se busca un número en toda la organización: los repos del board primero (los de todos los
+ *  días), después los más activos, sin repetir y hasta `max`. */
+export function numberCandidates(
+  board: readonly string[],
+  all: readonly string[],
+  max = NUMBER_REPOS,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const name of [...board, ...all]) {
+    const key = name.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(name)
+    if (out.length >= max) break
+  }
+  return out
 }
 
 /** `owner/repo#n` partido, o `null`. */

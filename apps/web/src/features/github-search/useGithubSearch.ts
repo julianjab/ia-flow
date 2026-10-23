@@ -5,7 +5,7 @@ import {
   type GithubIssue,
   type GithubSearchApi,
 } from '@/features/github-search/api'
-import { planSearch, type SearchPlan } from '@/features/github-search/query'
+import { numberCandidates, planSearch, type SearchPlan } from '@/features/github-search/query'
 
 // El estado de «Buscar en GitHub» (el de `GithubSearchModel.swift` del menú): lo escrito, el repo
 // elegido (recordado por org en este navegador), los repos de la org (una vez por hora) y lo que
@@ -19,6 +19,8 @@ interface Deps {
   api?: (token: string) => GithubSearchApi
   /** Cuánto esperar a que se deje de escribir (ms). */
   delay?: number
+  /** Los repos del board (sólo el nombre): con un número en toda la org, se buscan primero. */
+  boardRepos?: () => readonly string[]
 }
 
 /** Lo que muestra una búsqueda: los resultados o por qué no hay. */
@@ -103,6 +105,7 @@ export function useGithubSearch(deps: Deps) {
           ? { found: [issue], note: null }
           : { found: [], note: `${plan.ref} no existe o tu login no lo puede ver.` }
       }
+      if (plan.kind === 'number') return await askNumber(api, org, plan.number)
       const found = await api.search(plan.text, org, scope)
       return {
         found,
@@ -111,6 +114,20 @@ export function useGithubSearch(deps: Deps) {
     } catch (err) {
       const message = err instanceof GithubApiError ? err.message : String(err)
       return { found: [], note: `GitHub no respondió: ${message}` }
+    }
+  }
+
+  /** Un número en toda la organización: GitHub no lo busca, así que se pide ese número en los repos
+   *  del board y en los más activos, en paralelo, y se muestran todos los que existen. */
+  async function askNumber(api: GithubSearchApi, org: string, n: number): Promise<Outcome> {
+    if (!repos.value.length) await loadRepos()
+    const where = numberCandidates(deps.boardRepos?.() ?? [], repos.value)
+    const answers = await Promise.allSettled(where.map((name) => api.issue(`${org}/${name}#${n}`)))
+    const found = answers.flatMap((a) => (a.status === 'fulfilled' && a.value ? [a.value] : []))
+    const scopeNote = `Buscado en ${where.length} repos de ${org} (los del board y los más activos). Si es de otro, elige el repo.`
+    return {
+      found,
+      note: found.length ? scopeNote : `Ningún #${n} en esos repos. ${scopeNote}`,
     }
   }
 

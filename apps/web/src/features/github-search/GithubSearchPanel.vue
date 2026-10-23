@@ -42,6 +42,7 @@ const gh = useGithubSearch({
   token: () => session.token(),
   ...(props.api ? { api: props.api } : {}),
   ...(props.delay !== undefined ? { delay: props.delay } : {}),
+  boardRepos: () => (props.org ? boardRepoNames(props.boardRepos, props.org) : []),
 });
 const picking = ref(false);
 /** Los que se agregaron desde acá (ref en minúsculas → columna): la fila lo dice sin esperar al board. */
@@ -115,7 +116,7 @@ function select(name: string | null): void {
         />
       </div>
       <p class="gs__hint">
-        Usa tu login de GitHub (sólo lectura). Con un repo elegido, un número va directo a ese issue o PR.
+        Usa tu login de GitHub (sólo lectura). Un número se busca en los repos del board y los más activos; con un repo elegido, va directo.
       </p>
 
       <RepoPicker
@@ -149,7 +150,7 @@ function select(name: string | null): void {
       <p v-if="gh.note.value" class="gs__note" role="status" data-test="note">{{ gh.note.value }}</p>
       <p v-else-if="!gh.query.value.trim() && !picking" class="gs__note">
         <template v-if="gh.repo.value">El número de un issue o PR de {{ gh.repo.value }}, o texto del título.</template>
-        <template v-else>Texto del título en toda {{ org }}, <span class="mono">repo#1881</span>, o el link de un issue o PR. Para buscar por número, elige un repo.</template>
+        <template v-else>Texto del título en toda {{ org }}, un número, <span class="mono">repo#1881</span>, o el link de un issue o PR.</template>
       </p>
     </template>
   </section>
