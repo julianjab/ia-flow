@@ -24,7 +24,10 @@ interface State {
 /** Un GitHub falso que responde el query de ramas y registra la mutación. */
 function fakeGithub(state: State = {}) {
   const queries: Array<{ query: string; variables: Record<string, unknown> }> = []
-  const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+  const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
+    if (String(url).includes('/git/ref/heads/feat/a')) {
+      return new Response(JSON.stringify({ object: { sha: 'def456' } }))
+    }
     const body = JSON.parse(init.body as string)
     queries.push(body)
     if (body.query.includes('createLinkedBranch')) {
@@ -79,6 +82,16 @@ describe('LinkBranchAction', () => {
       { issueId: 'I_issue', repositoryId: 'R_repo', oid: 'abc123', name: 'ia-flow-local/1640' },
     ])
     expect(result).toContain('creada desde la default branch y vinculada')
+  })
+
+  it('creates a stacked branch from the tip of the prerequisite branch (task.stack.branch)', async () => {
+    const { client, mutations } = fakeGithub()
+    const payload = { ...TASK, task: { ...TASK.task, stack: { branch: 'feat/a', pr: 10 } } }
+
+    const result = await new LinkBranchAction({ client }).run(ctxFor(payload), {})
+
+    expect(mutations().map((m) => m.variables.oid)).toEqual(['def456'])
+    expect(result).toContain('creada desde feat/a (apilada sobre el prerrequisito)')
   })
 
   it('is a no-op when the branch is already linked', async () => {

@@ -115,3 +115,80 @@ describe('GithubTaskReader.linkedBranches', () => {
     expect(await reader.linkedBranches('o', 'r', 1)).toEqual(['feat/x'])
   })
 })
+
+/** Un GitHub que contesta por ruta: GraphQL con el `repository.issue` de cada número, REST por URL. */
+function routedReader(
+  closingPr: Record<number, number | undefined>,
+  rest: Record<string, unknown>,
+) {
+  const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+    const path = new URL(String(url)).pathname
+    if (path === '/graphql') {
+      const { variables } = JSON.parse(String(init?.body)) as { variables: { number: number } }
+      const pr = closingPr[variables.number]
+      const nodes = pr === undefined ? [] : [{ number: pr, state: 'OPEN' }]
+      return new Response(
+        JSON.stringify({
+          data: { repository: { issue: { closedByPullRequestsReferences: { nodes } } } },
+        }),
+      )
+    }
+    const body = rest[path]
+    return body === undefined
+      ? new Response('{}', { status: 404 })
+      : new Response(JSON.stringify(body), { status: 200 })
+  })
+  const client = new GithubClient({
+    auth: new GithubTokenAuth('t'),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  })
+  return new GithubTaskReader(client)
+}
+
+describe('GithubTaskReader.stackBlockers', () => {
+  it('los blockers abiertos con su PR abierto; los cerrados no cuentan', async () => {
+    const reader = routedReader(
+      { 1: 10, 2: undefined },
+      {
+        '/repos/la-haus/api/pulls/10': {
+          number: 10,
+          state: 'open',
+          html_url: 'https://github.com/la-haus/api/pull/10',
+          head: { ref: 'feat/a', sha: 'abc' },
+          base: { ref: 'main' },
+        },
+      },
+    )
+
+    expect(
+      await reader.stackBlockers([
+        { state: 'open', html_url: 'https://github.com/la-haus/api/issues/1' },
+        { state: 'open', html_url: 'https://github.com/la-haus/web/issues/2' },
+        { state: 'closed', html_url: 'https://github.com/la-haus/api/issues/3' },
+      ]),
+    ).toEqual([
+      {
+        owner: 'la-haus',
+        repo: 'api',
+        number: 1,
+        pr: { number: 10, headRef: 'feat/a', baseRef: 'main' },
+      },
+      { owner: 'la-haus', repo: 'web', number: 2 },
+    ])
+  })
+})
+
+describe('GithubTaskReader.contains', () => {
+  it('ahead o identical: la rama ya trae el commit', async () => {
+    const reader = routedReader(
+      {},
+      {
+        '/repos/o/r/compare/abc...feat%2Fb': { status: 'ahead' },
+        '/repos/o/r/compare/abc...feat%2Fc': { status: 'diverged' },
+      },
+    )
+
+    expect(await reader.contains('o', 'r', 'abc', 'feat/b')).toBe(true)
+    expect(await reader.contains('o', 'r', 'abc', 'feat/c')).toBe(false)
+  })
+})
