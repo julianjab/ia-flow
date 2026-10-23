@@ -52,6 +52,29 @@ func renderPNG(_ model: AppModel, dark: Bool, to path: String) {
     }
 }
 
+/// La ventana ancha (tres columnas) a un tamaño fijo → PNG.
+func renderWindowPNG(_ model: AppModel, size: NSSize, to path: String) {
+    let appearance = NSAppearance(named: .darkAqua)
+    let hosting = NSHostingView(rootView: RootView(model: model).environment(\.windowed, true))
+    hosting.appearance = appearance
+    let bg = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+    bg.material = .popover
+    bg.state = .active
+    bg.appearance = appearance
+    let window = NSWindow(contentRect: bg.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+    window.appearance = appearance
+    window.contentView = bg
+    hosting.frame = bg.bounds
+    bg.addSubview(hosting)
+    for _ in 0..<3 { RunLoop.main.run(until: Date().addingTimeInterval(0.25)); bg.layoutSubtreeIfNeeded() }
+    guard let rep = bg.bitmapImageRepForCachingDisplay(in: bg.bounds) else { return }
+    bg.cacheDisplay(in: bg.bounds, to: rep)
+    if let data = rep.representation(using: .png, properties: [:]) {
+        try? data.write(to: URL(fileURLWithPath: path))
+        print("captura: \(path) (\(Int(size.width))×\(Int(size.height)) pt)")
+    }
+}
+
 /// Fondo traslúcido de la ventana que avisa cuando el mouse entra o sale (barra de título incluida).
 final class HoverGlassView: NSVisualEffectView {
     /// Opacidad de la ventana con el mouse afuera.
@@ -248,6 +271,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         runner.showHealth()
         shot("health")
         runner.goHome()
+        // la ventana ancha, en tres columnas, con el detalle de la primera decisión a la derecha
+        popoverMaxScroll = 520
+        if let first = runner.decisions.first { runner.showTask(first) }
+        renderWindowPNG(model, size: NSSize(width: 1100, height: 760), to: "\(base)-window-dark.png")
+        runner.goHome()
         if let tiff = menuBarIcon(running: true, badge: 3).tiffRepresentation,
            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
             try? png.write(to: URL(fileURLWithPath: "\(base)-badge.png"))
@@ -375,7 +403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.minSize = NSSize(width: popoverWidth, height: 480)
+        window.minSize = NSSize(width: popoverWidth, height: 480)  // desde 900 de ancho, tres columnas (WideLayout)
         window.setContentSize(NSSize(width: 480, height: 760))
         window.center()
         window.setFrameAutosaveName("IAFlowWindow")  // recuerda dónde y de qué tamaño quedó

@@ -19,6 +19,17 @@ struct RootContent: View {
     @Environment(\.windowed) private var windowed
 
     var body: some View {
+        if windowed {
+            // la ventana ancha: menú lateral, la lista y el detalle en tres columnas (como el escritorio de la web)
+            GeometryReader { g in
+                if g.size.width >= 900 { WideLayout(model: model, runner: runner) } else { stacked }
+            }
+        } else {
+            stacked
+        }
+    }
+
+    private var stacked: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
                 let home = runner.screen == .inbox
@@ -55,6 +66,118 @@ struct RootContent: View {
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
         .animation(.easeOut(duration: 0.15), value: model.confirm == nil)
         .font(.lh(13))
+    }
+}
+
+/// La ventana en tres columnas: el menú lateral (runner, vistas, buscar, estado, mejoras, cuenta), la vista elegida y,
+/// a la derecha, lo que se abrió (detalle, épica, asistente, Runners…).
+struct WideLayout: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 0) {
+                sidebar.frame(width: 210).padding(.top, 32)
+                Divider().opacity(0.5)
+                VStack(spacing: 0) {
+                    ViewSegment(model: model, runner: runner).padding(.horizontal, 14).padding(.top, 32).padding(.bottom, 10)
+                    InboxScreen(runner: runner)
+                    Spacer(minLength: 0)
+                    AssistantDock(model: model)
+                }
+                .frame(minWidth: 380, maxWidth: .infinity)
+                Divider().opacity(0.5)
+                Group {
+                    if model.assistantOpen {
+                        AssistantScreen(chat: model.assistant, runner: runner) { model.assistantOpen = false }
+                    } else if runner.screen == .runners {
+                        RunnersScreen(model: model, runner: runner)
+                    } else if runner.screen != .inbox {
+                        RunnerScreen(runner: runner)
+                    } else {
+                        Text("Elegí una tarea para ver su detalle.").font(.lh(12.5)).foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .padding(.top, 22)
+                .frame(width: 380)
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+            if runner.comment != nil {
+                CommentCard(runner: runner).frame(maxWidth: 440).padding(14)
+            } else if let request = model.confirm {
+                ConfirmCard(request: request, dismiss: { model.confirm = nil }).frame(maxWidth: 440).padding(14)
+            } else if let text = model.toast {
+                ToastView(text: text, undo: model.toastUndo.map { undo in { model.toast = nil; model.toastUndo = nil; undo() } })
+                    .padding(.bottom, 62)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+        .font(.lh(13))
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button { model.assistantOpen = false; runner.showRunners() } label: {
+                HStack(spacing: 8) {
+                    RunnerDot(runner: runner)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(runner.selected.name).font(.lh(12.5, .semibold)).lineLimit(1)
+                        Text(runner.pipelineLine ?? "").font(.lh(10.5)).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).padding(.bottom, 12)
+            ForEach(InboxTab.allCases, id: \.self) { tab in
+                item(tab.title, count: runner.inbox == nil ? nil : runner.count(tab), alert: tab == .mine,
+                     on: !runner.searchOpen && runner.tab == tab) {
+                    if runner.searchOpen { runner.toggleSearch() }
+                    runner.tab = tab
+                }
+            }
+            Divider().opacity(0.4).padding(.vertical, 8).padding(.horizontal, 12)
+            item("Buscar ⌘K", on: runner.searchOpen) { runner.toggleSearch() }
+            item("Estado del runner", on: runner.screen == .health) { model.assistantOpen = false; runner.showHealth() }
+            item("Mejoras", count: runner.improvements.count, on: runner.screen == .improvements) { model.assistantOpen = false; runner.showImprovements() }
+            item("Logs del server", on: runner.screen == .logs) { model.assistantOpen = false; runner.showLogs() }
+            item("Runners y servicios", on: runner.screen == .runners) { model.assistantOpen = false; runner.showRunners() }
+            Spacer()
+            HStack(spacing: 6) {
+                if let session = runner.github {
+                    Text("@\(session.login)").font(.lh(12, .semibold)).lineLimit(1)
+                    Spacer()
+                    Button("Salir") { runner.logout() }.buttonStyle(.plain).font(.lh(11.5)).foregroundStyle(Palette.link)
+                } else {
+                    Button("Iniciar sesión") { runner.beginLogin() }.buttonStyle(.plain).font(.lh(12)).foregroundStyle(Palette.link)
+                    Spacer()
+                }
+                IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
+                           tint: model.floating ? Palette.link : .secondary) { model.floating.toggle() }
+            }
+            .padding(.horizontal, 12).padding(.bottom, 10)
+        }
+    }
+
+    private func item(_ title: String, count: Int? = nil, alert: Bool = false, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).font(.lh(12.5, on ? .semibold : .regular))
+                Spacer()
+                if let count, count > 0 {
+                    Text("\(count)").font(.lh(10.5, .bold)).foregroundStyle(alert ? Color.white : Color.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(alert ? Color.red : Color.clear))
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? Palette.selected : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
     }
 }
 
