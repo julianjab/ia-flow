@@ -165,7 +165,7 @@ useBackClose(
 
 /* Sobre --bp-shell: un panel a la derecha, ancho para leer una traza, con la bandeja al costado. */
 @media (min-width: 768px) {
-  .dd { width: min(60rem, 92vw); padding-top: 0; animation-duration: 150ms; }
+  .dd { width: min(40rem, 92vw); padding-top: 0; animation-duration: 150ms; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dd { animation: none; }

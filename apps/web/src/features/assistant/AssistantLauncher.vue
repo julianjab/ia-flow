@@ -189,10 +189,10 @@ watch(
   place-items: center;
   width: calc(var(--tap-h-lg) * 1.15);
   height: calc(var(--tap-h-lg) * 1.15);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--border-hi);
   border-radius: 50%;
-  background: var(--accent);
-  color: var(--panel);
+  background: var(--panel-top);
+  color: var(--ai);
   font-family: var(--font-body);
   font-size: var(--fs-body);
   font-weight: 600;

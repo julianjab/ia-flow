@@ -30,5 +30,5 @@ const store = useInboxStore();
 <style scoped>
 .sc { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
 .sc__label { color: var(--fg-dim); font-size: var(--fs-chrome); }
-.sc .seg { flex: 1; }
+.sc .seg { flex: 1; max-width: 26rem; }
 </style>

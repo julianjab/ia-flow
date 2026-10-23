@@ -167,6 +167,10 @@ async function run(id: number, choice?: ProposalChoice) {
 
         <AssistantTaskList v-else-if="turn.kind === 'tasks'" :items="turn.items" @open="openTask" />
 
+        <p v-else-if="turn.kind === 'topic'" class="ap__topic" data-test="topic">
+          <span class="ap__topic-ai" aria-hidden="true">✦</span> {{ turn.text }}
+        </p>
+
         <p v-else class="ap__note" role="alert">✕ {{ turn.text }}</p>
       </template>
       <span ref="end" />
@@ -240,4 +244,6 @@ async function run(id: number, choice?: ProposalChoice) {
   .ap__typing span { animation: none; }
 }
 .ap__note { margin: 0; color: var(--danger); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
+.ap__topic { align-self: flex-start; margin: 0; padding: 0.35rem 0.7rem; border-radius: var(--radius); background: var(--panel-hi); color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
+.ap__topic-ai { color: var(--ai); }
 </style>

@@ -62,6 +62,8 @@ export type Turn =
     }
   | { id: number; kind: 'tasks'; items: InboxItem[] }
   | { id: number; kind: 'note'; text: string }
+  /** De qué es la conversación (el «¿Por qué?» de una mejora): contexto, no un error. */
+  | { id: number; kind: 'topic'; text: string }
 
 /** Un turno sin su `id` (lo asigna el store); distribuye sobre la unión. */
 type NewTurn = Turn extends infer T ? (T extends unknown ? Omit<T, 'id'> : never) : never
@@ -222,7 +224,7 @@ export const useAssistantChatStore = defineStore('assistant-chat', () => {
   function startTopic(title: string, context: string): void {
     reset()
     notes = [context]
-    push({ kind: 'note', text: `Sobre ${title}` })
+    push({ kind: 'topic', text: `Sobre ${title}` })
   }
 
   /** Retoma una conversación guardada: sus turnos en pantalla y su historia para el modelo. */
