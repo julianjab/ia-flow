@@ -1,10 +1,38 @@
-# apps/web — Design System v4 · mobile-first
+# apps/web — Design System v5 · mobile-first
 
 **Rule zero:** antes de crear un componente nuevo o cambiar la UI de uno existente, **lee este archivo y `apps/web/src/styles/theme.css`**.
 
 **Rule zero-bis — mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono y `@media (min-width: …)` **agrega** densidad para pantallas grandes. Un `max-width` es un parche, y por eso siempre falta uno. Los tres únicos anchos son `768` / `640` / `1100` (ver «Breakpoints»), y todo control presionable mide `--tap-h` en **cualquier** ancho, no sólo bajo un breakpoint. Las doce reglas transversales (R1–R12) están al final de este archivo y aplican a **toda** pantalla, incluida la que estés escribiendo ahora. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
 
 v4 nace del mockup de rediseño del editor de agentes (`src/features/agents/`). Arranca por los tokens porque cascadean solos a cada pantalla; migrar componente por componente es el paso siguiente. Eso quiere decir que **vas a encontrar componentes todavía en v3** (mono en todo, radio 0, verde ácido). No los tomes como referencia: la referencia es este archivo.
+
+## v5 — la UI unificada con el menú de Mac
+
+La web y el menú de Mac (`apps/menubar`) son UN producto: mismas vistas, mismos nombres, mismas
+acciones. El diseño aprobado y su especificación están en `docs/design/ui-unificada/`
+(`mockup.html` + `SPEC.md`); ante una duda de forma o de texto, manda el mockup.
+
+- **Tokens:** los neutros del menú (`--bg` `#1c1c1e`, `--panel`, `--panel-alt`, `--panel-hi`,
+  `--panel-top`), bordes translúcidos, `--fg` frío. **`--primary` (azul) es sólo para la acción
+  principal**, con `--on-primary`; `--accent` (verde) queda para «corre / ok / éxito»; `--info` para
+  links y refs; `--ai` (violeta) sigue siendo sólo del asistente (R16). Fondos de estado:
+  `--green-bg`, `--yellow-bg`, `--red-bg`, `--blue-bg`.
+- **Tipografía del sistema** (SF en Mac y iPhone) en los tres roles; mono sólo para lo copiable. Sin
+  fuentes externas.
+- **Radios:** `--radius` 8px (botón, chip), `--radius-sm` 6px, `--radius-lg` 12px (card, panel,
+  sheet).
+- **Control segmentado** (`.seg` + `.seg__btn`, `aria-pressed` o `aria-current`): una elección entre
+  pocas —el orden de «Para mí», el nivel de los logs—; la elegida en `--panel-top`, nunca en color.
+- **Navegación:** tres vistas de la bandeja —**Para mí** (`/`), **En curso** (`/en-curso`),
+  **Próximo** (`/proximo`)—. En el teléfono, tab bar Para mí · En curso · Próximo · Asistente y el
+  sheet «Más» desde el avatar (Mejoras, Webhooks, Config, Runners, la cuenta); desde 768px, menú
+  lateral con las vistas arriba y lo que se consulta debajo. La barra de arriba es el runner y cómo
+  está («2 corriendo · 1 en cola · 1 libre»).
+- **Filas de decisión:** deslizar a la izquierda = la acción y Posponer; a la derecha = Fijar arriba
+  (`ui/SwipeRow.vue`, `leading`). Tocar abre el detalle con todas. El gesto nunca es el único camino
+  (R7): Posponer y Fijar también están dentro (`ArrangeActions.vue`).
+- **El detalle** nombra la vista a la que vuelve y, si es una decisión, «Por qué te necesita» en su
+  recuadro.
 
 ## Qué cambió respecto de v3
 
