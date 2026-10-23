@@ -48,6 +48,7 @@ export const CLOSING_ISSUES = `query($owner: String!, $repo: String!, $number: I
     pullRequest(number: $number) {
       body
       baseRefName
+      merged
       closingIssuesReferences(first: 10) { nodes { number repository { name owner { login } } } }
     }
   }

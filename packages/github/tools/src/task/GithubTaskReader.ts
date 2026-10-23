@@ -93,8 +93,9 @@ export class GithubTaskReader {
   }
 
   /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. Un PR
-   *  que no apunta a la default branch (uno apilado) no tiene esa sección —GitHub ignora sus
-   *  palabras clave—: sus issues salen del `Closes #n` de su body. */
+   *  abierto que no apunta a la default branch (uno apilado) no tiene esa sección —GitHub ignora
+   *  sus palabras clave—: sus issues salen del `Closes #n` de su body. Uno ya mergeado en otra rama
+   *  no cerró nada: su código no está en la default, y su issue sigue abierto. */
   async closingIssues(
     owner: string,
     repo: string,
@@ -106,6 +107,7 @@ export class GithubTaskReader {
         pullRequest?: {
           body?: string | null
           baseRefName?: string
+          merged?: boolean
           closingIssuesReferences?: {
             nodes?: Array<{
               number: number
@@ -122,8 +124,8 @@ export class GithubTaskReader {
       number: node.number,
     }))
     const base = pr?.baseRefName
-    if (linked.length > 0 || !base || base === data.repository?.defaultBranchRef?.name)
-      return linked
+    const stacked = base !== undefined && base !== data.repository?.defaultBranchRef?.name
+    if (linked.length > 0 || !stacked || pr?.merged) return linked
     return closingRefs(pr?.body ?? '', { owner, repo })
   }
 

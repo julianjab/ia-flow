@@ -98,6 +98,13 @@ interface RawBoardItem {
     repository?: { name: string; owner: { login: string } }
     labels?: { nodes: Array<{ name: string }> }
     closedByPullRequestsReferences?: { nodes: RawIssueRef[] }
+    /** Las ramas vinculadas al issue y su PR abierto: el de un PR apilado, que GitHub no lista en
+     *  `closedByPullRequestsReferences` (no vincula un PR que no apunta a la default branch). */
+    linkedBranches?: {
+      nodes: Array<{
+        ref?: { associatedPullRequests?: { nodes: Array<{ number: number; url?: string }> } } | null
+      }>
+    }
     blockedBy?: { nodes: RawIssueRef[] }
     parent?: RawParent | null
   }
@@ -159,6 +166,7 @@ const itemsQuery = ({
               repository { name owner { login } }
               labels(first: 30) { nodes { name } }
               closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${ISSUE_REF} } }
+              linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }
               ${blockers ? `blockedBy(first: 20) { nodes { ${ISSUE_REF} } }` : ''}
               ${epic ? PARENT : ''}
             }
@@ -195,7 +203,9 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
   const labels = (issue.labels?.nodes ?? []).map((label) => label.name)
   const field = (name: string) =>
     item.fieldValues?.nodes.find((value) => value.field?.name === name)?.name
-  const pr = issue.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
+  const pr =
+    issue.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN') ??
+    issue.linkedBranches?.nodes.flatMap((node) => node.ref?.associatedPullRequests?.nodes ?? [])[0]
   const status = field('Status')
   const taskType = field('Task Type')
   const epic = toEpic(issue.parent)

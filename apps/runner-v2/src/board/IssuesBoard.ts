@@ -57,6 +57,13 @@ export interface RawIssueCard {
   updatedAt: string
   labels?: { nodes: Array<{ name: string }> }
   closedByPullRequestsReferences?: { nodes: RawRef[] }
+  /** Las ramas vinculadas al issue y su PR abierto: el de un PR apilado, que GitHub no lista en
+   *  `closedByPullRequestsReferences` (no vincula un PR que no apunta a la default branch). */
+  linkedBranches?: {
+    nodes: Array<{
+      ref?: { associatedPullRequests?: { nodes: Array<{ number: number; url?: string }> } } | null
+    }>
+  }
   blockedBy?: { nodes: RawRef[] }
 }
 
@@ -81,6 +88,7 @@ const issuesQuery = (
         number title url updatedAt
         labels(first: 100) { nodes { name } }
         closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${REF} } }
+        linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }
         ${withBlockers ? `blockedBy(first: 20) { nodes { ${REF} } }` : ''}
       }
     }
@@ -116,7 +124,9 @@ export function toIssueCard(
     own.some((label) => label.toLowerCase() === `${scheme.prefix}blocked`.toLowerCase())
   const labels = inBlockedColumn && !own.includes(blockedLabel) ? [...own, blockedLabel] : own
   const taskType = valueOfField(labels, 'Task Type', scheme)
-  const pr = raw.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
+  const pr =
+    raw.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN') ??
+    raw.linkedBranches?.nodes.flatMap((node) => node.ref?.associatedPullRequests?.nodes ?? [])[0]
   const ref = refString({ ...repo, number: raw.number })
   return {
     ref,
