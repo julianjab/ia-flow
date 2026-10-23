@@ -10,16 +10,14 @@ struct GithubSearchScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Buscar en GitHub").font(.lh(17, .bold))
-                    Text("Cualquier repo de \(model.org)").font(.lh(12)).foregroundStyle(.secondary)
-                }
-                Spacer()
+            RouteHeader(back: runner.backLabel, title: "Buscar en GitHub", onBack: { runner.goBack() }) {
                 if model.searching || model.loadingRepos { ProgressView().controlSize(.small).scaleEffect(0.6) }
             }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 6)
+            Text("Usa tu login de GitHub (sólo lectura). Con un repo elegido, un número va directo a ese issue o PR.")
+                .font(.lh(11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14).padding(.bottom, 8)
 
             HStack(spacing: 8) {
                 repoButton

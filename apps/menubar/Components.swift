@@ -4,23 +4,62 @@ import SwiftUI
 // Todo se dibuja en SwiftUI (sin NSView) para que se vea igual en claro y oscuro y se pueda renderizar a PNG
 // con --screenshot. Sin lógica de servicios: reciben texto, tono y acciones.
 
+/// Los colores del rediseño (`docs/design/ui-unificada`, `:root` del mockup): neutros del sistema, el azul sólo para
+/// la acción principal, el color sólo para el estado y el violeta sólo para el asistente. Cada uno con su par claro.
+enum Palette {
+    private static func dynamic(_ light: UInt32, _ dark: UInt32) -> Color {
+        func ns(_ hex: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                    blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? ns(dark) : ns(light)
+        })
+    }
+
+    /// Sólo la acción principal (texto blanco, 4.6:1).
+    static let blue = Color(red: 0x1F / 255, green: 0x6F / 255, blue: 0xEB / 255)
+    /// Links, la ruta de vuelta, «Review».
+    static let link = dynamic(0x0969DA, 0x6CB6FF)
+    static let green = dynamic(0x1A7F37, 0x7EE787)
+    /// El punto «en vivo».
+    static let live = dynamic(0x1F883D, 0x3FB950)
+    /// Te pregunta, espera, fijada.
+    static let amber = dynamic(0x9A6700, 0xE3B341)
+    static let red = dynamic(0xCF222E, 0xFF7B72)
+    static let teal = dynamic(0x0A7A6D, 0x56D4C4)
+    /// Sólo lo que dice el asistente.
+    static let ai = dynamic(0x8250DF, 0xD2A8FF)
+    /// Superficies: la card, un control (botón neutro, chip) y el segmento elegido.
+    static let card = Color.primary.opacity(0.055)
+    static let control = Color.primary.opacity(0.09)
+    static let selected = Color.primary.opacity(0.16)
+    static let line = Color.primary.opacity(0.08)
+}
+
 enum Tone {
     case ok, warn, bad, info, neutral
 
     var color: Color {
         switch self {
-        case .ok: return .green
-        case .warn: return .orange
-        case .bad: return .red
-        case .info: return .blue
+        case .ok: return Palette.green
+        case .warn: return Palette.amber
+        case .bad: return Palette.red
+        case .info: return Palette.link
         case .neutral: return .secondary
         }
     }
 }
 
 extension Font {
+    /// La tipografía del sistema (SF), como el resto de macOS.
     static func lh(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight)
+    }
+
+    /// Mono sólo para refs, ids, rutas y comandos.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
     }
 }
 
@@ -36,10 +75,10 @@ struct Chip: View {
             if let icon { Image(systemName: icon).font(.system(size: 8.5, weight: .bold)) }
             Text(text).font(.lh(11, .semibold)).lineLimit(1)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .foregroundStyle(tone == .neutral ? Color.secondary : tone.color)
-        .background(Capsule().fill(tone == .neutral ? Color.primary.opacity(0.07) : tone.color.opacity(0.15)))
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tone == .neutral ? Palette.control : tone.color.opacity(0.15)))
     }
 }
 
@@ -71,7 +110,7 @@ struct RepoTag: View {
     }
 }
 
-/// Chip seleccionable (los puertos en escucha del formulario de túnel).
+/// Chip seleccionable (las preguntas sugeridas del asistente).
 struct SelectChip: View {
     let label: String
     let selected: Bool
@@ -92,9 +131,11 @@ struct SelectChip: View {
 
 // MARK: botones
 
+/// Botón de 8 pt de radio: prominente (relleno, texto blanco: el azul es la acción principal) o neutro (sobre un
+/// control; con un tinte de color, el texto en ese color).
 struct PillButtonStyle: ButtonStyle {
     var prominent = false
-    var tint: Color = .accentColor
+    var tint: Color = Palette.blue
     var enabled = true
     /// Más chico y en una sola línea: los botones dentro de una fila (las acciones de una tarea).
     var compact = false
@@ -105,10 +146,10 @@ struct PillButtonStyle: ButtonStyle {
             .lineLimit(1)
             .padding(.horizontal, compact ? 10 : 14)
             .padding(.vertical, compact ? 4 : 7)
-            .foregroundStyle(prominent ? Color.white : tint)
-            .background(Capsule().fill(prominent ? tint : tint.opacity(0.12)))
+            .foregroundStyle(prominent ? Color.white : (tint == .secondary || tint == Palette.blue ? Color.primary : tint))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(prominent ? tint : Palette.control))
             .opacity(enabled ? (configuration.isPressed ? 0.8 : 1) : 0.4)
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -163,8 +204,8 @@ struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.primary.opacity(0.045)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Palette.card))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.line, lineWidth: 1))
     }
 }
 
@@ -177,10 +218,10 @@ struct SectionTitle: View {
     var trailing: String? = nil
 
     var body: some View {
-        HStack {
-            Text(text.uppercased()).font(.lh(10.5, .bold)).foregroundStyle(.secondary).tracking(0.6)
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(text).font(.lh(12.5, .semibold)).foregroundStyle(.secondary)
+            if let trailing { Text(trailing).font(.lh(11.5)).foregroundStyle(.tertiary) }
             Spacer()
-            if let trailing { Text(trailing).font(.lh(11)).foregroundStyle(.tertiary) }
         }
     }
 }
@@ -195,8 +236,8 @@ struct FieldBox<Content: View>: View {
             .font(.lh(13))
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.control))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(invalid ? Color.red.opacity(0.7) : Color.clear, lineWidth: 1.5))
     }
 }
@@ -304,5 +345,108 @@ struct FittingScroll<Content: View>: View {
         .onPreferenceChange(HeightKey.self) { height = $0 }
         .frame(minHeight: windowed ? 60 : min(max(height, 60), popoverMaxScroll),
                maxHeight: windowed ? .infinity : min(max(height, 60), popoverMaxScroll), alignment: .top)
+    }
+}
+
+// MARK: navegación
+
+/// Una opción del segmentado: su nombre, cuántas hay y si el número va en rojo (lo que te espera).
+struct SegmentOption: Identifiable {
+    let id: String
+    let title: String
+    var count: Int? = nil
+    var alert = false
+}
+
+/// El control segmentado (Para mí · En curso · Próximo, el orden, el nivel de los logs): radio 9 afuera y 7 adentro.
+struct Segmented: View {
+    let options: [SegmentOption]
+    let selected: String
+    var compact = false
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let on = option.id == selected
+                Button { onSelect(option.id) } label: {
+                    HStack(spacing: 5) {
+                        Text(option.title).font(.lh(compact ? 11.5 : 12.5, on ? .semibold : .medium)).lineLimit(1)
+                        if let count = option.count, count > 0 || option.alert {
+                            Text("\(count)").font(.lh(compact ? 10 : 10.5, .bold)).monospacedDigit()
+                                .foregroundStyle(option.alert && count > 0 ? Color.white : Color.secondary)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(option.alert && count > 0 ? Color.red : Color.clear))
+                        }
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, compact ? 3 : 5)
+                    .foregroundStyle(on ? Color.primary : Color.secondary)
+                    .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? Palette.selected : Color.clear))
+                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.control))
+    }
+}
+
+/// La ruta de vuelta de una pantalla: «‹ Para mí / subscriptions #4281», y a la derecha lo que la pantalla agregue.
+struct RouteHeader<Trailing: View>: View {
+    let back: String
+    let title: String
+    var mono = false
+    let onBack: () -> Void
+    @ViewBuilder let trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button(action: onBack) {
+                HStack(spacing: 3) {
+                    Image(systemName: "chevron.left").font(.system(size: 11, weight: .semibold))
+                    Text(back).font(.lh(13)).lineLimit(1)
+                }
+                .foregroundStyle(Palette.link)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
+            .help("Volver a \(back)")
+            Text("/").font(.lh(13)).foregroundStyle(.tertiary)
+            Text(title).font(mono ? .mono(12.5, .medium) : .lh(13, .semibold)).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 4)
+            trailing
+        }
+        .frame(minHeight: 26)
+    }
+}
+
+extension RouteHeader where Trailing == EmptyView {
+    init(back: String, title: String, mono: Bool = false, onBack: @escaping () -> Void) {
+        self.init(back: back, title: title, mono: mono, onBack: onBack) { EmptyView() }
+    }
+}
+
+/// Una fila punteada que lleva a otra pantalla («2 mejoras propuestas por la retro · Revisar ›»).
+struct DashedLink: View {
+    let text: String
+    let action: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 6) {
+                Text(text).font(.lh(12.5)).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 4)
+                Text("\(action) ›").font(.lh(12.5, .semibold)).foregroundStyle(Palette.link)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

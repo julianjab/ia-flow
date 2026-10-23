@@ -28,12 +28,13 @@ struct RunTraceScreen: View {
     // MARK: encabezado: la tarea y qué ejecución
 
     private var header: some View {
+        VStack(alignment: .leading, spacing: 6) {
+        RouteHeader(back: runner.backLabel, title: refLabel(watch.ref), mono: true, onBack: { runner.closeRun() }) {
+            if watch.executions.count > 1 { executionMenu }
+        }
         HStack(alignment: .top, spacing: 8) {
-            IconButton(symbol: "chevron.left", help: "Volver") { runner.closeRun() }
-            // El título solo en su línea (con los chips al lado se partía en dos); la ref y el PR, debajo del nombre.
             VStack(alignment: .leading, spacing: 4) {
-                Text(watch.running ? "En vivo" : "Ejecución").font(.lh(17, .bold)).lineLimit(1).fixedSize()
-                Text(watch.item.displayTitle).font(.lh(12)).foregroundStyle(.secondary).lineLimit(2)
+                Text(watch.item.displayTitle).font(.lh(15, .semibold)).lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
                     Button { runner.open(watch.item) } label: { refTag(watch.ref) }.buttonStyle(.plain).fixedSize()
@@ -46,7 +47,7 @@ struct RunTraceScreen: View {
                 BlockersLine(runner: runner, item: watch.item)
             }
             Spacer(minLength: 4)
-            if watch.executions.count > 1 { executionMenu }
+        }
         }
     }
 
@@ -149,7 +150,7 @@ struct RunTraceScreen: View {
         return HStack(spacing: 8) {
             if let main {
                 Button(main.confirms ? "\(main.label)…" : main.label) { runner.trigger(main, on: watch.item) }
-                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? .red : .accentColor, compact: true))
+                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? Palette.red : Palette.blue, compact: true))
                     .fixedSize().disabled(busy)
             }
             if !rest.isEmpty {
@@ -163,14 +164,15 @@ struct RunTraceScreen: View {
                     .menuStyle(.button).buttonStyle(PillButtonStyle(compact: true)).menuIndicator(.hidden).fixedSize()
                     .disabled(busy)
             }
-            IconButton(symbol: "bubble.left.and.text.bubble.right", help: "Preguntarle al asistente sobre esta tarea") { runner.onAsk?(watch.item) }
+            Button { runner.onAsk?(watch.item) } label: { Text("✦ Preguntar").foregroundStyle(Palette.ai) }
+                .buttonStyle(PillButtonStyle(compact: true)).fixedSize().help("Preguntarle al asistente sobre esta tarea")
             Spacer(minLength: 4)
             Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
             Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Color.accentColor : .secondary)
+                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Palette.link : .secondary)
                 .help("Seguir el final")
             Toggle(isOn: $watch.showModel) { Image(systemName: "cpu") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Color.accentColor : .secondary)
+                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Palette.link : .secondary)
                 .help("Mostrar las llamadas al modelo")
             IconButton(symbol: "doc.on.doc", help: "Copiar la traza") { watch.copy(); runner.toast?("Traza copiada") }
             IconButton(symbol: "arrow.clockwise", help: "Releer") { watch.reload() }
@@ -224,7 +226,7 @@ struct StepRow: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
                             Text(step.title).font(.lh(12, step.kind == .stage ? .bold : .semibold))
-                                .foregroundStyle(step.kind == .model ? Color.secondary : step.state == .failed ? Color.red : Color.primary)
+                                .foregroundStyle(step.kind == .model ? Color.secondary : step.state == .failed ? Palette.red : Color.primary)
                                 .lineLimit(step.kind == .note ? 3 : 1)
                             if let summary { Text(summary).font(.lh(12)).foregroundStyle(.secondary).lineLimit(1) }
                         }

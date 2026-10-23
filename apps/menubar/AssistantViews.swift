@@ -1,12 +1,15 @@
 import AVFoundation
 import SwiftUI
 
-// La pestaña «Asistente»: de qué se habla (todo el runner o una tarea), los turnos con lo que propone el asistente
-// y las tareas que menciona, y el campo para preguntar. Sólo dibuja lo que publica AssistantModel.
+// El panel del asistente (lo abre la caja del pie, encima de la vista): los turnos con lo que propone el asistente y
+// las tareas que menciona, de qué se habla («Sobre <ref> ×», o todo el runner) y el campo para preguntar. Sólo dibuja
+// lo que publica AssistantModel.
 
 struct AssistantScreen: View {
     @ObservedObject var chat: AssistantModel
     @ObservedObject var runner: RunnerModel
+    /// Cierra el panel (vuelve a la vista de abajo).
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,8 +29,11 @@ struct AssistantScreen: View {
                 }
                 thread
                 Divider().opacity(0.5)
-                ChatComposer(chat: chat, placeholder: chat.scope.ref == nil ? "Pregunta sobre el runner…" : "Pregunta sobre esta tarea…")
-                    .padding(.horizontal, 14).padding(.vertical, 10)
+                VStack(alignment: .leading, spacing: 6) {
+                    scopeChip
+                    ChatComposer(chat: chat, placeholder: chat.turns.isEmpty ? "Pregúntale o pídele algo al asistente…" : "Seguí preguntando…")
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
             }
         }
         .onAppear { chat.appear() }
@@ -35,18 +41,27 @@ struct AssistantScreen: View {
 
     // MARK: encabezado: el tema y las conversaciones
 
+    /// De qué se habla: «Sobre subscriptions #4301 ×» (la × vuelve a todo el runner) o «Todo el runner».
+    @ViewBuilder private var scopeChip: some View {
+        HStack(spacing: 5) {
+            if let ref = chat.scope.ref {
+                Text("Sobre").font(.lh(11.5)).foregroundStyle(.secondary)
+                Text(refLabel(ref)).font(.mono(11, .medium))
+                Button { chat.toGeneral() } label: { Image(systemName: "xmark").font(.system(size: 8.5, weight: .bold)) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary).help("Preguntar sobre todo el runner")
+            } else {
+                Text("Sobre todo el runner").font(.lh(11.5)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Palette.control))
+        .help(chat.scopeTitle ?? "")
+    }
+
     private var header: some View {
         HStack(spacing: 8) {
-            if let ref = chat.scope.ref {
-                HStack(spacing: 6) {
-                    refTag(ref)
-                    Text(chat.scopeTitle ?? "Esta tarea").font(.lh(12.5, .semibold)).lineLimit(1)
-                    Button { chat.toGeneral() } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
-                        .buttonStyle(.plain).help("Preguntar sobre todo el runner")
-                }
-            } else {
-                Label("Todo el runner", systemImage: "square.grid.2x2").font(.lh(12.5, .semibold)).foregroundStyle(.secondary)
-            }
+            Text("✦").font(.lh(14, .semibold)).foregroundStyle(Palette.ai)
+            Text("Asistente").font(.lh(14, .semibold))
             Spacer(minLength: 4)
             if !chat.history.isEmpty {
                 Menu {
@@ -70,6 +85,7 @@ struct AssistantScreen: View {
                 .help("Conversaciones anteriores sobre esto")
             }
             IconButton(symbol: "square.and.pencil", help: "Conversación nueva") { chat.reset() }
+            if let onClose { IconButton(symbol: "xmark", help: "Cerrar el asistente") { onClose() }.keyboardShortcut(.cancelAction) }
         }
     }
 
@@ -187,7 +203,7 @@ struct ChatComposer: View {
             } else {
                 let empty = chat.input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 Button { chat.send() } label: { Image(systemName: "arrow.up").font(.system(size: 12, weight: .bold)).frame(width: 30, height: 30) }
-                    .buttonStyle(.plain).foregroundStyle(.white).background(Circle().fill(Color.accentColor.opacity(empty ? 0.35 : 1)))
+                    .buttonStyle(.plain).foregroundStyle(.white).background(Circle().fill(Palette.blue.opacity(empty ? 0.35 : 1)))
                     .disabled(empty).help("Enviar (↩)")
             }
         }

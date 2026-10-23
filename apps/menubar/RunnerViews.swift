@@ -1,300 +1,37 @@
 import SwiftUI
 
-// La pestaña «Runner» del popover: lo que te espera en el server elegido, lo que corre, las épicas y qué sigue en
-// cada una, y el log del proceso. Sólo dibuja lo que publica RunnerModel; las acciones van al modelo.
+// Las pantallas del runner que se abren encima de la bandeja (con su ruta de vuelta) y las piezas que comparten las
+// vistas: la fila de una tarea, el buscador, las filas del board y de lo que corrió, el login y los logs. Sólo dibuja
+// lo que publica RunnerModel; las acciones van al modelo.
 
 struct RunnerScreen: View {
     @ObservedObject var runner: RunnerModel
 
     var body: some View {
         switch runner.screen {
-        case .inbox: RunnerInboxScreen(runner: runner)
         case .logs: RunnerLogsScreen(runner: runner)
         case .health: RunnerHealthScreen(runner: runner)
         case .github:
-            if let model = runner.githubSearch { GithubSearchScreen(runner: runner, model: model) } else { RunnerInboxScreen(runner: runner) }
+            if let model = runner.githubSearch { GithubSearchScreen(runner: runner, model: model) } else { gone }
         case .improvements: ImprovementsScreen(runner: runner)
         case .improvement:
             if let improvement = runner.discussing, let chat = runner.improvementChat {
                 ImprovementChatScreen(runner: runner, improvement: improvement, chat: chat)
             } else { ImprovementsScreen(runner: runner) }
         case .run:
-            if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { RunnerInboxScreen(runner: runner) }
+            if let watch = runner.watching { RunTraceScreen(runner: runner, watch: watch) } else { gone }
+        case .task:
+            if let watch = runner.watching { TaskDetailScreen(runner: runner, watch: watch) } else { gone }
         case .epic:
-            if runner.epicRef != nil { EpicScreen(runner: runner) } else { RunnerInboxScreen(runner: runner) }
-        }
-    }
-}
-
-// MARK: bandeja
-
-struct RunnerInboxScreen: View {
-    @ObservedObject var runner: RunnerModel
-
-    var body: some View {
-        VStack(spacing: 0) {
-            header.padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 8)
-            SearchField(runner: runner).padding(.horizontal, 14).padding(.bottom, 10)
-            FittingScroll {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let error = runner.error { errorBanner(error) }
-                    if let login = runner.login { DeviceLoginCard(runner: runner, login: login) }
-                    else if runner.github == nil, runner.error == nil, runner.inbox != nil { loginBanner }
-                    if let pipeline = runner.inbox?.pipeline, !runner.filtering { capacity(pipeline) }
-                    if runner.inbox != nil { sections }
-                    else if runner.error == nil { loadingCard }
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
-            }
-            Divider().opacity(0.5)
-            footer.padding(.horizontal, 14).padding(.vertical, 10)
+            if runner.epicRef != nil { EpicScreen(runner: runner) } else { gone }
+        // la bandeja y «Runners» los dibuja RootContent
+        case .inbox, .runners: gone
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            Menu {
-                ForEach(runner.servers, id: \.baseUrl) { server in
-                    Button { runner.select(server) } label: {
-                        if server == runner.selected { Label(server.name, systemImage: "checkmark") } else { Text(server.name) }
-                    }
-                }
-                Divider()
-                Button("Estado del runner…") { runner.showHealth() }
-                Button("Editar servidores…") { runner.openServersFile() }
-            } label: {
-                HStack(spacing: 5) {
-                    Circle().fill(runner.error == nil ? (runner.inbox == nil ? Color.orange : Color.green) : Color.red).frame(width: 7, height: 7)
-                        // En vivo (stream conectado): un halo; sin él, la bandeja se relee cada 6 s.
-                        .overlay(Circle().strokeBorder(Color.green.opacity(runner.live ? 0.45 : 0), lineWidth: 1.5).frame(width: 12, height: 12))
-                        .frame(width: 12, height: 12)
-                        .help(runner.live ? "En vivo: la bandeja se actualiza cuando algo cambia" : "La bandeja se relee cada 6 s")
-                    Text(runner.selected.name).font(.lh(13, .semibold)).lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                }
-            }
-            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            Spacer()
-            if runner.loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
-            if let session = runner.github {
-                Menu {
-                    Button("Cerrar sesión de GitHub", role: .destructive) { runner.logout() }
-                } label: { Chip(text: session.login, icon: "person.fill") }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            }
-            IconButton(symbol: "arrow.clockwise", help: "Actualizar") { runner.refresh() }
-        }
-    }
-
-    private func errorBanner(_ error: RunnerError) -> some View {
-        Banner(text: error.needsRunnerToken
-               ? "\(runner.selected.name) pide su IA_FLOW_API_TOKEN: agrégalo como «token» en la lista de servidores. (\(error.message))"
-               : error.message, tone: .bad, icon: "xmark.octagon.fill") {
-            if error.needsRunnerToken {
-                Button("Editar servidores") { runner.openServersFile() }.buttonStyle(PillButtonStyle(prominent: true, tint: .red))
-            }
-        }
-    }
-
-    private var loginBanner: some View {
-        Banner(text: "Para aprobar, reintentar o responder, el runner firma con tu login de GitHub.", tone: .info, icon: "person.badge.key.fill") {
-            Button("Iniciar sesión con GitHub") { runner.beginLogin() }.buttonStyle(PillButtonStyle(prominent: true))
-        }
-    }
-
-    private var loadingCard: some View {
-        HStack { ProgressView().controlSize(.small); Text("Leyendo la bandeja…").foregroundStyle(.secondary) }
-            .frame(maxWidth: .infinity, alignment: .leading).card()
-    }
-
-    private func capacity(_ p: InboxPipeline) -> some View {
-        FlowLayout {
-            Chip(text: "\(p.running) corriendo", tone: p.running > 0 ? .ok : .neutral, icon: "play.fill")
-            if p.queued > 0 { Chip(text: "\(p.queued) en cola", tone: .warn, icon: "hourglass") }
-            if p.paused > 0 { Chip(text: "\(p.paused) esperando CI", tone: .info, icon: "pause.fill") }
-            if let free = p.free, let cap = p.capacity { Chip(text: "\(free)/\(cap) libres") }
-            // Cómo terminó lo último y hace cuánto: que no quede sólo «0 corriendo».
-            if let last = runner.recentRuns.first, let run = last.execution {
-                Chip(text: run.closed_at.flatMap { ago($0) }.map { $0 == "ahora" ? "ahora" : "hace \($0)" } ?? "cerró",
-                     tone: RecentRow.tone(run.status), icon: RecentRow.symbol(run.status))
-                    .help("Lo último que corrió: \(last.ref) · \(last.title)")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var sections: some View {
-        // Buscando: sólo lo que coincide, sin secciones vacías ni colapsadas.
-        let searching = runner.filtering
-        let decisions = runner.shownDecisions, running = runner.shownRunning, epics = runner.shownEpics
-        let queued = runner.shownQueued
-        if !searching || !decisions.isEmpty {
-            section("Te necesita", count: decisions.count, empty: "Nada esperando una decisión tuya.") {
-                ForEach(Array(decisions.enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 5) }
-                    TaskRow(runner: runner, item: item, primary: i == 0)
-                }
-            }
-        }
-        if runner.search != nil { boardSection }
-        if !epics.isEmpty {
-            section("Épicas", count: epics.count) {
-                ForEach(Array(epics.enumerated()), id: \.element.id) { i, epic in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
-                    EpicRow(runner: runner, epic: epic)
-                }
-            }
-        }
-        if !searching || !running.isEmpty {
-            section("Corriendo", count: running.count, empty: "Ningún agente trabajando ahora.") {
-                ForEach(Array(running.enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 5) }
-                    TaskRow(runner: runner, item: item)
-                }
-            }
-        }
-        let recent = runner.recentRuns
-        if !searching, !recent.isEmpty {
-            section("Lo último que corrió", count: 0) {
-                ForEach(Array(recent.enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 2) }
-                    RecentRow(runner: runner, item: item)
-                }
-            }
-        }
-        if !queued.isEmpty {
-            section("En cola", count: queued.count) {
-                ForEach(Array(queued.prefix(searching ? 50 : 6).enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                    CompactRow(runner: runner, item: item)
-                }
-            }
-        }
-        feedSection
-        if searching, runner.resultCount == 0, !runner.searching { noResults }
-        if runner.search != nil { githubHandoff }
-    }
-
-    /// Las cards de Todo: primero las que pueden arrancar, después las que esperan a otra. Sin buscar, las primeras.
-    @ViewBuilder
-    private var feedSection: some View {
-        let feed = runner.shownFeed
-        let limit = runner.filtering ? 50 : 8
-        if !feed.ready.isEmpty || !feed.waiting.isEmpty {
-            section("Por arrancar", count: feed.ready.count + feed.waiting.count) {
-                ForEach(Array(feed.ready.prefix(limit).enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                    FeedRow(runner: runner, item: item)
-                }
-                if feed.ready.count > limit { more(feed.ready.count - limit) }
-                if !feed.waiting.isEmpty {
-                    Text("Esperan a otra").font(.lh(10.5, .semibold)).foregroundStyle(.tertiary)
-                        .padding(.top, feed.ready.isEmpty ? 0 : 10).padding(.bottom, 4)
-                    ForEach(Array(feed.waiting.prefix(limit).enumerated()), id: \.element.ref) { i, item in
-                        if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
-                        FeedRow(runner: runner, item: item)
-                    }
-                    if feed.waiting.count > limit { more(feed.waiting.count - limit) }
-                }
-            }
-        }
-    }
-
-    private func more(_ n: Int) -> some View {
-        Text("y \(n) más: búscalas o ábrelas en el board").font(.lh(11)).foregroundStyle(.tertiary).padding(.top, 6)
-    }
-
-    /// Lo que coincide fuera de la bandeja: las primeras con sus acciones, el resto como fila corta.
-    @ViewBuilder
-    private var boardSection: some View {
-        let detailed = Set(runner.lookups.map(\.ref))
-        let rest = runner.boardResults.filter { !detailed.contains($0.ref) }
-        if !runner.lookups.isEmpty || !rest.isEmpty {
-            section("En el board", count: runner.lookups.count + rest.count) {
-                ForEach(Array(runner.lookups.enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 10) }
-                    TaskRow(runner: runner, item: item)
-                }
-                ForEach(Array(rest.prefix(20).enumerated()), id: \.element.ref) { i, item in
-                    if i > 0 || !runner.lookups.isEmpty { Divider().opacity(0.4).padding(.vertical, 6) }
-                    BoardRow(runner: runner, item: item)
-                }
-            }
-        }
-        if let miss = runner.lookupMiss {
-            Banner(text: "\(miss) no está en ningún board de este runner.", tone: .neutral, icon: "magnifyingglass") {
-                Button("Abrir en GitHub") { runner.openTask(miss) }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
-            }
-        }
-    }
-
-    /// Lo que no es del runner se busca aparte: la pantalla «GitHub», con lo escrito y el repo del tag.
-    private var githubHandoff: some View {
-        Button { runner.showGithub(query: runner.query, repo: runner.repoFilter) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").font(.system(size: 10.5, weight: .semibold))
-                Text("Buscar «\(runner.query)» en GitHub").font(.lh(12, .semibold)).lineLimit(1)
-                Spacer(minLength: 4)
-                Image(systemName: "arrow.right").font(.system(size: 9.5, weight: .bold))
-            }
-            .foregroundStyle(Color.accentColor)
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.08)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Buscar en cualquier repo de la organización (no sólo los del board)")
-    }
-
-    private var noResults: some View {
-        Text(runner.search == nil
-             ? "Nada de \(runner.repoFilter ?? "") en la bandeja."
-             : "Nada coincide con «\(runner.query)»\(runner.repoFilter.map { " en \($0)" } ?? "") en la bandeja ni en el board.")
-            .font(.lh(12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading).card()
-    }
-
-    /// Una sección que se colapsa con un clic en su título (lo recuerda entre aperturas del popover).
-    private func section<Content: View>(_ title: String, count: Int, empty: String? = nil, @ViewBuilder content: () -> Content) -> some View {
-        let collapsed = !runner.filtering && runner.isCollapsed(title)
-        return VStack(alignment: .leading, spacing: 8) {
-            Button { withAnimation(.easeOut(duration: 0.15)) { runner.toggleSection(title) } } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(collapsed ? 0 : 90))
-                    SectionTitle(text: title, trailing: count > 0 ? "\(count)" : nil)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help(collapsed ? "Mostrar" : "Ocultar")
-            if !collapsed {
-                VStack(alignment: .leading, spacing: 0) {
-                    if count == 0, let empty { Text(empty).font(.lh(12)).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading) }
-                    content()
-                }
-                .card()
-            }
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 4) {
-            Button { runner.screen = .logs } label: { Label("Logs del server", systemImage: "text.alignleft") }
-                .buttonStyle(PillButtonStyle(prominent: true, compact: true)).fixedSize()
-            // Las mejoras propuestas tienen su pantalla (con su «¿Por qué?»): acá, cuántas esperan.
-            let improvements = runner.shownImprovements.count
-            Button { runner.showImprovements() } label: {
-                Label(improvements > 0 ? "Mejoras · \(improvements)" : "Mejoras", systemImage: "lightbulb.fill")
-            }
-            .buttonStyle(PillButtonStyle(prominent: improvements > 0, tint: .orange, compact: true)).fixedSize()
-            .help("Lo que propuso la retrospectiva: abrirlo como issue, descartarlo o preguntar por qué")
-            Spacer()
-            if runner.boardURL != nil { IconButton(symbol: "rectangle.split.3x1", help: "Abrir el board en GitHub") { runner.openBoard() } }
-            IconButton(symbol: "server.rack", help: "Editar servidores") { runner.openServersFile() }
-            IconButton(symbol: "magnifyingglass", help: "Buscar en GitHub (cualquier repo)") { runner.showGithub() }
-            IconButton(symbol: "heart.text.square", help: "Estado del runner") { runner.showHealth() }
-        }
+    /// Lo que la pantalla mostraba ya no está (se cambió de runner): la ruta de vuelta y nada más.
+    private var gone: some View {
+        RouteHeader(back: runner.backLabel, title: "") { runner.goBack() }.padding(14)
     }
 }
 
@@ -331,23 +68,23 @@ struct TaskRow: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture { runner.watch(item) }
+            .onTapGesture { runner.showTask(item) }
             .help(primary ? item.title : "\(item.title)\n\nClic: detalle · desliza a la izquierda o clic derecho: acciones")
         }
-        .contextMenu { menuItems }
+        .contextMenu { TaskMenu(runner: runner, item: item) }
     }
 
     /// Lo que destapa el deslizamiento: la acción del caso y el detalle.
     private var swipeActions: [SwipeAction] {
         var out: [SwipeAction] = []
         if let first = mainAction(actionsOf(item)), !runner.busy.contains(item.ref) {
-            out.append(SwipeAction(id: first.id, icon: icon(first.id), label: first.label, color: first.id == "stop" ? .red : .accentColor) {
+            out.append(SwipeAction(id: first.id, icon: icon(first.id), label: first.label, color: first.id == "stop" ? Palette.red : Palette.blue) {
                 runner.trigger(first, on: item)
             })
         }
         let live = item.execution?.status == "running"
         out.append(SwipeAction(id: "watch", icon: live ? "dot.radiowaves.left.and.right" : "list.bullet.rectangle",
-                               label: live ? "En vivo" : "Detalle", color: .gray) { runner.watch(item) })
+                               label: live ? "En vivo" : "Detalle", color: .gray) { live ? runner.watch(item) : runner.showTask(item) })
         return out
     }
 
@@ -372,7 +109,7 @@ struct TaskRow: View {
                     if busy { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 40, height: 14) }
                     else { Text(first.confirms ? "\(first.label)…" : first.label) }
                 }
-                .buttonStyle(PillButtonStyle(prominent: true, tint: first.id == "stop" ? .red : .accentColor, compact: true))
+                .buttonStyle(PillButtonStyle(prominent: true, tint: first.id == "stop" ? Palette.red : Palette.blue, compact: true))
                 .fixedSize()
                 .disabled(busy)
             }
@@ -388,36 +125,12 @@ struct TaskRow: View {
                 .help("Épica \(epic.ref): \(epic.title)\n\nClic: ver sus sub-issues")
             }
             Spacer(minLength: 0)
-            Menu { menuItems } label: {
+            Menu { TaskMenu(runner: runner, item: item, skip: mainAction(actionsOf(item))?.id) } label: {
                 Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
         }
         .padding(.top, 2)
-    }
-
-    /// Todo lo que se hace con la tarea: el ⋯ de la primera y el clic derecho de todas.
-    @ViewBuilder
-    private var menuItems: some View {
-        let actions = actionsOf(item)
-        let rest = primary ? actions.filter { $0.id != mainAction(actions)?.id } : actions
-        ForEach(rest) { action in
-            Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
-                runner.trigger(action, on: item)
-            }
-        }
-        if !rest.isEmpty { Divider() }
-        Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
-        Button(item.execution?.status == "running" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
-        Button(item.pr == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") { runner.openWorktree(item) }
-        Divider()
-        Button("Abrir issue en GitHub") { runner.open(item) }
-        if item.pr != nil { Button("Abrir PR") { runner.openPR(item) } }
-        if let epic = item.epic {
-            Button("Ver la épica \(shortRef(epic.ref)) y sus sub-issues") { runner.showEpic(epic.ref) }
-            Button("Abrir épica en GitHub") { runner.openEpic(epic) }
-        }
-        ForEach(item.blocked_by ?? [], id: \.self) { ref in Button("Ver \(shortRef(ref)), que la bloquea") { runner.goTo(ref) } }
     }
 
     /// El porqué sin repetir el PR (va como chip) y con hace cuánto.
@@ -540,7 +253,7 @@ struct RecentRow: View {
     var body: some View {
         let run = item.execution
         let status = run?.status ?? "done"
-        Button { runner.watch(item) } label: {
+        Button { runner.showTask(item) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Image(systemName: Self.symbol(status)).font(.system(size: 10, weight: .bold))
                     .foregroundStyle(Self.tone(status) == .bad ? Color.red : status == "superseded" ? .secondary : .green)
@@ -564,7 +277,7 @@ struct RecentRow: View {
         var parts = [run.parallelAgents != nil ? run.pipeline_id : (run.agentLabel ?? run.pipeline_id)]
         if run.status == "failed" { parts.append("falló") }
         else if let exit = run.exit, exit != "done" { parts.append("→ \(exit)") }
-        if let age = run.closed_at.flatMap({ ago($0) }) { parts.append(age) }
+        if let age = run.closed_at.flatMap({ ago($0) }) { parts.append(age == "ahora" ? age : "hace \(age)") }
         return parts.joined(separator: " · ")
     }
 
@@ -602,96 +315,57 @@ struct BlockersLine: View {
     }
 }
 
-/// `la-haus/subscriptions#4281` → `#4281`.
-func shortRef(_ ref: String) -> String { ref.split(separator: "#").last.map { "#\($0)" } ?? ref }
-
-struct CompactRow: View {
+/// Todo lo que se hace con una tarea, en un solo menú (el ⋯ y el clic derecho): sus acciones, preguntar, ver la última
+/// ejecución, moverla, el worktree, GitHub y copiar la ref; «Detener…» al final, en rojo. `skip`: la que ya está a la vista.
+struct TaskMenu: View {
     @ObservedObject var runner: RunnerModel
     let item: InboxItem
+    var skip: String? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button { runner.open(item) } label: {
-                HStack(spacing: 6) {
-                    Text(item.displayTitle).font(.lh(12)).lineLimit(1)
-                    Spacer()
-                    refTag(item.ref)
-                    Text(item.kind == "dep" ? "bloqueada" : "turno").font(.lh(11)).foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
+        let actions = actionsOf(item).filter { $0.id != skip && $0.id != "stop" }
+        ForEach(actions) { action in
+            Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: item) }
+        }
+        if !actions.isEmpty { Divider() }
+        Button("✦ Preguntar sobre esta tarea") { runner.onAsk?(item) }
+        Button(item.execution?.status == "running" ? "Ver en vivo" : "Ver la última ejecución") { runner.watch(item) }
+        let columns = runner.destinations(ref: item.ref, project: item.project_id, status: item.status)
+        if !columns.isEmpty {
+            Menu("Mover a") {
+                ForEach(columns, id: \.self) { status in Button(status) { runner.move(ref: item.ref, to: status) } }
+                Divider()
+                Text("Se mueve con tu login, sin confirmar.")
             }
-            .buttonStyle(.plain)
-            .help(item.why)
-            // Lo que espera también se puede preguntar o comentar: que esté en cola no la deja sin manos.
-            Menu {
-                let actions = actionsOf(item)
-                ForEach(actions) { action in
-                    Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: item) }
-                }
-                if !actions.isEmpty { Divider() }
-                Button("Preguntar sobre esta tarea…") { runner.onAsk?(item) }
-                Button("Abrir issue en GitHub") { runner.open(item) }
-                if let epic = item.epic {
-                    Button("Ver la épica \(shortRef(epic.ref)) y sus sub-issues") { runner.showEpic(epic.ref) }
-                    Button("Abrir épica en GitHub") { runner.openEpic(epic) }
-                }
-            } label: {
-                Image(systemName: "ellipsis").font(.system(size: 11, weight: .semibold)).frame(width: 20, height: 16).contentShape(Rectangle())
+        }
+        if item.isDecision {
+            Menu("Posponer") {
+                Button("Hasta que cambie algo") { runner.snooze(item, .untilChange) }
+                Button("1 día") { runner.snooze(item, .day) }
+                Button("1 semana") { runner.snooze(item, .week) }
+                Button("Elegir fecha…") { runner.tab = .mine; runner.snoozePicking = item.ref }
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
+            Button(runner.isPinned(item) ? "Desfijar" : "Fijar arriba") { runner.togglePin(item) }
+        }
+        Button(item.pr == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") { runner.openWorktree(item) }
+        Divider()
+        Button("Abrir el issue en GitHub ↗") { runner.open(item) }
+        if let pr = item.pr { Button("Abrir el PR #\(pr.number) ↗") { runner.openPR(item) } }
+        if let epic = item.epic {
+            Button("Ver la épica \(shortRef(epic.ref)) y sus sub-issues") { runner.showEpic(epic.ref) }
+        }
+        ForEach(item.blocked_by ?? [], id: \.self) { ref in Button("Ver \(shortRef(ref)), que la bloquea") { runner.goTo(ref) } }
+        let short = item.ref.split(separator: "/").last.map(String.init) ?? item.ref
+        Button("Copiar \(short)") { runner.copy(short) }
+        if skip != "stop", let stop = actionsOf(item).first(where: { $0.id == "stop" }) {
+            Divider()
+            Button("Detener…", role: .destructive) { runner.trigger(stop, on: item) }
         }
     }
 }
 
-/// Una épica: avance de sus sub-issues y la próxima tarea que la mueve, con su acción a mano.
-struct EpicRow: View {
-    @ObservedObject var runner: RunnerModel
-    let epic: EpicView
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Button { runner.showEpic(epic.epic.ref) } label: {
-                    (Text(shortRef(epic.epic.ref)).foregroundStyle(.secondary) + Text(" ") + Text(epic.epic.displayTitle))
-                        .font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                }
-                .buttonStyle(.plain).help("Ver \(epic.epic.ref) y sus sub-issues")
-                Spacer()
-                Text("\(epic.epic.done)/\(epic.epic.total)").font(.lh(11.5, .semibold)).foregroundStyle(.secondary)
-            }
-            ProgressBar(value: epic.progress)
-            if let next = epic.next {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(next.isDecision ? "Sigue" : next.group == "run" ? "Corre" : "Espera").font(.lh(11, .bold))
-                        .foregroundStyle(next.isDecision ? Color.orange : .secondary)
-                    Button { runner.open(next) } label: {
-                        Text("\(next.shortRef) · \(next.displayTitle)").font(.lh(11.5)).foregroundStyle(.primary.opacity(0.8)).lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                    }
-                    .buttonStyle(.plain)
-                    Spacer(minLength: 4)
-                    if next.isDecision, let action = mainAction(actionsOf(next)) {
-                        Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: next) }
-                            .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(runner.busy.contains(next.ref))
-                    }
-                }
-            }
-            if epic.items.count > 1 {
-                Text(summary).font(.lh(11)).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    private var summary: String {
-        let decisions = epic.items.filter(\.isDecision).count
-        var parts: [String] = []
-        if decisions > 0 { parts.append("\(decisions) te esperan") }
-        if epic.running > 0 { parts.append("\(epic.running) corriendo") }
-        let rest = epic.items.count - decisions - epic.running
-        if rest > 0 { parts.append("\(rest) en cola") }
-        return parts.joined(separator: " · ")
-    }
-}
+/// `la-haus/subscriptions#4281` → `#4281`.
+func shortRef(_ ref: String) -> String { ref.split(separator: "#").last.map { "#\($0)" } ?? ref }
 
 struct ProgressBar: View {
     let value: Double
@@ -700,7 +374,7 @@ struct ProgressBar: View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.08))
-                Capsule().fill(Color.green.opacity(0.8)).frame(width: max(g.size.width * value, value > 0 ? 6 : 0))
+                Capsule().fill(Palette.live).frame(width: max(g.size.width * value, value > 0 ? 6 : 0))
             }
         }
         .frame(height: 5)
@@ -765,19 +439,12 @@ struct RunnerLogsScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Logs del server").font(.lh(17, .bold))
-                    Text(runner.selected.name).font(.lh(12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Picker("", selection: $runner.logLevel) {
-                    ForEach(["debug", "info", "warn", "error"], id: \.self) { Text($0).tag($0) }
-                }
-                .pickerStyle(.segmented).labelsHidden().frame(width: 190)
-            }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            RouteHeader(back: runner.backLabel, title: "Logs del server") { runner.goBack() }
+                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+            Segmented(options: [SegmentOption(id: "info", title: "Todo"), SegmentOption(id: "warn", title: "Avisos"),
+                                SegmentOption(id: "error", title: "Errores"), SegmentOption(id: "debug", title: "Debug")],
+                      selected: runner.logLevel, compact: true) { runner.logLevel = $0 }
+            .padding(.horizontal, 14).padding(.bottom, 10)
 
             if let error = runner.logError {
                 Banner(text: error, tone: .bad, icon: "xmark.octagon.fill").padding(.horizontal, 14).padding(.bottom, 8)

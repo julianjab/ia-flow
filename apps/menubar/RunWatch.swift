@@ -13,6 +13,12 @@ final class RunWatch: ObservableObject {
     /// La que se mira; nil = la última.
     @Published private(set) var executionId: String?
     @Published private(set) var steps: [RunStep] = []
+    /// Los eventos de la tarea (la pestaña Eventos del detalle).
+    @Published private(set) var events: [TaskEvent] = []
+    /// «¿Por qué no corrió?»: lo que contestó el runner, o por qué no.
+    @Published private(set) var explain: ExplainResult?
+    @Published private(set) var explainError: String?
+    @Published private(set) var explaining = false
     @Published private(set) var error: String?
     @Published private(set) var loaded = false
     /// Las llamadas al modelo (una por turno) se ven sólo si se piden: llenan la lista sin decir mucho.
@@ -100,11 +106,27 @@ final class RunWatch: ObservableObject {
     private func apply(_ detail: RunDetail) {
         item = detail.item
         executions = detail.executions
+        if let events = detail.events { self.events = events }
         let isRunning = (detail.executions.first { $0.id == executionId } ?? detail.executions.first)?.status == "running"
         let next = RunTrace.steps(detail.trace, running: isRunning)
         if next != steps { steps = next }
         error = nil
         loaded = true
+    }
+
+    /// «¿Por qué no corrió?»: las decisiones del engine para el último evento de la tarea.
+    func askWhy() {
+        guard !isFixture, !explaining else { return }
+        explaining = true
+        explainError = nil
+        Task { @MainActor in
+            defer { explaining = false }
+            do { explain = try await RunnerClient(server: server).explain(ref) } catch let e as RunnerError {
+                explainError = e.status == 404 ? "Esta tarea no tiene eventos registrados." : e.message
+            } catch {
+                explainError = error.localizedDescription
+            }
+        }
     }
 
     /// La traza como texto, para pegarla en un issue o un chat.
@@ -131,6 +153,36 @@ extension RunWatch {
                                 ExecutionSummary(id: "e1", pipeline_id: "build", status: "done", started_at: "2026-10-15T09:00:00Z",
                                                  agent_id: "aiflow-implementer")]
             watch.steps = reviewSteps
+            return watch
+        }
+        func at(_ minutes: Double) -> String { ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }
+        // una tarea que te espera: su historia (refine → build → review que pidió cambios → build) y sus eventos
+        if item.execution?.status != "running" {
+            watch.executions = [
+                ExecutionSummary(id: "e4", pipeline_id: "build", status: "done", started_at: at(16), agent_id: "aiflow-implementer",
+                                 closed_at: at(10), exit: "done", summary: "Cambios subidos"),
+                ExecutionSummary(id: "e3", pipeline_id: "review", status: "done", started_at: at(34), agent_id: "aiflow-reviewer",
+                                 closed_at: at(25), exit: "changes_requested", summary: "2 comentarios en el PR"),
+                ExecutionSummary(id: "e2", pipeline_id: "build", status: "done", started_at: at(558), agent_id: "aiflow-implementer",
+                                 closed_at: at(540), exit: "done", summary: "PR #912 abierto"),
+                ExecutionSummary(id: "e1", pipeline_id: "build", status: "failed", started_at: at(1500), agent_id: "aiflow-implementer",
+                                 closed_at: at(1490), failure: ExecutionFailure(by: "provider", message: "provider_timeout")),
+                ExecutionSummary(id: "e0", pipeline_id: "refine", status: "done", started_at: at(1600), agent_id: "aiflow-refiner",
+                                 closed_at: at(1594), exit: "done", summary: "PRD listo"),
+            ]
+            watch.steps = [
+                step("1", .tool, .ok, "Read", "11:40:02", input: #"{"file_path":"/w/src/assignment/engine.py"}"#, ms: 30, tool: "Read"),
+                step("2", .tool, .ok, "Bash", "11:41:10", input: #"{"command":"uv run pytest tests/assignment","description":"Tests de asignación"}"#,
+                     ms: 12_000, tool: "Bash"),
+            ]
+            let decoder = JSONDecoder()
+            watch.events = (try? decoder.decode([TaskEvent].self, from: Data("""
+            [{"id":"ev2","type":"issues.labeled","occurred_at":"\(at(28))","summary":{"label":"e2e-test"},"outcome":"skipped",
+              "decisions":[{"pipeline_id":"review","verdict":"mismatch","reason":"no tiene PR nuevo"},
+                           {"pipeline_id":"build","verdict":"mismatch","reason":"viene de Review"}]},
+             {"id":"ev1","type":"projects_v2_item.edited","occurred_at":"\(at(50))","summary":{"from":"Build","to":"Review"},
+              "outcome":"dispatched","decisions":[{"pipeline_id":"review","verdict":"ran"}],"execution_id":"e3"}]
+            """.utf8))) ?? []
             return watch
         }
         let started = ISO8601DateFormatter().string(from: Date().addingTimeInterval(-12 * 60))

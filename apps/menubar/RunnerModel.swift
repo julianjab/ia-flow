@@ -40,6 +40,11 @@ func cleanTitle(_ title: String) -> String {
     return first.uppercased() + stripped.dropFirst()
 }
 
+/// `la-haus/subscriptions#4281` → `subscriptions #4281`: la ref como se lee en una ruta o una fila.
+func refLabel(_ ref: String) -> String {
+    RunnerSearch.split(ref).map { "\($0.repo) #\($0.number)" } ?? ref
+}
+
 private let isoFractional: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -107,22 +112,90 @@ struct CommentRequest {
     var text = ""
 }
 
+/// Una acción que confirma, en el lugar del botón («¿Mergear PR #911 en lh-seller-v2-frontend?»).
+struct InlineConfirm: Equatable {
+    let ref: String
+    let action: String
+}
+
+/// Lo que falló al disparar una acción, pegado a su card: el motivo y qué hacer.
+struct ActionFailure {
+    let action: ActionView
+    let item: InboxItem
+    let message: String
+
+    /// «No se pudo reintentar: el runner está a tope.»
+    var text: String {
+        let reason = message.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+        return "No se pudo \(action.label.lowercased()): \(reason.prefix(1).lowercased() + reason.dropFirst())."
+    }
+
+    /// Qué hacer, según lo que contestó el runner.
+    var hint: String {
+        let m = message.lowercased()
+        if m.contains("tope") || m.contains("capacidad") || m.contains("lugar") || m.contains("capacity") {
+            return "Esperá a que termine una de las que corren, o detené una."
+        }
+        if m.contains("permis") || m.contains("403") || m.contains("forbidden") {
+            return "Tu login de GitHub no tiene permiso en ese repo: pedíselo a quien lo administre o hacelo desde GitHub."
+        }
+        if m.contains("401") || m.contains("sesión") || m.contains("token") { return "Volvé a iniciar sesión con GitHub y reintentá." }
+        if m.contains("409") || m.contains("ya ") || m.contains("conflict") { return "La tarea cambió mientras tanto: mirá su detalle." }
+        if m.contains("no responde") || m.contains("timed out") || m.contains("conex") { return "El runner no contestó: reintentá en un momento." }
+        return "Mirá el detalle de la tarea o los logs del server, y reintentá."
+    }
+
+    /// Si el problema es la capacidad, «Ver En curso» ayuda.
+    var aboutCapacity: Bool { hint.hasPrefix("Esperá") }
+}
+
 struct DeviceLogin {
     let code: DeviceCode
     var error: String?
 }
 
+/// Las tres vistas de la bandeja, con el mismo nombre que en la web.
+enum InboxTab: String, CaseIterable {
+    case mine, running, next
+
+    var title: String {
+        switch self {
+        case .mine: return "Para mí"
+        case .running: return "En curso"
+        case .next: return "Próximo"
+        }
+    }
+}
+
 final class RunnerModel: ObservableObject {
-    enum Screen { case inbox, logs, run, health, github, improvements, improvement, epic }
+    /// `inbox` es la vista elegida (Para mí · En curso · Próximo); lo demás, pantallas que se abren encima con su ruta
+    /// de vuelta. `runners`: los runners, su estado, sus logs y los servicios de este Mac. `task`: el detalle.
+    enum Screen { case inbox, logs, run, health, github, improvements, improvement, epic, runners, task }
 
     @Published private(set) var servers: [RunnerServer]
     @Published private(set) var selected: RunnerServer
     @Published private(set) var inbox: Inbox?
     /// Las mejoras propuestas abiertas del server.
     @Published fileprivate(set) var improvements: [Improvement] = []
-    @Published private(set) var error: RunnerError?
+    @Published private(set) var error: RunnerError? {
+        didSet { if error == nil { failingSince = nil } else if failingSince == nil { failingSince = Date() } }
+    }
+    /// Desde cuándo no responde (lo último que se vio queda atenuado debajo).
+    private(set) var failingSince: Date?
     @Published private(set) var loading = false
     @Published var screen: Screen = .inbox
+    /// Lo que se abrió antes de la pantalla actual: «‹ <lo anterior>» vuelve ahí.
+    @Published private(set) var trail: [Screen] = []
+    /// La vista de la bandeja que se mira (se recuerda entre aperturas).
+    @Published var tab: InboxTab = InboxTab(rawValue: UserDefaults.standard.string(forKey: "runnerTab") ?? "") ?? .mine {
+        didSet {
+            guard tab != oldValue, !isFixture else { return }
+            UserDefaults.standard.set(tab.rawValue, forKey: "runnerTab")
+            warmNext()
+        }
+    }
+    /// La lupa (⌘K): el buscador arriba y, en vez de la vista, lo que coincide.
+    @Published var searchOpen = false
     /// El estado del server (la pantalla «Estado del runner»).
     @Published var health: RunnerHealth?
     private var checkingHealth = false
@@ -132,9 +205,15 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var epicRef: String?
     @Published private(set) var epicDetail: EpicDetail?
     @Published private(set) var epicError: String?
-    /// Se abrió una tarea desde la épica: «Volver» vuelve a ella, no a la bandeja.
-    private var runFromEpic = false
     @Published var comment: CommentRequest?
+    /// Posponer, fijar y el orden de Para mí en este runner (`snoozes.json`).
+    @Published private(set) var triage = RunnerTriage()
+    /// La card de Para mí con el «Posponer «…»» abierto debajo.
+    @Published var snoozePicking: String?
+    /// La acción que se confirma en el lugar del botón.
+    @Published var inlineConfirm: InlineConfirm?
+    /// Lo que falló, por ref: queda pegado a su card hasta que se reintenta o se cierra.
+    @Published var failures: [String: ActionFailure] = [:]
     @Published var login: DeviceLogin?
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
     @Published private(set) var busy: Set<String> = []
@@ -159,6 +238,15 @@ final class RunnerModel: ObservableObject {
     /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
     @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
+    /// El resto del board por columna (Próximo).
+    @Published private(set) var boardColumns: [BoardColumn] = []
+    /// «En los repos, sin card»: nil mientras no se leyó o si el runner no lo expone.
+    @Published private(set) var repoIssues: RepoIssues?
+    private var repoIssuesAt: Date?
+    /// El proyecto que filtra Próximo (sólo con más de uno).
+    @Published var nextProject: String? { didSet { if nextProject != oldValue { repoIssuesAt = nil; warmNext() } } }
+    /// Los grupos de Próximo que se despliegan enteros («Ver las N») y las columnas abiertas del resto del board.
+    @Published var expanded: Set<String> = []
     private var searchTask: Task<Void, Never>?
 
     /// Las secciones colapsadas de la bandeja, por título. «En cola» arranca colapsada.
@@ -178,6 +266,8 @@ final class RunnerModel: ObservableObject {
     /// Avisa al ícono (el badge) y a quien muestre los toasts.
     var onBadge: ((Int) -> Void)?
     var toast: ((String) -> Void)?
+    /// Un aviso con «Deshacer» (posponer).
+    var undoToast: ((String, @escaping () -> Void) -> Void)?
     /// «Preguntar sobre esta tarea» (lo resuelve la app: cambia a la pestaña Asistente).
     var onAsk: ((InboxItem) -> Void)?
     var confirm: ((ConfirmRequest) -> Void)?
@@ -190,16 +280,62 @@ final class RunnerModel: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: "runnerServer")
         selected = list.first { $0.baseUrl == saved } ?? list[0]
         self.inbox = inbox
-        restoreRepoFilter()
+        if servers == nil { triage = TriageStore.load(selected.baseUrl) }
     }
 
     private var client: RunnerClient { RunnerClient(server: selected) }
 
-    /// Al arrancar, el repo que se había elegido para este server.
-    func restoreRepoFilter() {
-        guard !isFixture else { return }
-        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(selected.baseUrl)")
+    /// «2 min»: hace cuánto no responde el runner.
+    var downFor: String? {
+        guard let since = failingSince else { return nil }
+        let minutes = Int(Date().timeIntervalSince(since) / 60)
+        return minutes < 1 ? "menos de 1 min" : "\(minutes) min"
     }
+
+    // MARK: navegación
+
+    /// Abre `next` encima de lo que se ve; «Volver» regresa.
+    func navigate(_ next: Screen) {
+        guard next != screen else { return }
+        trail.append(screen)
+        screen = next
+    }
+
+    /// Vuelve a la pantalla anterior (la bandeja si no hay). Lo que ya no se ve se suelta.
+    func goBack() {
+        screen = trail.popLast() ?? .inbox
+        if ![.run, .task].contains(screen), !trail.contains(.run), !trail.contains(.task) { watching = nil }
+        if screen != .epic, !trail.contains(.epic) { epicRef = nil; epicDetail = nil }
+    }
+
+    /// A la bandeja, en la vista `tab` (si se pide).
+    func goHome(_ tab: InboxTab? = nil) {
+        trail = []
+        screen = .inbox
+        watching = nil
+        epicRef = nil
+        epicDetail = nil
+        if let tab { self.tab = tab }
+    }
+
+    /// Cómo se nombra una pantalla en la ruta de vuelta («‹ Para mí»).
+    func label(_ screen: Screen) -> String {
+        switch screen {
+        case .inbox: return tab.title
+        case .logs: return "Logs"
+        case .run: return "En vivo"
+        case .health: return "Estado"
+        case .github: return "GitHub"
+        case .improvements: return "Mejoras"
+        case .improvement: return "¿Por qué?"
+        case .epic: return "Épica"
+        case .runners: return "Runners"
+        case .task: return watching.map { refLabel($0.ref) } ?? "Tarea"
+        }
+    }
+
+    /// La ruta de vuelta de la pantalla actual: el nombre de la anterior.
+    var backLabel: String { label(trail.last ?? .inbox) }
 
     // MARK: lo que se muestra
 
@@ -208,8 +344,28 @@ final class RunnerModel: ObservableObject {
     }
     var running: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "run" } }
     var queued: [InboxItem] { (inbox?.items ?? []).filter { $0.group == "queue" } }
+    /// «2 corriendo · 1 en cola · 1 de 3 lugares libres»: el estado del runner bajo su nombre.
+    var pipelineLine: String? {
+        guard let p = inbox?.pipeline else { return nil }
+        var parts = ["\(p.running) corriendo", "\(p.queued) en cola"]
+        if let free = p.free, let cap = p.capacity { parts.append("\(free) de \(cap) lugares libres") }
+        if p.paused > 0 { parts.append("\(p.paused) esperando CI") }
+        return parts.joined(separator: " · ")
+    }
+    /// Cuántas hay en cada vista: Para mí es el badge; En curso, lo que corre y la cola; Próximo, las cards de Todo.
+    func count(_ tab: InboxTab) -> Int {
+        switch tab {
+        case .mine: return pendingCount
+        case .running: return running.count + queued.count
+        case .next: return (inbox?.feed?.ready.count ?? 0) + (inbox?.feed?.waiting.count ?? 0)
+        }
+    }
     /// El badge: lo que te espera a vos (decisiones y mejoras por decidir).
-    var pendingCount: Int { decisions.count + improvements.count }
+    /// El badge: lo que te espera y no pospusiste, más las mejoras por decidir.
+    var pendingCount: Int { mine.shown.count + improvements.count }
+
+    /// Para mí ya ordenado (fijadas primero) y lo pospuesto aparte.
+    var mine: (shown: [InboxItem], snoozed: [InboxItem]) { Triage.split(decisions.filter(keep), state: triage, now: Date()) }
 
     var epics: [EpicView] {
         var order: [String] = []
@@ -236,7 +392,6 @@ final class RunnerModel: ObservableObject {
     @Published var repoFilter: String? {
         didSet {
             guard repoFilter != oldValue else { return }
-            if !isFixture { UserDefaults.standard.set(repoFilter, forKey: "runnerRepo:\(selected.baseUrl)") }
             searchChanged()
         }
     }
@@ -296,6 +451,12 @@ final class RunnerModel: ObservableObject {
 
     func clearSearch() { query = "" }
 
+    /// La lupa: abre el buscador; cerrarlo limpia lo escrito y el repo.
+    func toggleSearch() {
+        searchOpen.toggle()
+        if !searchOpen { query = ""; repoFilter = nil }
+    }
+
     /// Espera a que se deje de escribir y busca afuera de la bandeja: el board (cacheado 1 min) y el detalle de las
     /// primeras coincidencias, que es lo que trae sus acciones.
     private func searchChanged() {
@@ -312,7 +473,10 @@ final class RunnerModel: ObservableObject {
             defer { if !Task.isCancelled { searching = false } }
             let client = RunnerClient(server: server)
             if boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 {
-                if let items = try? await client.board() { boardCache = (items, Date()) }
+                if let columns = try? await client.boardColumns() {
+                    boardCache = (columns.flatMap(\.items), Date())
+                    boardColumns = columns
+                }
             }
             guard !Task.isCancelled, server == selected else { return }
             let inBox = Set((inbox?.items ?? []).map(\.ref))
@@ -368,14 +532,33 @@ final class RunnerModel: ObservableObject {
         guard !isFixture, boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 else { return }
         let server = selected
         Task { @MainActor in
-            guard let items = try? await RunnerClient(server: server).board(), server == selected else { return }
-            boardCache = (items, Date())
-            objectWillChange.send()
+            guard let columns = try? await RunnerClient(server: server).boardColumns(), server == selected else { return }
+            boardCache = (columns.flatMap(\.items), Date())
+            boardColumns = columns
+        }
+    }
+
+    /// Próximo (o la lupa) muestra el resto del board: se trae si hace falta.
+    func warmNext() {
+        guard tab == .next || searchOpen else { return }
+        warmBoard()
+        guard tab == .next, !isFixture, repoIssuesAt.map({ Date().timeIntervalSince($0) > 60 }) ?? true else { return }
+        repoIssuesAt = Date()
+        let server = selected, project = nextProject
+        Task { @MainActor in
+            do {
+                let fresh = try await RunnerClient(server: server).repoIssues(project: project)
+                guard server == selected, project == nextProject else { return }
+                repoIssues = fresh
+            } catch {
+                // una falla de red no tapa lo que ya se vio; se reintenta en la próxima
+                repoIssuesAt = nil
+            }
         }
     }
 
     /// Algo cambió el board desde acá: la próxima consulta lo vuelve a traer.
-    func forgetBoard() { boardCache = nil }
+    func forgetBoard() { boardCache = nil; repoIssuesAt = nil }
 
     /// La organización del runner: el owner de sus tareas.
     var organization: String? {
@@ -392,7 +575,7 @@ final class RunnerModel: ObservableObject {
         githubSearch = model
         if let repo { model.repo = repo }
         if let query { model.query = query }
-        screen = .github
+        navigate(.github)
     }
 
     /// El owner de un repo según las refs que ya se conocen (la bandeja y el board).
@@ -417,18 +600,26 @@ final class RunnerModel: ObservableObject {
     func select(_ server: RunnerServer) {
         guard server != selected else { return }
         selected = server
+        triage = TriageStore.load(server.baseUrl)
+        failures = [:]
+        inlineConfirm = nil
         UserDefaults.standard.set(server.baseUrl, forKey: "runnerServer")
         inbox = nil
         improvements = []
         boardCache = nil
+        boardColumns = []
+        repoIssues = nil
+        repoIssuesAt = nil
+        nextProject = nil
         query = ""
-        repoFilter = UserDefaults.standard.string(forKey: "runnerRepo:\(server.baseUrl)")
+        repoFilter = nil
+        searchOpen = false
         error = nil
         login = nil
         comment = nil
         discussing = nil
         improvementChat = nil
-        if screen == .improvement { screen = .improvements }
+        goHome()
         resetLogs()
         refresh()
         // El stream es de un server: si estaba abierto, se reabre contra el nuevo.
@@ -457,6 +648,9 @@ final class RunnerModel: ObservableObject {
                 guard server == selected else { return }
                 inbox = fresh
                 improvements = proposals
+                // lo pospuesto que cambió o venció vuelve; lo fijado que ya no te necesita se suelta
+                let pruned = Triage.pruned(triage, decisions: decisions, now: Date())
+                if pruned != triage { setTriage(pruned) }
                 // La de «¿Por qué?», como quedó: el asistente la puede haber ajustado.
                 if let current = discussing, let fresh = proposals.first(where: { $0.id == current.id }) { discussing = fresh }
                 error = nil
@@ -497,7 +691,7 @@ final class RunnerModel: ObservableObject {
         if epicRef != ref { epicDetail = nil }
         epicRef = ref
         epicError = nil
-        screen = .epic
+        navigate(.epic)
         if isFixture, let view = epics.first(where: { $0.epic.ref == ref }) { epicDetail = .fixture(view); return }
         let server = selected
         Task { @MainActor in
@@ -514,11 +708,7 @@ final class RunnerModel: ObservableObject {
 
     func reloadEpic() { if let epicRef { showEpic(epicRef) } }
 
-    func closeEpic() {
-        screen = .inbox
-        epicRef = nil
-        epicDetail = nil
-    }
+    func closeEpic() { goBack() }
 
     /// Un sub-issue: su traza si es una card del board (de la bandeja o pedida al runner); si no, el issue.
     func openEpicChild(_ child: EpicChild) {
@@ -526,7 +716,6 @@ final class RunnerModel: ObservableObject {
         Task { @MainActor in
             if let item = await task(child.ref) {
                 watch(item)
-                runFromEpic = true
             } else {
                 openTask(child.ref)
             }
@@ -545,8 +734,94 @@ final class RunnerModel: ObservableObject {
 
     // MARK: acciones
 
+    // MARK: Para mí: posponer, fijar, ordenar
+
+    func setTriage(_ next: RunnerTriage) {
+        triage = next
+        if !isFixture { TriageStore.save(next, for: selected.baseUrl) }
+        onBadge?(error == nil ? pendingCount : 0)
+    }
+
+    var order: TriageOrder {
+        get { triage.order }
+        set { var next = triage; next.order = newValue; setTriage(next) }
+    }
+
+    func isPinned(_ item: InboxItem) -> Bool { Triage.isPinned(item.ref, in: triage) }
+
+    func snoozeEntry(_ item: InboxItem) -> SnoozeEntry? { Triage.snooze(of: item, in: triage, now: Date()) }
+
+    /// La pospone y avisa con «Deshacer».
+    func snooze(_ item: InboxItem, _ length: SnoozeLength) {
+        let before = triage
+        snoozePicking = nil
+        setTriage(Triage.snoozing(item, length, in: triage, now: Date()))
+        let text: String
+        switch length {
+        case .untilChange: text = "Pospuesta hasta que cambie algo"
+        case .day: text = "Pospuesta hasta mañana"
+        case .week: text = "Pospuesta una semana"
+        case .date(let date): text = "Pospuesta hasta el \(Self.dayFormat.string(from: date))"
+        }
+        undoToast?(text) { [weak self] in self?.setTriage(before) }
+    }
+
+    func unsnooze(_ item: InboxItem) { setTriage(Triage.unsnoozing(item.ref, in: triage)) }
+
+    func togglePin(_ item: InboxItem) {
+        let pinning = !isPinned(item)
+        setTriage(Triage.togglingPin(item.ref, in: triage, now: Date()))
+        toast?(pinning ? "Fijada arriba: \(refLabel(item.ref))" : "Ya no está fijada")
+    }
+
+    static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es")
+        f.dateFormat = "d MMM"
+        return f
+    }()
+
+    // MARK: acciones
+
+    /// La misma acción sobre varias tareas («Mergear los 2…»): una confirmación y salen una por una.
+    func triggerAll(_ action: ActionView, on items: [InboxItem]) {
+        confirm?(ConfirmRequest(
+            title: "¿\(action.label) las \(items.count)?",
+            detail: items.map { "· \(refLabel($0.ref))\($0.pr.map { " (PR #\($0.number))" } ?? "")" }.joined(separator: "\n")
+                + "\n\nSe firma con tu login de GitHub\(github.map { " (@\($0.login))" } ?? "").",
+            confirmLabel: "\(action.label) las \(items.count)", destructive: false
+        ) { [weak self] in
+            for item in items { self?.send(action, on: item, comment: nil) }
+        })
+    }
+
+    /// Lo que se confirma en el lugar del botón: qué se firma, dónde y con quién.
+    func confirmText(_ action: ActionView, on item: InboxItem) -> (title: String, detail: String) {
+        let who = github.map { "@\($0.login)" } ?? "tu login de GitHub"
+        let repo = RunnerSearch.split(item.ref)?.repo ?? item.ref
+        if action.id == "merge", let pr = item.pr {
+            return ("¿Mergear PR #\(pr.number) en \(repo)?", "Squash a main, firmado con \(who).")
+        }
+        return ("¿\(action.label) \(refLabel(item.ref))?", action.confirmText.map { "\($0) Firmado con \(who)." } ?? "Se firma con \(who).")
+    }
+
+    /// Confirmar en línea: lo que confirma muestra la pregunta en el lugar del botón.
+    func triggerInline(_ action: ActionView, on item: InboxItem) {
+        failures[item.ref] = nil
+        guard action.confirms, action.comment == nil else { return trigger(action, on: item) }
+        inlineConfirm = InlineConfirm(ref: item.ref, action: action.id)
+    }
+
+    func confirmInline(_ item: InboxItem) {
+        guard let pending = inlineConfirm, pending.ref == item.ref,
+              let action = actionsOf(item).first(where: { $0.id == pending.action }) else { return }
+        inlineConfirm = nil
+        send(action, on: item, comment: nil)
+    }
+
     /// Lo que pide un paso más (confirmar o escribir) lo pide; lo demás sale directo.
     func trigger(_ action: ActionView, on item: InboxItem) {
+        failures[item.ref] = nil
         if action.comment != nil { comment = CommentRequest(item: item, action: action); return }
         guard action.confirms else { return send(action, on: item, comment: nil) }
         confirm?(ConfirmRequest(
@@ -564,7 +839,7 @@ final class RunnerModel: ObservableObject {
         send(request.action, on: request.item, comment: text.isEmpty ? nil : text)
     }
 
-    private func send(_ action: ActionView, on item: InboxItem, comment: String?) {
+    func send(_ action: ActionView, on item: InboxItem, comment: String?) {
         let server = selected
         Task { @MainActor in
             guard let session = await validSession() else {
@@ -575,7 +850,13 @@ final class RunnerModel: ObservableObject {
             let result = (try? await RunnerClient(server: server).act(item, action: action.id, comment: comment, github: session.token))
                 ?? TaskActionResult(ok: false, message: "No responde \(server.name)")
             busy.remove(item.ref)
-            toast?(result.ok ? "\(item.shortRef): \(result.message)" : "No se pudo: \(result.message)")
+            if result.ok {
+                failures[item.ref] = nil
+                toast?("\(item.shortRef): \(result.message)")
+            } else {
+                // queda pegado a la card, con qué hacer y «Reintentar»
+                failures[item.ref] = ActionFailure(action: action, item: item, message: result.message)
+            }
             refresh()
         }
     }
@@ -625,7 +906,7 @@ final class RunnerModel: ObservableObject {
             if result.ok {
                 improvements.removeAll { $0.id == improvement.id }
                 onBadge?(pendingCount)
-                if discussing?.id == improvement.id, screen == .improvement { screen = .improvements }
+                if discussing?.id == improvement.id, screen == .improvement { goBack() }
             }
             refresh()
         }
@@ -633,7 +914,7 @@ final class RunnerModel: ObservableObject {
 
     // MARK: mejoras propuestas
 
-    func showImprovements() { screen = .improvements }
+    func showImprovements() { navigate(.improvements) }
 
     /// «¿Por qué?»: un chat con el asistente sobre la tarea de la mejora, con la mejora como contexto. La misma
     /// mejora retoma su chat; otra empieza uno nuevo.
@@ -649,7 +930,7 @@ final class RunnerModel: ObservableObject {
             improvementChat = chat
             discussing = improvement
         }
-        screen = .improvement
+        navigate(.improvement)
     }
 
     func openTask(_ ref: String) { NSWorkspace.shared.open(githubURL(ref)) }
@@ -795,7 +1076,7 @@ final class RunnerModel: ObservableObject {
 
     func showHealth() {
         if health?.info == nil || health.map({ Date().timeIntervalSince($0.checkedAt) > 10 }) == true { health = nil }
-        screen = .health
+        navigate(.health)
         checkHealth()
     }
 
@@ -815,17 +1096,39 @@ final class RunnerModel: ObservableObject {
 
     /// Abre la traza de la tarea: lo que hace el agente ahora, o su última ejecución.
     func watch(_ item: InboxItem) {
-        runFromEpic = false
+        // desde el detalle de la misma tarea, la misma traza (con la ejecución que se eligió)
+        if screen == .task, let current = watching, current.ref == item.ref { return navigate(.run) }
         let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
         watching = next
-        screen = .run
+        navigate(.run)
         next.poll()
     }
 
-    func closeRun() {
-        screen = runFromEpic && epicRef != nil ? .epic : .inbox
-        runFromEpic = false
-        watching = nil
+    func closeRun() { goBack() }
+
+    /// El detalle de una tarea: por qué te necesita, sus ejecuciones y sus eventos, con todas sus acciones.
+    func showTask(_ item: InboxItem) {
+        let next = isFixture ? RunWatch.fixture(item: item, server: selected) : RunWatch(item: item, server: selected)
+        watching = next
+        navigate(.task)
+        next.poll()
+    }
+
+    func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        toast?("Copiado: \(text)")
+    }
+
+    /// Los runners, su estado y los servicios de este Mac (se abre desde el nombre del runner).
+    func showRunners() {
+        navigate(.runners)
+        checkHealth()
+    }
+
+    func showLogs() {
+        navigate(.logs)
+        pollLogs()
     }
 
     // MARK: log del server
@@ -883,7 +1186,11 @@ extension RunnerModel {
         let feed = InboxFeed(ready: [
             card(4320, "feat(crm): exportar leads del funnel a CSV"),
             card(4322, "fix(widget): el teléfono no valida el indicativo", repo: "lh-seller-v2-frontend"),
-        ], waiting: [
+        ] + [
+            "Paginación del listado de leads", "Exportar citas a Google Calendar", "Webhook de cambio de etapa",
+            "Índice por empresa en leads", "Copys del correo de bienvenida", "Filtro por fecha en el funnel",
+            "Métrica de conversión por etapa",
+        ].enumerated().map { i, title in card(4330 + i, title) }, waiting: [
             card(4325, "feat(360): timeline usa la etapa del funnel", blocked: ["la-haus/subscriptions#4281"]),
         ])
         // un review con dos agentes en paralelo: el reviewer ya cerró (su `agent_id` es el de la ejecución), el e2e sigue
@@ -916,13 +1223,37 @@ extension RunnerModel {
                       pr: nil, execution: nil, blocked_by: nil, epic: nil, agent_said: nil, actions: ["approve_prd", "back_to_refine"],
                       action_defs: [TaskActionDef(id: "approve_prd", label: "Aprobar y pasar a Build", comment: nil, confirm: "¿Aprobar el PRD?")],
                       priority: 4, reasons: nil),
+            item(4311, "feat(crm): filtro por asesor en el funnel", group: "need", kind: "merge", why: "PR aprobado con el CI en verde",
+                 actions: ["merge"], priority: 5, pr: 909),
+            item(4312, "fix(widget): estado vacío del funnel", group: "need", kind: "merge", why: "PR aprobado con el CI en verde",
+                 actions: ["merge"], priority: 6, pr: 911, repo: "lh-seller-v2-frontend"),
+            item(2210, "Etapas del funnel en el IMS", group: "need", kind: "merge", why: "No tenés permiso de merge en ims",
+                 actions: ["merge"], priority: 7, pr: 433, repo: "ims"),
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
                  actions: ["stop"], epic: epic, agent: "aiflow-implementer", repo: "lh-seller-v2-frontend"),
             item(4296, "Estado vacío del perfil", group: "run", kind: "agent", why: "review corriendo hace 8 min",
                  actions: ["stop"], epic: epic, pr: 918, repo: "lh-seller-v2-frontend", execution: review),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
         ], pipeline: InboxPipeline(running: 2, queued: 1, paused: 0, capacity: 3, free: 1), feed: feed)
-        let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)
+        let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x"),
+                                          RunnerServer(baseUrl: "http://localhost:3001", label: "Local", token: nil)], inbox: inbox)
+        func board(_ n: Int, _ title: String, _ status: String, repo: String = "subscriptions") -> BoardItem {
+            BoardItem(ref: "la-haus/\(repo)#\(n)", title: title, url: "https://github.com", status: status, pr: nil, project_id: "p")
+        }
+        model.boardColumns = [
+            BoardColumn(status: "Backlog", items: [board(4102, "Reglas de asignación por zona", "Backlog"), board(4108, "Historial de etapas", "Backlog")]),
+            BoardColumn(status: "Done", items: [board(4270, "Etapas por empresa en la base", "Done"), board(4271, "API de etapas", "Done"),
+                                                board(812, "Login con Google", "Done", repo: "lh-seller-v2-frontend")]),
+        ]
+        model.repoIssues = RepoIssues(repos: [
+            .init(repo: "la-haus/subscriptions", project_id: "p", items: [
+                RepoIssue(ref: "la-haus/subscriptions#4331", project_id: "p", title: "Asignación por zona usa la etapa configurable",
+                          url: "https://github.com", updated_at: isoAgo(90), author: "mariacamila"),
+                RepoIssue(ref: "la-haus/subscriptions#4329", project_id: "p", title: "El webhook de leads duplica el evento al reintentar",
+                          url: "https://github.com", updated_at: isoAgo(60 * 26), author: "julianjab"),
+            ], truncated: true),
+            .init(repo: "la-haus/ims", project_id: "p", items: [], error: "sin acceso con la identidad del runner"),
+        ])
         model.improvements = [
             Improvement(id: "1", created_at: "2026-10-15T09:00:00Z", task_ref: "la-haus/subscriptions#4281", pr_url: "https://github.com",
                         agent: "retrospective", target: "docs", repo: "la-haus/subscriptions",

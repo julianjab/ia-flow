@@ -14,10 +14,6 @@ final class Service {
     private var adoptedPID: pid_t?
     private var restartAfterStop = false
     var onChange: (() -> Void)?
-    /// Se corre una vez cuando el proceso termina (borrar un túnel espera a que cierre).
-    var afterStop: (() -> Void)?
-    /// Variables de entorno extra para el PRÓXIMO inicio y nada más (no se persisten).
-    var nextStartEnv: [String: String] = [:]
 
     init(spec: ServiceSpec, state: State = .stopped, forcedExternal: Bool? = nil) {
         self.spec = spec
@@ -165,7 +161,7 @@ final class Service {
     }
 
     /// `zsh -lc` con el PATH del usuario; `setsid` para que `kill(-pid)` baje a todo el grupo.
-    private func shellProcess(_ command: String, log: FileHandle?, extraEnv: [String: String] = [:]) -> Process {
+    private func shellProcess(_ command: String, log: FileHandle?) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
         p.arguments = ["-e", "use POSIX; setsid(); exec @ARGV", "/bin/zsh", "-lc", command]
@@ -173,7 +169,6 @@ final class Service {
         var env = ProcessInfo.processInfo.environment
         env["PATH"] = "\(home)/.bun/bin:/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
         spec.env?.forEach { env[$0.key] = $0.value }
-        extraEnv.forEach { env[$0.key] = $0.value }
         p.environment = env
         p.standardOutput = log
         p.standardError = log
@@ -188,8 +183,7 @@ final class Service {
         FileManager.default.createFile(atPath: logPath, contents: nil)
         let log = FileHandle(forWritingAtPath: logPath)
 
-        let p = shellProcess(spec.command, log: log, extraEnv: nextStartEnv)
-        nextStartEnv = [:]
+        let p = shellProcess(spec.command, log: log)
         p.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.didExit() }
         }
@@ -220,13 +214,6 @@ final class Service {
         onChange?()
     }
 
-    /// Corre `deleteCommand` (suelto: su salida va al log del servicio).
-    func runDelete() {
-        guard let command = spec.deleteCommand else { return }
-        let log = FileHandle(forWritingAtPath: logPath)
-        try? shellProcess(command, log: log).run()
-    }
-
     func restart() {
         if isDetached, state == .running, let stopCommand = spec.stopCommand {
             return runDetached(stopCommand, becoming: .stopped, restartAfter: true)
@@ -242,11 +229,7 @@ final class Service {
     private func didExit() {
         process = nil
         state = .stopped
-        if let afterStop {
-            self.afterStop = nil
-            afterStop()
-            onChange?()
-        } else if restartAfterStop {
+        if restartAfterStop {
             restartAfterStop = false
             start()
         } else {

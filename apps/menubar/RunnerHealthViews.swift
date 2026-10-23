@@ -8,20 +8,14 @@ struct RunnerHealthScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { runner.screen = .inbox }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Estado del runner").font(.lh(17, .bold))
-                    Text(runner.selected.name).font(.lh(12)).foregroundStyle(.secondary)
-                }
-                Spacer()
+            RouteHeader(back: runner.backLabel, title: "Estado del runner", onBack: { runner.goBack() }) {
                 if let health = runner.health {
                     let when = ago(isoString(health.checkedAt)) ?? "ahora"
                     Text(when == "ahora" ? "revisado ahora" : "revisado hace \(when)").font(.lh(11)).foregroundStyle(.tertiary)
                 }
                 IconButton(symbol: "arrow.clockwise", help: "Revisar de nuevo") { runner.checkHealth() }
             }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
 
             FittingScroll {
                 VStack(alignment: .leading, spacing: 12) {
@@ -223,7 +217,7 @@ struct RunnerHealthScreen: View {
         VStack(alignment: .leading, spacing: 6) {
             SectionTitle(text: "Últimos avisos del log")
             ForEach(lines.suffix(6)) { line in LogLineView(line: line).lineLimit(3) }
-            Button("Ver logs del server") { runner.screen = .logs; runner.pollLogs() }
+            Button("Ver logs del server") { runner.showLogs() }
                 .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
         }
         .card()

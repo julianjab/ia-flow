@@ -1,42 +1,63 @@
 import SwiftUI
 
-// Pantallas del popover: la lista de servicios agrupada en tarjetas, el formulario de «Nuevo túnel» y las
-// confirmaciones. Sólo dibujan lo que AppModel publica; las acciones van al modelo.
+// El marco del popover (y de la ventana): arriba el runner con su estado, la lupa y la ventana; debajo el segmentado
+// Para mí · En curso · Próximo; al pie la caja del asistente, que abre el chat como panel encima. Las pantallas que
+// se abren desde ahí (detalle, épica, Runners…) llevan su ruta de vuelta. También la pantalla «Runners» (con los
+// servicios de este Mac) y las confirmaciones. Sólo dibujan lo que publican AppModel y RunnerModel.
 
 let popoverWidth: CGFloat = 420
 
 struct RootView: View {
     @ObservedObject var model: AppModel
+
+    var body: some View { RootContent(model: model, runner: model.runner) }
+}
+
+struct RootContent: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
     @Environment(\.windowed) private var windowed
 
     var body: some View {
+        if windowed {
+            // la ventana ancha: menú lateral, la lista y el detalle en tres columnas (como el escritorio de la web)
+            GeometryReader { g in
+                if g.size.width >= 900 { WideLayout(model: model, runner: runner) } else { stacked }
+            }
+        } else {
+            stacked
+        }
+    }
+
+    private var stacked: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
-                if model.form == nil {
-                    HStack(spacing: 6) {
-                        TabBar(model: model, runner: model.runner)
-                        if windowed {
-                            IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
-                                       tint: model.floating ? .accentColor : .secondary) { model.floating.toggle() }
-                        } else {
-                            IconButton(symbol: "macwindow.badge.plus", help: "Abrir en una ventana") { model.onDetach?() }
-                        }
-                    }
-                    .padding(.horizontal, 14).padding(.top, windowed ? 32 : 12)  // en la ventana, debajo de los semáforos
+                let home = runner.screen == .inbox
+                if home || model.assistantOpen {
+                    MainHeader(model: model, runner: runner)
+                        .padding(.horizontal, 14).padding(.top, windowed ? 32 : 12).padding(.bottom, 8)  // en la ventana, debajo de los semáforos
+                    ViewSegment(model: model, runner: runner).padding(.horizontal, 14).padding(.bottom, 10)
                 }
-                if model.form != nil { TunnelFormView(model: model) }
-                else if model.tab == .runner { RunnerScreen(runner: model.runner) }
-                else if model.tab == .assistant { AssistantScreen(chat: model.assistant, runner: model.runner) }
-                else { ListScreen(model: model) }
+                if model.assistantOpen {
+                    AssistantScreen(chat: model.assistant, runner: runner) { model.assistantOpen = false }
+                } else if home {
+                    InboxScreen(runner: runner)
+                    AssistantDock(model: model)
+                } else if runner.screen == .runners {
+                    RunnersScreen(model: model, runner: runner).padding(.top, windowed ? 22 : 0)
+                } else {
+                    RunnerScreen(runner: runner).padding(.top, windowed ? 22 : 0)
+                }
             }
-            if model.runner.comment != nil {
-                CommentCard(runner: model.runner).padding(14).transition(.move(edge: .bottom).combined(with: .opacity))
+            if runner.comment != nil {
+                CommentCard(runner: runner).padding(14).transition(.move(edge: .bottom).combined(with: .opacity))
             } else if let request = model.confirm {
                 ConfirmCard(request: request, dismiss: { model.confirm = nil })
                     .padding(14)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             } else if let text = model.toast {
-                ToastView(text: text).padding(.bottom, 62).transition(.opacity)
+                ToastView(text: text, undo: model.toastUndo.map { undo in { model.toast = nil; model.toastUndo = nil; undo() } })
+                    .padding(.bottom, 62).transition(.opacity)
             }
         }
         .frame(minWidth: popoverWidth, idealWidth: popoverWidth, maxWidth: windowed ? .infinity : popoverWidth,
@@ -45,6 +66,220 @@ struct RootView: View {
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
         .animation(.easeOut(duration: 0.15), value: model.confirm == nil)
         .font(.lh(13))
+    }
+}
+
+/// La ventana en tres columnas: el menú lateral (runner, vistas, buscar, estado, mejoras, cuenta), la vista elegida y,
+/// a la derecha, lo que se abrió (detalle, épica, asistente, Runners…).
+struct WideLayout: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 0) {
+                sidebar.frame(width: 210).padding(.top, 32)
+                Divider().opacity(0.5)
+                VStack(spacing: 0) {
+                    ViewSegment(model: model, runner: runner).padding(.horizontal, 14).padding(.top, 32).padding(.bottom, 10)
+                    InboxScreen(runner: runner)
+                    Spacer(minLength: 0)
+                    AssistantDock(model: model)
+                }
+                .frame(minWidth: 380, maxWidth: .infinity)
+                Divider().opacity(0.5)
+                Group {
+                    if model.assistantOpen {
+                        AssistantScreen(chat: model.assistant, runner: runner) { model.assistantOpen = false }
+                    } else if runner.screen == .runners {
+                        RunnersScreen(model: model, runner: runner)
+                    } else if runner.screen != .inbox {
+                        RunnerScreen(runner: runner)
+                    } else {
+                        Text("Elegí una tarea para ver su detalle.").font(.lh(12.5)).foregroundStyle(.tertiary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .padding(.top, 22)
+                .frame(width: 380)
+                .frame(maxHeight: .infinity, alignment: .top)
+            }
+            if runner.comment != nil {
+                CommentCard(runner: runner).frame(maxWidth: 440).padding(14)
+            } else if let request = model.confirm {
+                ConfirmCard(request: request, dismiss: { model.confirm = nil }).frame(maxWidth: 440).padding(14)
+            } else if let text = model.toast {
+                ToastView(text: text, undo: model.toastUndo.map { undo in { model.toast = nil; model.toastUndo = nil; undo() } })
+                    .padding(.bottom, 62)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.6))
+        .font(.lh(13))
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button { model.assistantOpen = false; runner.showRunners() } label: {
+                HStack(spacing: 8) {
+                    RunnerDot(runner: runner)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(runner.selected.name).font(.lh(12.5, .semibold)).lineLimit(1)
+                        Text(runner.pipelineLine ?? "").font(.lh(10.5)).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12).padding(.bottom, 12)
+            ForEach(InboxTab.allCases, id: \.self) { tab in
+                item(tab.title, count: runner.inbox == nil ? nil : runner.count(tab), alert: tab == .mine,
+                     on: !runner.searchOpen && runner.tab == tab) {
+                    if runner.searchOpen { runner.toggleSearch() }
+                    runner.tab = tab
+                }
+            }
+            Divider().opacity(0.4).padding(.vertical, 8).padding(.horizontal, 12)
+            item("Buscar ⌘K", on: runner.searchOpen) { runner.toggleSearch() }
+            item("Estado del runner", on: runner.screen == .health) { model.assistantOpen = false; runner.showHealth() }
+            item("Mejoras", count: runner.improvements.count, on: runner.screen == .improvements) { model.assistantOpen = false; runner.showImprovements() }
+            item("Logs del server", on: runner.screen == .logs) { model.assistantOpen = false; runner.showLogs() }
+            item("Runners y servicios", on: runner.screen == .runners) { model.assistantOpen = false; runner.showRunners() }
+            Spacer()
+            HStack(spacing: 6) {
+                if let session = runner.github {
+                    Text("@\(session.login)").font(.lh(12, .semibold)).lineLimit(1)
+                    Spacer()
+                    Button("Salir") { runner.logout() }.buttonStyle(.plain).font(.lh(11.5)).foregroundStyle(Palette.link)
+                } else {
+                    Button("Iniciar sesión") { runner.beginLogin() }.buttonStyle(.plain).font(.lh(12)).foregroundStyle(Palette.link)
+                    Spacer()
+                }
+                IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
+                           tint: model.floating ? Palette.link : .secondary) { model.floating.toggle() }
+            }
+            .padding(.horizontal, 12).padding(.bottom, 10)
+        }
+    }
+
+    private func item(_ title: String, count: Int? = nil, alert: Bool = false, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title).font(.lh(12.5, on ? .semibold : .regular))
+                Spacer()
+                if let count, count > 0 {
+                    Text("\(count)").font(.lh(10.5, .bold)).foregroundStyle(alert ? Color.white : Color.secondary)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(alert ? Color.red : Color.clear))
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(on ? Palette.selected : Color.clear))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 6)
+    }
+}
+
+/// El runner elegido (nombre y «2 corriendo · 1 en cola · 1 de 3 lugares libres», abre «Runners»), la lupa (⌘K) y
+/// la ventana (en la ventana, el pin).
+struct MainHeader: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
+    @Environment(\.windowed) private var windowed
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { model.assistantOpen = false; runner.showRunners() } label: {
+                HStack(spacing: 9) {
+                    RunnerDot(runner: runner)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            Text(runner.selected.name).font(.lh(13.5, .semibold)).lineLimit(1)
+                            Image(systemName: "chevron.down").font(.system(size: 8.5, weight: .bold)).foregroundStyle(.secondary)
+                        }
+                        Text(subtitle).font(.lh(11.5)).foregroundStyle(runner.error == nil ? Color.secondary : Palette.red).lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Runners, estado, logs y servicios de este Mac")
+            Spacer(minLength: 4)
+            if runner.loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
+            IconButton(symbol: "magnifyingglass", help: "Buscar (⌘K)", tint: runner.searchOpen ? Palette.link : .secondary) {
+                model.assistantOpen = false
+                if runner.screen != .inbox { runner.goHome() }
+                runner.toggleSearch()
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            if windowed {
+                IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
+                           tint: model.floating ? Palette.link : .secondary) { model.floating.toggle() }
+            } else {
+                IconButton(symbol: "macwindow", help: "Abrir en una ventana") { model.onDetach?() }
+            }
+        }
+    }
+
+    private var subtitle: String {
+        if runner.error != nil { return runner.downFor.map { "no responde hace \($0)" } ?? "no responde" }
+        return runner.pipelineLine ?? (runner.inbox == nil ? "conectando…" : "")
+    }
+}
+
+/// El puntito del runner: verde si responde (con halo mientras el stream está conectado), rojo si no, ámbar cargando.
+struct RunnerDot: View {
+    @ObservedObject var runner: RunnerModel
+
+    var body: some View {
+        Circle().fill(runner.error == nil ? (runner.inbox == nil ? Palette.amber : Palette.live) : Palette.red).frame(width: 8, height: 8)
+            // En vivo (stream conectado): un halo; sin él, la bandeja se relee cada 6 s.
+            .overlay(Circle().strokeBorder(Palette.live.opacity(runner.live ? 0.45 : 0), lineWidth: 1.5).frame(width: 14, height: 14))
+            .frame(width: 14, height: 14)
+            .help(runner.live ? "En vivo: la bandeja se actualiza cuando algo cambia" : "La bandeja se relee cada 6 s")
+    }
+}
+
+/// Para mí · En curso · Próximo: Para mí con su número en rojo (es el badge del ícono).
+struct ViewSegment: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject var runner: RunnerModel
+
+    var body: some View {
+        Segmented(options: InboxTab.allCases.map { tab in
+            SegmentOption(id: tab.rawValue, title: tab.title, count: runner.inbox == nil ? nil : runner.count(tab), alert: tab == .mine)
+        }, selected: model.assistantOpen || runner.searchOpen ? "" : runner.tab.rawValue) { id in
+            if runner.searchOpen { runner.toggleSearch() }
+            model.show(InboxTab(rawValue: id) ?? .mine)
+        }
+    }
+}
+
+/// La caja fija al pie: abre el chat del asistente encima de la vista; el micrófono abre y dicta.
+struct AssistantDock: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider().opacity(0.5)
+            HStack(spacing: 8) {
+                Button { model.openAssistant() } label: {
+                    HStack(spacing: 7) {
+                        Text("✦").font(.lh(13, .semibold)).foregroundStyle(Palette.ai)
+                        Text("Pregúntale o pídele algo al asistente…").font(.lh(12.5)).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 11).padding(.vertical, 8)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.control))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Abrir el asistente del runner")
+                IconButton(symbol: "mic", help: "Dictarle al asistente") { model.openAssistant(listening: true) }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+        }
     }
 }
 
@@ -60,7 +295,7 @@ struct ConfirmCard: View {
                 Spacer()
                 Button("Cancelar", action: dismiss).buttonStyle(PillButtonStyle(tint: .secondary)).keyboardShortcut(.cancelAction)
                 Button(request.confirmLabel) { dismiss(); request.action() }
-                    .buttonStyle(PillButtonStyle(prominent: true, tint: request.destructive ? .red : .accentColor))
+                    .buttonStyle(PillButtonStyle(prominent: true, tint: request.destructive ? Palette.red : Palette.blue))
                     .keyboardShortcut(.defaultAction)
             }
         }
@@ -71,124 +306,143 @@ struct ConfirmCard: View {
     }
 }
 
+/// El aviso de abajo; con `undo`, «Deshacer» al lado («Pospuesta hasta que cambie algo · Deshacer»).
 struct ToastView: View {
     let text: String
+    var undo: (() -> Void)? = nil
 
     var body: some View {
-        Text(text).font(.lh(12, .semibold)).padding(.horizontal, 12).padding(.vertical, 7)
-            .background(Capsule().fill(Color.primary.opacity(0.85)))
-            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+        HStack(spacing: 8) {
+            Text(text).font(.lh(12, .semibold))
+            if let undo {
+                Text("·").opacity(0.5)
+                Button("Deshacer", action: undo).buttonStyle(.plain).font(.lh(12, .bold)).foregroundStyle(Palette.link)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(Capsule().fill(Color.primary.opacity(0.88)))
+        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
     }
 }
 
-/// Runner | Asistente | Servicios, con el número de tareas que te esperan en el server elegido.
-struct TabBar: View {
+// MARK: Runners (reemplaza la pestaña «Servicios»)
+
+/// Los runners para elegir, su estado y sus logs, los servicios de este Mac y la cuenta de GitHub.
+struct RunnersScreen: View {
     @ObservedObject var model: AppModel
     @ObservedObject var runner: RunnerModel
 
     var body: some View {
-        HStack(spacing: 4) {
-            tab("Runner", icon: "list.bullet.rectangle", .runner, badge: runner.pendingCount)
-            tab("Asistente", icon: "bubble.left.and.text.bubble.right", .assistant, badge: nil)
-            tab("Servicios", icon: "switch.2", .services, badge: nil)
-        }
-        .padding(3)
-        .background(Capsule().fill(Color.primary.opacity(0.06)))
-    }
-
-    private func tab(_ title: String, icon: String, _ value: AppModel.Tab, badge: Int?) -> some View {
-        let on = model.tab == value
-        return Button { model.selectTab(value) } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 10.5, weight: .semibold))
-                Text(title).font(.lh(12.5, .semibold))
-                if let badge, badge > 0 {
-                    Text("\(badge)").font(.lh(10.5, .bold)).foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(Color.red))
-                }
-            }
-            .frame(maxWidth: .infinity).padding(.vertical, 5)
-            .foregroundStyle(on ? Color.primary : Color.secondary)
-            .background(Capsule().fill(on ? Color(nsColor: .controlBackgroundColor) : Color.clear).shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1, y: 0.5))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: lista
-
-struct ListScreen: View {
-    @ObservedObject var model: AppModel
-
-    var body: some View {
         VStack(spacing: 0) {
-            header.padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 10)
+            RouteHeader(back: runner.backLabel, title: "Runners") { runner.goBack() }
+                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 10)
             FittingScroll {
-                VStack(spacing: 14) {
-                    ForEach(model.groups) { group in GroupCard(model: model, group: group) }
+                VStack(alignment: .leading, spacing: 14) {
+                    servers
+                    HStack(spacing: 6) {
+                        Button { runner.showHealth() } label: { Label("Estado del runner", systemImage: "heart.text.square") }
+                            .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                        Button { runner.showLogs() } label: { Label("Logs del server", systemImage: "text.alignleft") }
+                            .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                        Spacer(minLength: 0)
+                    }
+                    services
+                    account
                 }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
+                .padding(.horizontal, 14).padding(.bottom, 12)
             }
             Divider().opacity(0.5)
-            footer.padding(.horizontal, 14).padding(.vertical, 10)
-        }
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: appIcon(size: 30, running: model.activeCount > 0))
-            VStack(alignment: .leading, spacing: 1) {
-                Text("ia-flow").font(.lh(17, .bold))
-                Text(subtitle).font(.lh(12)).foregroundStyle(.secondary)
+            HStack {
+                Button("Editar servidores…") { runner.openServersFile() }.buttonStyle(.plain).font(.lh(12)).foregroundStyle(Palette.link)
+                Spacer()
+                IconButton(symbol: "arrow.clockwise", help: "Actualizar") { model.refresh(); runner.refresh(); runner.checkHealth() }
+                IconButton(symbol: "power", help: "Salir de ia-flow (detiene los procesos que levantó)") { model.quit() }
             }
-            Spacer()
-            IconButton(symbol: "arrow.clockwise", help: "Actualizar") { model.refresh() }
+            .padding(.horizontal, 14).padding(.vertical, 8)
         }
     }
 
-    private var subtitle: String {
-        let active = model.activeCount, total = model.services.count
-        return active == 0 ? "Nada corriendo · \(total) servicios" : "\(active) de \(total) activos"
-    }
-
-    private var footer: some View {
-        HStack(spacing: 4) {
-            Button { model.beginForm() } label: { Label("Nuevo túnel", systemImage: "plus") }
-                .buttonStyle(PillButtonStyle(prominent: true))
-            Spacer()
-            IconButton(symbol: "play.fill", help: "Iniciar todo") { model.startAll() }
-            IconButton(symbol: "arrow.triangle.2.circlepath", help: "Reiniciar todo") { model.restartAll() }
-            IconButton(symbol: "stop.fill", help: "Detener todo") { model.stopAll() }
-            IconButton(symbol: "slider.horizontal.3", help: "Editar servicios.json") { model.editConfig() }
-            IconButton(symbol: "power", help: "Salir (detiene los procesos que levantó)") { model.quit() }
-        }
-    }
-}
-
-struct GroupCard: View {
-    @ObservedObject var model: AppModel
-    let group: ServiceGroup
-
-    var body: some View {
+    private var servers: some View {
         VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: group.title, trailing: group.services.isEmpty ? nil : "\(running)/\(group.services.count)")
+            SectionTitle(text: "Elegí cuál mirar")
             VStack(spacing: 0) {
-                if group.services.isEmpty {
-                    Text("Sin túneles. Crea uno para exponer un puerto en julianjab.link.")
-                        .font(.lh(12)).foregroundStyle(.tertiary).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                ForEach(Array(group.services.enumerated()), id: \.element.spec.id) { index, service in
-                    if index > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
-                    ServiceRow(model: model, service: service)
+                ForEach(Array(runner.servers.enumerated()), id: \.element.baseUrl) { i, server in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 6) }
+                    serverRow(server)
                 }
             }
             .card()
         }
     }
 
-    private var running: Int { group.services.filter { $0.state == .running }.count }
+    private func serverRow(_ server: RunnerServer) -> some View {
+        let on = server == runner.selected
+        return Button { runner.select(server) } label: {
+            HStack(spacing: 9) {
+                if on { RunnerDot(runner: runner) } else { Circle().fill(Color.secondary.opacity(0.4)).frame(width: 8, height: 8).frame(width: 14) }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(server.name).font(.lh(13, .semibold)).lineLimit(1)
+                    Text(on ? selectedStatus : server.baseUrl).font(.lh(11.5)).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                if on { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Palette.link) }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var selectedStatus: String {
+        if let error = runner.error { return error.needsRunnerToken ? "pide su token (IA_FLOW_API_TOKEN)" : "no responde" }
+        guard let health = runner.health, health.alive else { return runner.inbox == nil ? "conectando…" : "responde" }
+        return ["responde" + (health.latencyMs.map { " en \($0) ms" } ?? ""), health.info.map { "v\($0.version)" }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private var services: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionTitle(text: "Servicios en este Mac", trailing: "\(model.activeCount) de \(model.services.count) activos")
+            VStack(spacing: 0) {
+                ForEach(Array(model.services.enumerated()), id: \.element.spec.id) { i, service in
+                    if i > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
+                    ServiceRow(model: model, service: service)
+                }
+            }
+            .card()
+            HStack(spacing: 6) {
+                Button { model.restartAll() } label: { Label("Reiniciar todo", systemImage: "arrow.triangle.2.circlepath") }
+                    .buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                Button("Editar servicios…") { model.editConfig() }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                Spacer()
+                IconButton(symbol: "play.fill", help: "Iniciar todo") { model.startAll() }
+                IconButton(symbol: "stop.fill", help: "Detener todo") { model.stopAll() }
+            }
+            Text("Los túneles de julianjab.link pasan a MacPulse.").font(.lh(11.5)).foregroundStyle(.tertiary)
+        }
+    }
+
+    private var account: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionTitle(text: "Tu cuenta")
+            if let login = runner.login {
+                DeviceLoginCard(runner: runner, login: login)
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.crop.circle").font(.system(size: 18)).foregroundStyle(.secondary)
+                    if let session = runner.github {
+                        (Text("Conectado como ") + Text("@\(session.login)").bold()).font(.lh(12.5))
+                        Spacer()
+                        Button("Salir") { runner.logout() }.buttonStyle(PillButtonStyle(compact: true)).fixedSize()
+                    } else {
+                        Text("Sin sesión de GitHub: las acciones se firman con tu login.").font(.lh(12)).foregroundStyle(.secondary)
+                        Spacer(minLength: 4)
+                        Button("Iniciar sesión") { runner.beginLogin() }.buttonStyle(PillButtonStyle(prominent: true, compact: true)).fixedSize()
+                    }
+                }
+                .card()
+            }
+        }
+    }
 }
 
 struct ServiceRow: View {
@@ -200,13 +454,12 @@ struct ServiceRow: View {
         let external = service.isExternal
         HStack(spacing: 10) {
             PillSwitch(isOn: state == .running || state == .starting, enabled: !external && (state == .running || state == .stopped),
-                       tint: state == .starting ? .orange : .green) { model.toggle(service) }
+                       tint: state == .starting ? Palette.amber : Palette.live) { model.toggle(service) }
             VStack(alignment: .leading, spacing: 1) {
-                Text(service.spec.name).font(.lh(14, .semibold)).lineLimit(1)
+                Text(service.spec.name).font(.lh(13, .semibold)).lineLimit(1)
                 Text(status(state, external)).font(.lh(11)).foregroundStyle(statusTone(state, external).color).lineLimit(1)
             }
             Spacer(minLength: 6)
-            if external { Chip(text: "externo", tone: .warn, icon: "exclamationmark.triangle.fill") }
             if let port = service.spec.port { portChip(port) }
             actionsMenu(state)
         }
@@ -227,10 +480,6 @@ struct ServiceRow: View {
             Button("Reiniciar") { model.restart(service) }.disabled(state != .running)
             if service.spec.url != nil { Button("Abrir en el navegador") { model.openURL(service) } }
             Button("Ver log en iTerm") { model.openLog(service) }
-            if service.spec.deleteCommand != nil {
-                Divider()
-                Button("Borrar túnel", role: .destructive) { model.requestDelete(service) }
-            }
         } label: {
             Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 26, height: 26).contentShape(Circle())
         }
@@ -242,7 +491,7 @@ struct ServiceRow: View {
         case .running: return service.spec.url?.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "") ?? "corriendo"
         case .starting: return "iniciando…"
         case .stopping: return "deteniendo…"
-        case .stopped: return external ? "puerto en uso" : "detenido"
+        case .stopped: return external ? "puerto en uso por otro proceso" : "detenido"
         }
     }
 
@@ -252,125 +501,5 @@ struct ServiceRow: View {
         case .starting, .stopping: return .warn
         case .stopped: return external ? .warn : .neutral
         }
-    }
-}
-
-// MARK: formulario de túnel
-
-struct TunnelFormView: View {
-    @ObservedObject var model: AppModel
-
-    private var form: TunnelForm { model.form ?? TunnelForm() }
-    private func edit(_ change: (inout TunnelForm) -> Void) {
-        guard var f = model.form else { return }
-        change(&f)
-        model.form = f
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                IconButton(symbol: "chevron.left", help: "Volver") { model.cancelForm() }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Nuevo túnel").font(.lh(17, .bold))
-                    Text("Expone un puerto local en julianjab.link").font(.lh(12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
-
-            FittingScroll {
-                VStack(alignment: .leading, spacing: 14) {
-                    subdomain
-                    port
-                    Banner(text: "El túnel deja el puerto abierto a internet SIN autenticación.", icon: "globe")
-                    if let notice = form.notice { noticeBanner(notice) }
-                    if let error = form.error { Banner(text: error, tone: .bad, icon: "xmark.octagon.fill") }
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 12)
-            }
-            Divider().opacity(0.5)
-            footer.padding(.horizontal, 14).padding(.vertical, 10)
-        }
-    }
-
-    private var subdomain: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: "Subdominio")
-            VStack(alignment: .leading, spacing: 8) {
-                FieldBox(invalid: form.error?.hasPrefix("Subdominio") == true) {
-                    HStack(spacing: 2) {
-                        TextField("demo", text: Binding(get: { form.sub }, set: { v in edit { $0.sub = v; $0.error = nil; $0.notice = nil } }))
-                            .onSubmit { model.submitForm() }
-                            .disabled(form.checking)
-                        Text(".julianjab.link").font(.lh(13)).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .card()
-        }
-    }
-
-    private var port: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            SectionTitle(text: "Puerto local", trailing: form.ports.isEmpty ? nil : "\(form.ports.count) en escucha")
-            VStack(alignment: .leading, spacing: 10) {
-                FieldBox(invalid: form.error?.hasPrefix("Puerto") == true) {
-                    TextField("5173", text: Binding(get: { form.portText }, set: { v in edit { $0.portText = v; $0.error = nil; $0.notice = nil } }))
-                        .onSubmit { model.submitForm() }
-                        .disabled(form.checking)
-                }
-                if !form.ports.isEmpty {
-                    FlowLayout {
-                        ForEach(form.ports, id: \.port) { item in
-                            SelectChip(label: ":\(item.port) · \(item.command)", selected: form.port == item.port) {
-                                edit { $0.portText = String(item.port); $0.error = nil; $0.notice = nil }
-                            }
-                            .disabled(form.checking)
-                        }
-                    }
-                }
-            }
-            .card()
-        }
-    }
-
-    @ViewBuilder
-    private func noticeBanner(_ notice: TunnelForm.Notice) -> some View {
-        switch notice {
-        case .expose(let port):
-            Banner(text: "El puerto \(port) es el del runner o el gateway: quedaría abierto a internet sin autenticación.", tone: .bad) {
-                Button("Exponer igual") { edit { $0.okExposePort = port; $0.notice = nil }; model.submitForm() }
-                    .buttonStyle(PillButtonStyle(prominent: true, tint: .red))
-            }
-        case .overwriteDNS(let host):
-            Banner(text: "\(host) ya tiene un registro DNS. Si lo reapuntas a este túnel, lo de antes deja de responder ahí.") {
-                Button("Reapuntar") { edit { $0.okOverwriteHost = host; $0.notice = nil }; model.submitForm() }
-                    .buttonStyle(PillButtonStyle(prominent: true, tint: .orange))
-            }
-        }
-    }
-
-    private var footer: some View {
-        HStack {
-            Text(summary).font(.lh(12)).foregroundStyle(.secondary).lineLimit(1)
-            Spacer()
-            Button("Cancelar") { model.cancelForm() }.buttonStyle(PillButtonStyle(tint: .secondary))
-            Button { model.submitForm() } label: {
-                if form.checking { ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 52) }
-                else { Label("Crear", systemImage: "play.fill") }
-            }
-            .buttonStyle(PillButtonStyle(prominent: true, enabled: canCreate))
-            .disabled(!canCreate)
-            .keyboardShortcut(.defaultAction)
-        }
-    }
-
-    private var canCreate: Bool { !form.cleanSub.isEmpty && form.port != nil && !form.checking }
-
-    private var summary: String {
-        guard !form.cleanSub.isEmpty, let port = form.port else { return "Elige subdominio y puerto" }
-        return "\(form.cleanSub).julianjab.link → :\(port)"
     }
 }
