@@ -336,6 +336,15 @@ struct TaskMenu: View {
                 Text("Se mueve con tu login, sin confirmar.")
             }
         }
+        if item.isDecision {
+            Menu("Posponer") {
+                Button("Hasta que cambie algo") { runner.snooze(item, .untilChange) }
+                Button("1 día") { runner.snooze(item, .day) }
+                Button("1 semana") { runner.snooze(item, .week) }
+                Button("Elegir fecha…") { runner.tab = .mine; runner.snoozePicking = item.ref }
+            }
+            Button(runner.isPinned(item) ? "Desfijar" : "Fijar arriba") { runner.togglePin(item) }
+        }
         Button(item.pr == nil ? "Abrir worktree del issue en iTerm" : "Abrir worktree del PR en iTerm") { runner.openWorktree(item) }
         Divider()
         Button("Abrir el issue en GitHub ↗") { runner.open(item) }

@@ -152,6 +152,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         runner.tab = .mine
         shot("runner")
+        // ordenar, posponer y fijar: una fijada arriba, una pospuesta abajo y el «Posponer» abierto
+        let before = runner.triage
+        if let ims = runner.decisions.first(where: { $0.ref.contains("/ims#") }),
+           let question = runner.decisions.first(where: { $0.kind == "doubt" }) {
+            var triage = Triage.snoozing(ims, .untilChange, in: before, now: Date())
+            triage = Triage.togglingPin(question.ref, in: triage, now: Date())
+            triage.order = .newest
+            runner.setTriage(triage)
+            if let crash = runner.decisions.first(where: { $0.kind == "crash" }) {
+                runner.snoozePicking = crash.ref
+                shot("mine-snooze", both: false)
+                runner.snoozePicking = nil
+                runner.failures[crash.ref] = ActionFailure(action: actionsOf(crash)[0], item: crash,
+                                                          message: "El runner está a tope")
+            }
+            if let merge = runner.decisions.first(where: { $0.kind == "merge" && $0.pr?.number == 911 }) {
+                runner.inlineConfirm = InlineConfirm(ref: merge.ref, action: "merge")
+            }
+            shot("mine-group", both: false)
+            runner.failures = [:]
+            runner.inlineConfirm = nil
+            runner.setTriage(before)
+        }
         runner.tab = .running
         shot("running")
         runner.tab = .next

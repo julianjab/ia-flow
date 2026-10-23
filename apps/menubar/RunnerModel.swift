@@ -112,6 +112,43 @@ struct CommentRequest {
     var text = ""
 }
 
+/// Una acción que confirma, en el lugar del botón («¿Mergear PR #911 en lh-seller-v2-frontend?»).
+struct InlineConfirm: Equatable {
+    let ref: String
+    let action: String
+}
+
+/// Lo que falló al disparar una acción, pegado a su card: el motivo y qué hacer.
+struct ActionFailure {
+    let action: ActionView
+    let item: InboxItem
+    let message: String
+
+    /// «No se pudo reintentar: el runner está a tope.»
+    var text: String {
+        let reason = message.trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+        return "No se pudo \(action.label.lowercased()): \(reason.prefix(1).lowercased() + reason.dropFirst())."
+    }
+
+    /// Qué hacer, según lo que contestó el runner.
+    var hint: String {
+        let m = message.lowercased()
+        if m.contains("tope") || m.contains("capacidad") || m.contains("lugar") || m.contains("capacity") {
+            return "Esperá a que termine una de las que corren, o detené una."
+        }
+        if m.contains("permis") || m.contains("403") || m.contains("forbidden") {
+            return "Tu login de GitHub no tiene permiso en ese repo: pedíselo a quien lo administre o hacelo desde GitHub."
+        }
+        if m.contains("401") || m.contains("sesión") || m.contains("token") { return "Volvé a iniciar sesión con GitHub y reintentá." }
+        if m.contains("409") || m.contains("ya ") || m.contains("conflict") { return "La tarea cambió mientras tanto: mirá su detalle." }
+        if m.contains("no responde") || m.contains("timed out") || m.contains("conex") { return "El runner no contestó: reintentá en un momento." }
+        return "Mirá el detalle de la tarea o los logs del server, y reintentá."
+    }
+
+    /// Si el problema es la capacidad, «Ver En curso» ayuda.
+    var aboutCapacity: Bool { hint.hasPrefix("Esperá") }
+}
+
 struct DeviceLogin {
     let code: DeviceCode
     var error: String?
@@ -169,6 +206,14 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var epicDetail: EpicDetail?
     @Published private(set) var epicError: String?
     @Published var comment: CommentRequest?
+    /// Posponer, fijar y el orden de Para mí en este runner (`snoozes.json`).
+    @Published private(set) var triage = RunnerTriage()
+    /// La card de Para mí con el «Posponer «…»» abierto debajo.
+    @Published var snoozePicking: String?
+    /// La acción que se confirma en el lugar del botón.
+    @Published var inlineConfirm: InlineConfirm?
+    /// Lo que falló, por ref: queda pegado a su card hasta que se reintenta o se cierra.
+    @Published var failures: [String: ActionFailure] = [:]
     @Published var login: DeviceLogin?
     /// Las refs con una acción en vuelo: su botón no se puede volver a tocar.
     @Published private(set) var busy: Set<String> = []
@@ -226,6 +271,7 @@ final class RunnerModel: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: "runnerServer")
         selected = list.first { $0.baseUrl == saved } ?? list[0]
         self.inbox = inbox
+        if servers == nil { triage = TriageStore.load(selected.baseUrl) }
     }
 
     private var client: RunnerClient { RunnerClient(server: selected) }
@@ -306,7 +352,11 @@ final class RunnerModel: ObservableObject {
         }
     }
     /// El badge: lo que te espera a vos (decisiones y mejoras por decidir).
-    var pendingCount: Int { decisions.count + improvements.count }
+    /// El badge: lo que te espera y no pospusiste, más las mejoras por decidir.
+    var pendingCount: Int { mine.shown.count + improvements.count }
+
+    /// Para mí ya ordenado (fijadas primero) y lo pospuesto aparte.
+    var mine: (shown: [InboxItem], snoozed: [InboxItem]) { Triage.split(decisions.filter(keep), state: triage, now: Date()) }
 
     var epics: [EpicView] {
         var order: [String] = []
@@ -525,6 +575,9 @@ final class RunnerModel: ObservableObject {
     func select(_ server: RunnerServer) {
         guard server != selected else { return }
         selected = server
+        triage = TriageStore.load(server.baseUrl)
+        failures = [:]
+        inlineConfirm = nil
         UserDefaults.standard.set(server.baseUrl, forKey: "runnerServer")
         inbox = nil
         improvements = []
@@ -566,6 +619,9 @@ final class RunnerModel: ObservableObject {
                 guard server == selected else { return }
                 inbox = fresh
                 improvements = proposals
+                // lo pospuesto que cambió o venció vuelve; lo fijado que ya no te necesita se suelta
+                let pruned = Triage.pruned(triage, decisions: decisions, now: Date())
+                if pruned != triage { setTriage(pruned) }
                 // La de «¿Por qué?», como quedó: el asistente la puede haber ajustado.
                 if let current = discussing, let fresh = proposals.first(where: { $0.id == current.id }) { discussing = fresh }
                 error = nil
@@ -649,8 +705,94 @@ final class RunnerModel: ObservableObject {
 
     // MARK: acciones
 
+    // MARK: Para mí: posponer, fijar, ordenar
+
+    func setTriage(_ next: RunnerTriage) {
+        triage = next
+        if !isFixture { TriageStore.save(next, for: selected.baseUrl) }
+        onBadge?(error == nil ? pendingCount : 0)
+    }
+
+    var order: TriageOrder {
+        get { triage.order }
+        set { var next = triage; next.order = newValue; setTriage(next) }
+    }
+
+    func isPinned(_ item: InboxItem) -> Bool { Triage.isPinned(item.ref, in: triage) }
+
+    func snoozeEntry(_ item: InboxItem) -> SnoozeEntry? { Triage.snooze(of: item, in: triage, now: Date()) }
+
+    /// La pospone y avisa con «Deshacer».
+    func snooze(_ item: InboxItem, _ length: SnoozeLength) {
+        let before = triage
+        snoozePicking = nil
+        setTriage(Triage.snoozing(item, length, in: triage, now: Date()))
+        let text: String
+        switch length {
+        case .untilChange: text = "Pospuesta hasta que cambie algo"
+        case .day: text = "Pospuesta hasta mañana"
+        case .week: text = "Pospuesta una semana"
+        case .date(let date): text = "Pospuesta hasta el \(Self.dayFormat.string(from: date))"
+        }
+        undoToast?(text) { [weak self] in self?.setTriage(before) }
+    }
+
+    func unsnooze(_ item: InboxItem) { setTriage(Triage.unsnoozing(item.ref, in: triage)) }
+
+    func togglePin(_ item: InboxItem) {
+        let pinning = !isPinned(item)
+        setTriage(Triage.togglingPin(item.ref, in: triage, now: Date()))
+        toast?(pinning ? "Fijada arriba: \(refLabel(item.ref))" : "Ya no está fijada")
+    }
+
+    static let dayFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es")
+        f.dateFormat = "d MMM"
+        return f
+    }()
+
+    // MARK: acciones
+
+    /// La misma acción sobre varias tareas («Mergear los 2…»): una confirmación y salen una por una.
+    func triggerAll(_ action: ActionView, on items: [InboxItem]) {
+        confirm?(ConfirmRequest(
+            title: "¿\(action.label) las \(items.count)?",
+            detail: items.map { "· \(refLabel($0.ref))\($0.pr.map { " (PR #\($0.number))" } ?? "")" }.joined(separator: "\n")
+                + "\n\nSe firma con tu login de GitHub\(github.map { " (@\($0.login))" } ?? "").",
+            confirmLabel: "\(action.label) las \(items.count)", destructive: false
+        ) { [weak self] in
+            for item in items { self?.send(action, on: item, comment: nil) }
+        })
+    }
+
+    /// Lo que se confirma en el lugar del botón: qué se firma, dónde y con quién.
+    func confirmText(_ action: ActionView, on item: InboxItem) -> (title: String, detail: String) {
+        let who = github.map { "@\($0.login)" } ?? "tu login de GitHub"
+        let repo = RunnerSearch.split(item.ref)?.repo ?? item.ref
+        if action.id == "merge", let pr = item.pr {
+            return ("¿Mergear PR #\(pr.number) en \(repo)?", "Squash a main, firmado con \(who).")
+        }
+        return ("¿\(action.label) \(refLabel(item.ref))?", action.confirmText.map { "\($0) Firmado con \(who)." } ?? "Se firma con \(who).")
+    }
+
+    /// Confirmar en línea: lo que confirma muestra la pregunta en el lugar del botón.
+    func triggerInline(_ action: ActionView, on item: InboxItem) {
+        failures[item.ref] = nil
+        guard action.confirms, action.comment == nil else { return trigger(action, on: item) }
+        inlineConfirm = InlineConfirm(ref: item.ref, action: action.id)
+    }
+
+    func confirmInline(_ item: InboxItem) {
+        guard let pending = inlineConfirm, pending.ref == item.ref,
+              let action = actionsOf(item).first(where: { $0.id == pending.action }) else { return }
+        inlineConfirm = nil
+        send(action, on: item, comment: nil)
+    }
+
     /// Lo que pide un paso más (confirmar o escribir) lo pide; lo demás sale directo.
     func trigger(_ action: ActionView, on item: InboxItem) {
+        failures[item.ref] = nil
         if action.comment != nil { comment = CommentRequest(item: item, action: action); return }
         guard action.confirms else { return send(action, on: item, comment: nil) }
         confirm?(ConfirmRequest(
@@ -668,7 +810,7 @@ final class RunnerModel: ObservableObject {
         send(request.action, on: request.item, comment: text.isEmpty ? nil : text)
     }
 
-    private func send(_ action: ActionView, on item: InboxItem, comment: String?) {
+    func send(_ action: ActionView, on item: InboxItem, comment: String?) {
         let server = selected
         Task { @MainActor in
             guard let session = await validSession() else {
@@ -679,7 +821,13 @@ final class RunnerModel: ObservableObject {
             let result = (try? await RunnerClient(server: server).act(item, action: action.id, comment: comment, github: session.token))
                 ?? TaskActionResult(ok: false, message: "No responde \(server.name)")
             busy.remove(item.ref)
-            toast?(result.ok ? "\(item.shortRef): \(result.message)" : "No se pudo: \(result.message)")
+            if result.ok {
+                failures[item.ref] = nil
+                toast?("\(item.shortRef): \(result.message)")
+            } else {
+                // queda pegado a la card, con qué hacer y «Reintentar»
+                failures[item.ref] = ActionFailure(action: action, item: item, message: result.message)
+            }
             refresh()
         }
     }
@@ -1042,6 +1190,12 @@ extension RunnerModel {
                       pr: nil, execution: nil, blocked_by: nil, epic: nil, agent_said: nil, actions: ["approve_prd", "back_to_refine"],
                       action_defs: [TaskActionDef(id: "approve_prd", label: "Aprobar y pasar a Build", comment: nil, confirm: "¿Aprobar el PRD?")],
                       priority: 4, reasons: nil),
+            item(4311, "feat(crm): filtro por asesor en el funnel", group: "need", kind: "merge", why: "PR aprobado con el CI en verde",
+                 actions: ["merge"], priority: 5, pr: 909),
+            item(4312, "fix(widget): estado vacío del funnel", group: "need", kind: "merge", why: "PR aprobado con el CI en verde",
+                 actions: ["merge"], priority: 6, pr: 911, repo: "lh-seller-v2-frontend"),
+            item(2210, "Etapas del funnel en el IMS", group: "need", kind: "merge", why: "No tenés permiso de merge en ims",
+                 actions: ["merge"], priority: 7, pr: 433, repo: "ims"),
             item(4295, "Pantalla de perfilado", group: "run", kind: "agent", why: "build corriendo hace 12 min",
                  actions: ["stop"], epic: epic, agent: "aiflow-implementer", repo: "lh-seller-v2-frontend"),
             item(4296, "Estado vacío del perfil", group: "run", kind: "agent", why: "review corriendo hace 8 min",

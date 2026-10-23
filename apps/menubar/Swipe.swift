@@ -1,9 +1,10 @@
 import AppKit
 import SwiftUI
 
-// Una fila con sus acciones escondidas: aparecen al deslizarla a la izquierda (dos dedos en el trackpad o
-// arrastrando), como en mac-pulse y en las filas de «Después» de la web. Es un atajo: quien la usa deja las mismas
-// acciones en su clic derecho y en el detalle, porque el gesto no se descubre.
+// Una fila con sus acciones escondidas a los dos lados (dos dedos en el trackpad o arrastrando), como en mac-pulse y
+// en la web: a la izquierda destapa las de la derecha (la acción principal y Posponer), a la derecha destapa las de la
+// izquierda (Fijar arriba). Es un atajo: quien la usa deja las mismas acciones en su clic derecho y en el detalle,
+// porque el gesto no se descubre.
 
 /// Una acción detrás de una fila. Lo que confirma lo confirma quien la corre (`RunnerModel.trigger`).
 struct SwipeAction: Identifiable {
@@ -48,7 +49,10 @@ final class SwipeState: ObservableObject {
 /// La fila: se resalta bajo el mouse y, deslizada, muestra sus acciones. Abierta, un clic la cierra.
 struct SwipeRow<Content: View>: View {
     let id: String
+    /// Las que aparecen al deslizar a la izquierda (a la derecha de la fila).
     let actions: [SwipeAction]
+    /// Las que aparecen al deslizar a la derecha (a la izquierda de la fila).
+    var leading: [SwipeAction] = []
     @ViewBuilder let content: () -> Content
 
     @ObservedObject private var swipe = SwipeState.shared
@@ -58,21 +62,36 @@ struct SwipeRow<Content: View>: View {
 
     private static var buttonWidth: CGFloat { 64 }
     private var width: CGFloat { CGFloat(actions.count) * Self.buttonWidth }
+    private var leadingWidth: CGFloat { CGFloat(leading.count) * Self.buttonWidth }
+    private var swipeable: Bool { !actions.isEmpty || !leading.isEmpty }
+
+    /// Hasta dónde se puede correr la fila (un poco más que sus botones, con resistencia).
+    private static func clamp(_ x: CGFloat, trailing: CGFloat, leading: CGFloat) -> CGFloat {
+        min(leading == 0 ? 0 : leading + 20, max(trailing == 0 ? 0 : -trailing - 20, x))
+    }
+
+    /// Al soltar: queda abierta del lado que pasó la mitad de sus botones, o vuelve.
+    private static func settle(_ x: CGFloat, trailing: CGFloat, leading: CGFloat) -> CGFloat {
+        if trailing > 0, x < -trailing / 2 { return -trailing }
+        if leading > 0, x > leading / 2 { return leading }
+        return 0
+    }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            if offset < 0 { buttons }
+        ZStack {
+            if offset < 0 { HStack { Spacer(minLength: 0); buttons(actions, shown: -offset) } }
+            if offset > 0 { HStack { buttons(leading, shown: offset); Spacer(minLength: 0) } }
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 5).padding(.horizontal, 6)
                 .background(Color.primary.opacity(hovering && offset == 0 ? 0.05 : 0))
-                .background(.background.opacity(offset < 0 ? 1 : 0))
+                .background(.background.opacity(offset != 0 ? 1 : 0))
                 .contentShape(Rectangle())
                 .overlay {
-                    if offset < 0 { Color.clear.contentShape(Rectangle()).onTapGesture { close() } }
+                    if offset != 0 { Color.clear.contentShape(Rectangle()).onTapGesture { close() } }
                 }
                 .offset(x: offset)
-                .gesture(actions.isEmpty ? nil : drag)
+                .gesture(swipeable ? drag : nil)
         }
         .padding(.horizontal, -6)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -81,19 +100,19 @@ struct SwipeRow<Content: View>: View {
             if inside { swipe.hovered = id } else if swipe.hovered == id { swipe.hovered = nil }
         }
         .onAppear {
-            guard !actions.isEmpty else { return }
+            guard swipeable else { return }
             swipe.install()
             let offset = $offset
-            let width = width
+            let width = width, leadingWidth = leadingWidth
             swipe.handlers[id] = { [id] e in
                 // con el desplazamiento natural, los dedos a la izquierda dan deltas negativos
                 let dx = e.isDirectionInvertedFromDevice ? e.scrollingDeltaX : -e.scrollingDeltaX
                 if e.phase == .ended || e.phase == .cancelled {
-                    let open = offset.wrappedValue < -width / 2
-                    withAnimation(.easeOut(duration: 0.18)) { offset.wrappedValue = open ? -width : 0 }
-                    if open { SwipeState.shared.open = id } else if SwipeState.shared.open == id { SwipeState.shared.open = nil }
+                    let target = Self.settle(offset.wrappedValue, trailing: width, leading: leadingWidth)
+                    withAnimation(.easeOut(duration: 0.18)) { offset.wrappedValue = target }
+                    if target != 0 { SwipeState.shared.open = id } else if SwipeState.shared.open == id { SwipeState.shared.open = nil }
                 } else {
-                    offset.wrappedValue = min(0, max(-width - 20, offset.wrappedValue + dx))
+                    offset.wrappedValue = Self.clamp(offset.wrappedValue + dx, trailing: width, leading: leadingWidth)
                 }
             }
         }
@@ -103,7 +122,7 @@ struct SwipeRow<Content: View>: View {
         }
     }
 
-    private var buttons: some View {
+    private func buttons(_ actions: [SwipeAction], shown: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(actions) { a in
                 Button {
@@ -126,7 +145,7 @@ struct SwipeRow<Content: View>: View {
             }
         }
         // sólo lo que la fila ya destapó
-        .frame(width: max(0, -offset), alignment: .trailing)
+        .frame(width: max(0, shown), alignment: actions.count > 0 && offset > 0 ? .leading : .trailing)
         .clipped()
     }
 
@@ -137,13 +156,13 @@ struct SwipeRow<Content: View>: View {
                 guard abs(v.translation.width) > abs(v.translation.height) else { return }
                 let start = dragStart ?? offset
                 dragStart = start
-                offset = min(0, max(-width - 20, start + v.translation.width))
+                offset = Self.clamp(start + v.translation.width, trailing: width, leading: leadingWidth)
             }
             .onEnded { _ in
                 dragStart = nil
-                let open = offset < -width / 2
-                withAnimation(.easeOut(duration: 0.18)) { offset = open ? -width : 0 }
-                if open { swipe.open = id } else if swipe.open == id { swipe.open = nil }
+                let target = Self.settle(offset, trailing: width, leading: leadingWidth)
+                withAnimation(.easeOut(duration: 0.18)) { offset = target }
+                if target != 0 { swipe.open = id } else if swipe.open == id { swipe.open = nil }
             }
     }
 

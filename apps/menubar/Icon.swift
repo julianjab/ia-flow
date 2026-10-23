@@ -131,7 +131,8 @@ private func drawTag() {
 }
 
 /// El ícono de la barra de menú: la J a 16 pt (lima si algo corre) con la pastilla `IA` abajo a la derecha. Con `badge` > 0, un
-/// círculo rojo arriba a la derecha con cuántas tareas te esperan en el runner elegido (más de 9 → «9+»).
+/// círculo rojo arriba a la derecha con cuántas tareas te esperan en el runner elegido, sin las pospuestas
+/// (`RunnerModel.pendingCount`; más de 9 → «9+»).
 func menuBarIcon(running: Bool, badge: Int = 0) -> NSImage {
     let inner = brandTile(size: 16, color: running ? Brand.lime : Brand.bone.withAlphaComponent(0.5))
     let label = badge > 9 ? "9+" : "\(badge)"
