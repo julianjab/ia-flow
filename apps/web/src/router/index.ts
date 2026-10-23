@@ -5,6 +5,7 @@ import AppShell from '@/views/AppShell.vue'
 import ConfigView from '@/views/ConfigView.vue'
 import GithubSearchView from '@/views/GithubSearchView.vue'
 import ImprovementsView from '@/views/ImprovementsView.vue'
+import ImprovementView from '@/views/ImprovementView.vue'
 import InboxView from '@/views/InboxView.vue'
 import NextView from '@/views/NextView.vue'
 import RunnerHealthView from '@/views/RunnerHealthView.vue'
@@ -29,6 +30,7 @@ const routes: RouteRecordRaw[] = [
       // Buscar en GitHub: toda la organización, sin salir de la app (lo del board abre su detalle).
       { path: 'buscar', name: 'github-search', component: GithubSearchView },
       { path: 'mejoras', name: 'improvements', component: ImprovementsView },
+      { path: 'mejoras/:id', name: 'improvement', component: ImprovementView, props: true },
       { path: 'config', name: 'config', component: ConfigView },
       { path: 'webhooks', name: 'webhooks', component: WebhooksView },
       { path: 'estado', name: 'health', component: RunnerHealthView },

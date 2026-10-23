@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import ImprovementsSection from '@/features/improvements/ImprovementsSection.vue';
-import { useTaskFocusStore } from '@/stores/taskFocus';
 
-// «Mejoras»: lo que dejó la retrospectiva, para abrir como issue o descartar. Las mismas que van al
-// pie de «Para mí», solas: desde el menú lateral o el sheet «Más».
-const taskFocus = useTaskFocusStore();
+// «Mejoras»: lo que dejó la retrospectiva, una fila por mejora; cada una lleva a su pantalla para
+// abrirla como issue, descartarla o preguntar por qué. Desde el menú lateral, «Más» o la fila del
+// pie de «Para mí».
 </script>
 
 <template>
   <div class="view">
     <h1 class="view__title">Mejoras</h1>
-    <ImprovementsSection @open="taskFocus.focus($event)" />
+    <ImprovementsSection />
   </div>
 </template>
 
