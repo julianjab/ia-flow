@@ -782,6 +782,39 @@ export const BoardRestSchema = z.object({
 })
 export type BoardRest = z.infer<typeof BoardRestSchema>
 
+/** Un issue abierto de un repo del catálogo de un proyecto que todavía no tiene card en su board. */
+export const RepoIssueSchema = z.object({
+  /** `owner/repo#n` */
+  ref: z.string(),
+  project_id: z.string(),
+  title: z.string(),
+  url: z.string(),
+  labels: z.array(z.string()),
+  updated_at: z.string(),
+  /** El login de quien lo abrió. */
+  author: z.string().optional(),
+})
+export type RepoIssue = z.infer<typeof RepoIssueSchema>
+
+/** `GET /api/repos/issues`: por repo del catálogo (`projects[].repos`), sus issues abiertos sin card
+ *  en el board —ni PRs ni cerrados—, el más reciente primero. Así ningún issue de un repo que el
+ *  runner maneja queda fuera de la vista. */
+export const RepoIssuesSchema = z.object({
+  repos: z.array(
+    z.object({
+      /** `owner/repo` */
+      repo: z.string(),
+      project_id: z.string(),
+      items: z.array(RepoIssueSchema),
+      /** El repo tiene más de los que se trajeron (tope por repo). */
+      truncated: z.boolean().optional(),
+      /** No se pudo leer el repo (sin acceso, no existe…): el resto sí. */
+      error: z.string().optional(),
+    }),
+  ),
+})
+export type RepoIssues = z.infer<typeof RepoIssuesSchema>
+
 /** Una entrada del runner: por dónde le llegan los eventos de afuera. */
 export const IngressSourceSchema = z.object({
   /** `github` o `slack`: el prefijo de los eventos crudos que entran por acá (`github.push`…). */
