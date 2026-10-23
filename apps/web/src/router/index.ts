@@ -6,6 +6,8 @@ import ConfigView from '@/views/ConfigView.vue'
 import ImprovementsView from '@/views/ImprovementsView.vue'
 import InboxView from '@/views/InboxView.vue'
 import NextView from '@/views/NextView.vue'
+import RunnerHealthView from '@/views/RunnerHealthView.vue'
+import RunnerLogsView from '@/views/RunnerLogsView.vue'
 import RunningView from '@/views/RunningView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
 import WebhooksView from '@/views/WebhooksView.vue'
@@ -26,6 +28,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'mejoras', name: 'improvements', component: ImprovementsView },
       { path: 'config', name: 'config', component: ConfigView },
       { path: 'webhooks', name: 'webhooks', component: WebhooksView },
+      { path: 'estado', name: 'health', component: RunnerHealthView },
+      { path: 'estado/logs', name: 'logs', component: RunnerLogsView },
     ],
   },
 

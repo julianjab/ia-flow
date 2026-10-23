@@ -88,6 +88,7 @@ const VIEWS = computed(() => [
   { to: { name: 'next' }, label: 'Próximo', count: inbox.queue.feed?.entries.length ?? 0 },
 ]);
 const LOOKUP = [
+  { to: { name: 'health' }, label: 'Estado del runner', hint: 'salud, capacidad, recursos' },
   { to: { name: 'improvements' }, label: 'Mejoras', hint: 'lo que dejó la retro' },
   { to: { name: 'webhooks' }, label: 'Webhooks', hint: 'qué llega de GitHub y Slack' },
   { to: { name: 'config' }, label: 'Config', hint: 'pipelines, agentes, providers' },
@@ -111,7 +112,7 @@ const LOOKUP = [
           v-if="isMobile"
           type="button"
           class="bar__avatar"
-          :aria-label="session.github ? `Más: tu cuenta (@${session.github.login}), Mejoras, Webhooks, Config` : 'Más: Mejoras, Webhooks, Config y entrar'"
+          :aria-label="session.github ? `Más: tu cuenta (@${session.github.login}), Estado, Mejoras, Webhooks, Config` : 'Más: Estado, Mejoras, Webhooks, Config y entrar'"
           data-test="more"
           @click="moreOpen = true"
         >
