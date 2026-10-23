@@ -3,6 +3,7 @@ import { historySettled } from '@/composables/useBackClose'
 import { hasChosenServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import ConfigView from '@/views/ConfigView.vue'
+import GithubSearchView from '@/views/GithubSearchView.vue'
 import ImprovementsView from '@/views/ImprovementsView.vue'
 import InboxView from '@/views/InboxView.vue'
 import NextView from '@/views/NextView.vue'
@@ -23,6 +24,8 @@ const routes: RouteRecordRaw[] = [
       { path: '', name: 'inbox', component: InboxView },
       { path: 'en-curso', name: 'running', component: RunningView },
       { path: 'proximo', name: 'next', component: NextView },
+      // Buscar en GitHub: toda la organización, sin salir de la app (lo del board abre su detalle).
+      { path: 'buscar', name: 'github-search', component: GithubSearchView },
       { path: 'mejoras', name: 'improvements', component: ImprovementsView },
       { path: 'config', name: 'config', component: ConfigView },
       { path: 'webhooks', name: 'webhooks', component: WebhooksView },

@@ -2,6 +2,7 @@ import type { BoardRest } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryHistory, createRouter } from 'vue-router'
 
 const getBoardRest = vi.fn()
 const getTaskDetail = vi.fn()
@@ -36,6 +37,15 @@ const rest: BoardRest = {
   ],
 }
 
+const Blank = { template: '<p />' }
+const router = createRouter({
+  history: createMemoryHistory(),
+  routes: [
+    { path: '/', name: 'inbox', component: Blank },
+    { path: '/buscar', name: 'github-search', component: Blank },
+  ],
+})
+
 function render() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -48,7 +58,7 @@ function render() {
       setup: () => ({ store }),
     },
     {
-      global: { plugins: [pinia] },
+      global: { plugins: [pinia, router] },
     },
   )
   return { w, store }
@@ -76,14 +86,15 @@ describe('el buscador de la bandeja', () => {
     expect(store.openRef).toBe('acme/web#5')
   })
 
-  it('una ref exacta que no está se ofrece igual, y al pie la búsqueda en GitHub', async () => {
+  it('una ref exacta que no está se ofrece igual, y al pie «Buscar en GitHub» dentro de la app', async () => {
     const { w, store } = render()
     await w.get('input').setValue('web#77')
     await flushPromises()
     expect(w.find('[data-test="hit"]').exists()).toBe(false)
     await w.get('[data-test="exact"] button').trigger('click')
     expect(store.openRef).toBe('acme/web#77')
-    expect(w.get('[data-test="github"]').attributes('href')).toContain('org%3Aacme')
+    expect(w.get('[data-test="github"]').text()).toBe('Buscar «web#77» en GitHub →')
+    expect(w.get('[data-test="github"]').attributes('href')).toBe('/buscar?q=web%2377')
   })
 
   it('sin coincidencias lo dice; Escape vacía el campo', async () => {

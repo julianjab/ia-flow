@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import { refUrl, shortRef } from '@/features/inbox/queue/shortRef';
 import { useInboxStore } from '@/features/inbox/store';
@@ -6,7 +7,8 @@ import { useInboxStore } from '@/features/inbox/store';
 // Lo que coincide con el buscador, en lugar de la bandeja: cada card con dónde está (te necesita,
 // corriendo, puede arrancar, su columna del board…). Tocarla la abre en grande, con sus acciones;
 // el link corto va a GitHub. Si se escribió una ref exacta que no aparece, se ofrece abrirla igual
-// y, al pie, la misma búsqueda en GitHub para lo que no está en el board.
+// y, al pie, la misma búsqueda en «Buscar en GitHub» (dentro de la app: lo que no está en el board
+// se agrega desde ahí) para toda la organización.
 
 const store = useInboxStore();
 </script>
@@ -42,9 +44,14 @@ const store = useInboxStore();
       Nada coincide con «{{ store.searchQuery.trim() }}» en la bandeja ni en el board.
     </p>
 
-    <a v-if="store.searchGithub" class="sr__gh link" :href="store.searchGithub" target="_blank" rel="noopener noreferrer" data-test="github">
-      Buscar «{{ store.searchQuery.trim() }}» en GitHub ↗
-    </a>
+    <RouterLink
+      v-if="store.searchQuery.trim()"
+      class="sr__gh link"
+      :to="{ name: 'github-search', query: { q: store.searchQuery.trim() } }"
+      data-test="github"
+    >
+      Buscar «{{ store.searchQuery.trim() }}» en GitHub →
+    </RouterLink>
   </section>
 </template>
 

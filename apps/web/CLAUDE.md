@@ -1,6 +1,6 @@
 # apps/web — Vue 3 SPA
 
-La web es la **bandeja de runner-v2** en tres vistas (v5, la UI unificada con el menú de Mac — `docs/design/ui-unificada/`): `/` **Para mí** (lo que te necesita: «Lo primero», el resto con su orden, fijadas y pospuestas, y las mejoras), `/en-curso` **En curso** (los lugares del runner, la cola y lo último que corrió) y `/proximo` **Próximo** (épicas, todo Todo, el resto del board y los issues de los repos sin card); además `/mejoras`, `/config` (la config cargada, de sólo lectura), `/webhooks` y `/servers`. Los destinos van en `views/AppShell.vue`, que también arranca la bandeja y monta los detalles: una tab bar al pie en un teléfono (el asistente es una pestaña) con el sheet «Más», y un menú lateral fijo desde 768px. Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
+La web es la **bandeja de runner-v2** en tres vistas (v5, la UI unificada con el menú de Mac — `docs/design/ui-unificada/`): `/` **Para mí** (lo que te necesita: «Lo primero», el resto con su orden, fijadas y pospuestas, y las mejoras), `/en-curso` **En curso** (los lugares del runner, la cola y lo último que corrió) y `/proximo` **Próximo** (épicas, todo Todo, el resto del board y los issues de los repos sin card); además `/mejoras`, `/config` (la config cargada, de sólo lectura), `/webhooks`, `/buscar` («Buscar en GitHub»: issues y PRs de toda la organización, directo contra api.github.com con el login; lo que está en el board abre su detalle dentro de la app y lo que no se agrega desde ahí) y `/servers`. Los destinos van en `views/AppShell.vue`, que también arranca la bandeja y monta los detalles: una tab bar al pie en un teléfono (el asistente es una pestaña) con el sheet «Más», y un menú lateral fijo desde 768px. Habla con `apps/runner-v2` (`/api/inbox`, `/api/tasks/…`, `/api/stream` SSE, `/api/assistant` SSE, device flow de GitHub). Estado transversal (sesión de GitHub, apertura del asistente) vive en `stores/`; el server elegido y su token, en `features/servers/selection.ts` y, para quien no usa axios, en `composables/useServerTarget.ts`.
 
 Vite + Vue Router + Pinia. Puerto **5173** por default, configurable con `IA_FLOW_WEB_PORT`.
 Proxy de `/api` al runner (`IA_FLOW_SERVER_PORT`, default 3001; `VITE_API_TARGET`
@@ -41,7 +41,7 @@ src/
 ├── router/             Vue Router (SPA)
 ├── views/              Páginas del router. SOLO composición — sin fetch ni lógica de negocio.
 │
-├── features/<dominio>/ La unidad real de la app. Hoy: inbox (la bandeja), assistant, config, ingress (las entradas del runner: webhook de GitHub, Slack), github-login, servers
+├── features/<dominio>/ La unidad real de la app. Hoy: inbox (la bandeja), assistant, config, ingress (las entradas del runner: webhook de GitHub, Slack), github-login, github-search, servers
 │   ├── api.ts            Llamadas HTTP del dominio + `.parse()` de la respuesta
 │   ├── store.ts          Pinia composition store (sólo si el estado se comparte/sobrevive nav)
 │   └── *.vue             Componentes del dominio (+ subcarpetas: tabs/, sources/, providerForms/)
