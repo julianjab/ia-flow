@@ -117,7 +117,7 @@ describe('useAssistantChatStore', () => {
     const chat = useAssistantChatStore()
     chat.setScope({ kind: 'task', ref: 'acme/api#7' })
     chat.startTopic('la mejora «Tests de contrato»', 'CONTEXTO DE LA MEJORA')
-    expect(chat.turns.map((t) => t.kind)).toEqual(['note'])
+    expect(chat.turns.map((t) => t.kind)).toEqual(['topic'])
     await chat.send('¿Por qué?')
     await chat.send('¿Y si no?')
     expect(requests[0]?.messages[0]?.content).toBe('CONTEXTO DE LA MEJORA\n¿Por qué?')
