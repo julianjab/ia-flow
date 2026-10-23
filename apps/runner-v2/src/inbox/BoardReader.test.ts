@@ -74,6 +74,22 @@ describe('toBoardCard', () => {
     })
   })
 
+  it('a stacked PR (not linked by GitHub) comes from the branch linked to the issue', () => {
+    const card = toBoardCard(
+      item({
+        closedByPullRequestsReferences: { nodes: [] },
+        linkedBranches: {
+          nodes: [
+            { ref: null },
+            { ref: { associatedPullRequests: { nodes: [{ number: 9, url: 'stacked-url' }] } } },
+          ],
+        },
+      }),
+      { projectId: 'p', board: { owner: 'la-haus', number: 119 } },
+    )
+    expect(card?.pr).toEqual({ number: 9, url: 'stacked-url' })
+  })
+
   it('skips closed issues and archived items', () => {
     const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
     expect(toBoardCard(item({ state: 'CLOSED' }), spec)).toBeUndefined()

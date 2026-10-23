@@ -209,10 +209,15 @@ function graphqlReader(data: Record<string, unknown>, rest: Record<string, unkno
 }
 
 describe('GithubTaskReader.closingIssues — PR apilado', () => {
-  const pr = (baseRefName: string, nodes: unknown[] = []) => ({
+  const pr = (baseRefName: string, merged = false) => ({
     repository: {
       defaultBranchRef: { name: 'main' },
-      pullRequest: { body: 'Closes #5', baseRefName, closingIssuesReferences: { nodes } },
+      pullRequest: {
+        body: 'Closes #5',
+        baseRefName,
+        merged,
+        closingIssuesReferences: { nodes: [] },
+      },
     },
   })
 
@@ -220,6 +225,10 @@ describe('GithubTaskReader.closingIssues — PR apilado', () => {
     expect(await graphqlReader(pr('feat/a')).closingIssues('o', 'r', 20)).toEqual([
       { owner: 'o', repo: 'r', number: 5 },
     ])
+  })
+
+  it('un PR apilado ya mergeado en la rama de su base no cerró nada', async () => {
+    expect(await graphqlReader(pr('feat/a', true)).closingIssues('o', 'r', 20)).toEqual([])
   })
 
   it('un PR contra la default sin vínculo no se inventa uno', async () => {
