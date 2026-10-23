@@ -74,6 +74,22 @@ describe('toBoardCard', () => {
     })
   })
 
+  it('a stacked PR (not linked by GitHub) comes from the branch linked to the issue', () => {
+    const card = toBoardCard(
+      item({
+        closedByPullRequestsReferences: { nodes: [] },
+        linkedBranches: {
+          nodes: [
+            { ref: null },
+            { ref: { associatedPullRequests: { nodes: [{ number: 9, url: 'stacked-url' }] } } },
+          ],
+        },
+      }),
+      { projectId: 'p', board: { owner: 'la-haus', number: 119 } },
+    )
+    expect(card?.pr).toEqual({ number: 9, url: 'stacked-url' })
+  })
+
   it('skips closed issues and archived items', () => {
     const spec = { projectId: 'p', board: { owner: 'la-haus', number: 119 } }
     expect(toBoardCard(item({ state: 'CLOSED' }), spec)).toBeUndefined()
@@ -175,6 +191,21 @@ describe('BoardReader', () => {
     } as unknown as GithubClient
     await new BoardReader(client).cards(spec)
     expect(queries[0]).toContain('items(first: 100, after: $after, query: "is:open")')
+  })
+
+  it('asks for the PR of a linked branch only for a project that stacks PRs', async () => {
+    const queries: string[] = []
+    const client = {
+      graphql: async (query: string) => {
+        queries.push(query)
+        return page({})
+      },
+    } as unknown as GithubClient
+    const reader = new BoardReader(client)
+    await reader.cards(spec)
+    await reader.cards({ ...spec, stacking: true })
+    expect(queries[0]).not.toContain('linkedBranches')
+    expect(queries[1]).toContain('linkedBranches')
   })
 
   it('if GitHub rejects items(query:), it pages everything and filters the closed ones itself', async () => {

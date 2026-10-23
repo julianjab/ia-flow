@@ -130,6 +130,10 @@ export const ProjectFileSchema = z.strictObject({
   /** La marca "en curso" de una task en el board mientras su ejecución corre (el `Working = Yes`
    *  de ia-flow). Ausente: `{ field: Working, on: Yes }` (apagar = vaciar); `null`: sin marca. */
   workingMarker: WorkingMarkerSchema.nullable().optional(),
+  /** Las tasks con `label` avanzan sobre prerrequisitos ya construidos: un blocker con PR abierto
+   *  no las bloquea (`item.blocked`), y si es del mismo repo su rama sale de la de él —un PR
+   *  apilado, `task.stack`—. Sin esto, un blocker frena hasta que se cierra. */
+  stacking: z.strictObject({ label: z.string().min(1) }).optional(),
   /** El pedido de review en Slack (`request_slack_review`): canal, a quién taguear y con qué
    *  texto. Un repo del catálogo los pisa campo por campo. */
   ...SlackReviewSchema.shape,
@@ -293,6 +297,8 @@ export interface ProjectConfig extends ProjectBoard {
   workingMarker: WorkingMarker | null
   /** Ver `maxConcurrent` en `project.yaml`. */
   maxConcurrent?: number
+  /** Ver `stacking` en `project.yaml`. */
+  stacking?: { label: string }
   /** Ver `taskActions` en `project.yaml`. */
   taskActions: TaskActionDefs
   /** Ver `slackReview*` en `project.yaml`. */
@@ -437,6 +443,7 @@ function readProject(runnerPath: string, id: string, entry: string | ProjectFile
     workingMarker:
       project.workingMarker === undefined ? DEFAULT_WORKING_MARKER : project.workingMarker,
     ...(project.maxConcurrent !== undefined ? { maxConcurrent: project.maxConcurrent } : {}),
+    ...(project.stacking ? { stacking: project.stacking } : {}),
     taskActions: project.taskActions ?? {},
     slackReview: {
       ...(project.slackReviewChannel ? { slackReviewChannel: project.slackReviewChannel } : {}),

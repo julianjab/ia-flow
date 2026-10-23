@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { closedIssue, locate } from '../locate.js'
+import { closedIssue, locate, mergedPullRequest } from '../locate.js'
 
 const issuesPayload = (action: string, extra: Record<string, unknown> = {}) => ({
   action,
@@ -108,5 +108,33 @@ describe('closedIssue', () => {
     const raw = issuesPayload('closed')
     ;(raw.issue as Record<string, unknown>).pull_request = { url: 'x' }
     expect(closedIssue(raw)).toEqual({ skip: 'issues.closed de un PR' })
+  })
+})
+
+describe('mergedPullRequest', () => {
+  const closed = (merged: boolean) => ({
+    action: 'closed',
+    pull_request: {
+      number: 10,
+      merged,
+      head: { ref: 'feat/a', sha: 'abc' },
+      base: { ref: 'main' },
+    },
+    repository: { name: 'api', owner: { login: 'la-haus' } },
+  })
+
+  it('a merged PR, with its branch, its tip and the branch it went into', () => {
+    expect(mergedPullRequest(closed(true))).toEqual({
+      owner: 'la-haus',
+      repo: 'api',
+      pr: 10,
+      head: 'feat/a',
+      headSha: 'abc',
+      base: 'main',
+    })
+  })
+
+  it('a PR closed without merging is skipped', () => {
+    expect(mergedPullRequest(closed(false))).toEqual({ skip: 'PR #10 cerrado sin mergear' })
   })
 })

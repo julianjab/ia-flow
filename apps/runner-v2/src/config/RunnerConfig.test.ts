@@ -63,6 +63,21 @@ describe('project.yaml when', () => {
   })
 })
 
+describe('project.yaml stacking', () => {
+  it('sin stacking, un blocker frena hasta cerrarse', () => {
+    expect(loadRunnerConfig(config('')).projects[0]?.stacking).toBeUndefined()
+  })
+
+  it('toma el label de las tasks que avanzan sobre prerrequisitos construidos', () => {
+    const cfg = loadRunnerConfig(config('      stacking: { label: epic-early }\n'))
+    expect(cfg.projects[0]?.stacking).toEqual({ label: 'epic-early' })
+  })
+
+  it('rechaza un stacking sin label', () => {
+    expect(() => loadRunnerConfig(config('      stacking: {}\n'))).toThrow()
+  })
+})
+
 describe('which runner.yaml', () => {
   it('a folder means its runner.yaml; a file is used as is', () => {
     const dir = config('')

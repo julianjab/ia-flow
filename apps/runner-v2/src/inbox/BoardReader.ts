@@ -16,6 +16,9 @@ export interface BoardSpec {
   when?: ConditionRow[]
   /** Su catálogo de repos (`owner/repo`): donde se abre un issue para su board. */
   repos?: string[]
+  /** El proyecto apila PRs (`stacking`): el PR de una card también sale de la rama vinculada a su
+   *  issue (un PR apilado, que GitHub no vincula). Sin esto ni se pide. */
+  stacking?: boolean
 }
 
 /** El `item` de una card, con la misma forma que el evento de la task que arma el intake
@@ -98,6 +101,13 @@ interface RawBoardItem {
     repository?: { name: string; owner: { login: string } }
     labels?: { nodes: Array<{ name: string }> }
     closedByPullRequestsReferences?: { nodes: RawIssueRef[] }
+    /** Las ramas vinculadas al issue y su PR abierto: el de un PR apilado, que GitHub no lista en
+     *  `closedByPullRequestsReferences` (no vincula un PR que no apunta a la default branch). */
+    linkedBranches?: {
+      nodes: Array<{
+        ref?: { associatedPullRequests?: { nodes: Array<{ number: number; url?: string }> } } | null
+      }>
+    }
     blockedBy?: { nodes: RawIssueRef[] }
     parent?: RawParent | null
   }
@@ -133,11 +143,13 @@ interface Optional {
 const PARENT =
   'parent { number title repository { name owner { login } } subIssuesSummary { completed total } }'
 
-const itemsQuery = ({
-  blockers,
-  epic,
-  openOnly,
-}: Optional) => `query($owner: String!, $number: Int!, $after: String) {
+const LINKED_PR =
+  'linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }'
+
+const itemsQuery = (
+  { blockers, epic, openOnly }: Optional,
+  stacking: boolean,
+) => `query($owner: String!, $number: Int!, $after: String) {
   repositoryOwner(login: $owner) {
     ... on ProjectV2Owner {
     projectV2(number: $number) {
@@ -159,6 +171,7 @@ const itemsQuery = ({
               repository { name owner { login } }
               labels(first: 30) { nodes { name } }
               closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${ISSUE_REF} } }
+              ${stacking ? LINKED_PR : ''}
               ${blockers ? `blockedBy(first: 20) { nodes { ${ISSUE_REF} } }` : ''}
               ${epic ? PARENT : ''}
             }
@@ -195,7 +208,9 @@ export function toBoardCard(item: RawBoardItem, spec: BoardSpec): BoardCard | un
   const labels = (issue.labels?.nodes ?? []).map((label) => label.name)
   const field = (name: string) =>
     item.fieldValues?.nodes.find((value) => value.field?.name === name)?.name
-  const pr = issue.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN')
+  const pr =
+    issue.closedByPullRequestsReferences?.nodes.find((ref) => ref.state === 'OPEN') ??
+    issue.linkedBranches?.nodes.flatMap((node) => node.ref?.associatedPullRequests?.nodes ?? [])[0]
   const status = field('Status')
   const taskType = field('Task Type')
   const epic = toEpic(issue.parent)
@@ -227,7 +242,8 @@ export class BoardReader {
   /** Las cards de un board, cacheadas un minuto; `refresh` (o un webhook) relee. */
   @memoize({
     ttlMs: 60_000,
-    key: (spec: BoardSpec) => `${spec.board.owner}/${spec.board.number}`,
+    key: (spec: BoardSpec) =>
+      `${spec.board.owner}/${spec.board.number}${spec.stacking ? ':stacking' : ''}`,
   })
   cards(spec: BoardSpec): Promise<BoardCard[]> {
     return this.read(spec)
@@ -275,7 +291,10 @@ export class BoardReader {
     const variables = { owner: spec.board.owner, number: spec.board.number, after }
     for (;;) {
       try {
-        return await this.client.graphql<ItemsPage>(itemsQuery(this.optional), variables)
+        return await this.client.graphql<ItemsPage>(
+          itemsQuery(this.optional, spec.stacking === true),
+          variables,
+        )
       } catch (err) {
         if (!this.degrade((err as Error).message)) throw err
       }

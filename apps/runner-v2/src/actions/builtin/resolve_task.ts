@@ -24,6 +24,7 @@ export default defineAction({
           board: project.board,
           ...boardEvents(ctx.services.boards.of(project.id)),
           ...(project.branchPrefix ? { branchPrefix: project.branchPrefix } : {}),
+          ...(project.stacking ? { stacking: project.stacking } : {}),
           repos: repoRefs(project),
           reposText: reposText(project),
         })),

@@ -10,6 +10,7 @@ import {
 import type { ExecutionRepository, QueuedRun } from './ExecutionRepository.js'
 import { type ExecutionGroups, ExecutionScheduler } from './ExecutionScheduler.js'
 import { InMemoryRunCounter } from './InMemoryRunCounter.js'
+import { DEFAULT_RESUME_LIMITS, type ResumeLimits, resumeDelayMs } from './ResumeLimits.js'
 import type { RunCounter } from './RunCounter.js'
 
 export interface StartExecution {
@@ -44,8 +45,10 @@ export interface ExecutionStoreOptions {
    *  procesos, sin estado en el repositorio). */
   newId?: () => string
   /** Retomar tras un reinicio la que corría con un paso que guardaba su progreso (un agente y
-   *  su conversación). Default: hasta 10 veces seguidas, y si se guardó hace menos de 24 h. */
-  resume?: { maxAttempts?: number; maxAgeMs?: number }
+   *  su conversación) o que acababa de despertar de una pausa. Default (`DEFAULT_RESUME_LIMITS`):
+   *  hasta 10 veces seguidas, si se guardó hace menos de 24 h, con una espera que crece con los
+   *  intentos y escalonadas de a una por minuto. */
+  resume?: Partial<ResumeLimits>
   /** Dónde se cuentan las corridas de `maxRuns`. Default: en memoria (se pierde al reiniciar). */
   runs?: RunCounter
 }
@@ -56,9 +59,6 @@ export interface RunBudget {
   max: number
   windowMs?: number
 }
-
-const RESUME_MAX_ATTEMPTS = 10
-const RESUME_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 /** Lo que lee el agente que se retoma tras un reinicio. */
 export const RESTART_NOTE =
@@ -80,9 +80,10 @@ export interface OrphanedEvents {
  * (`ExecutionScheduler`), y qué pasa con una pausa cuando a su task le toca otra corrida
  * (`ifPaused`). Cada ejecución le anota sus cambios al `ExecutionRepository`; con uno persistente,
  * al construirse recupera lo que quedó vivo: las pausadas vuelven a esperar; las que corrían con
- * un paso que guardaba su progreso se retoman ahí (quedan pausadas y vencidas: el próximo
- * `tick` las corre); y las demás se cierran `failed` (`interrupted`) y dejan lo que no leyeron en
- * `takeOrphaned()` para que el engine lo re-despache.
+ * un paso que guardaba su progreso, o recién despertadas de una pausa, se retoman ahí (quedan
+ * pausadas con un vencimiento escalonado: un `tick` las corre — ver `ResumeLimits`); y las demás
+ * se cierran `failed` (`interrupted`) y dejan lo que no leyeron en `takeOrphaned()` para que el
+ * engine lo re-despache.
  */
 export class ExecutionStore {
   readonly log = createLogger('agent-engine.execution')
@@ -92,7 +93,7 @@ export class ExecutionStore {
   /** La última corrida `replace` esperando turno, por task y pipeline. */
   private readonly queued = new Map<string, QueuedTicket>()
   private orphaned: OrphanedEvents[] = []
-  private readonly resumeLimits: { maxAttempts: number; maxAgeMs: number }
+  private readonly resumeLimits: ResumeLimits
   private readonly newId: () => string
   private readonly listeners = new Set<ExecutionListener>()
   /** El último estado avisado de cada ejecución viva: se avisa un CAMBIO, no cada guardado. */
@@ -118,10 +119,7 @@ export class ExecutionStore {
     this.scheduler = new ExecutionScheduler(max, options.groups)
     this.runs = options.runs ?? new InMemoryRunCounter()
     this.newId = options.newId ?? (() => globalThis.crypto.randomUUID())
-    this.resumeLimits = {
-      maxAttempts: options.resume?.maxAttempts ?? RESUME_MAX_ATTEMPTS,
-      maxAgeMs: options.resume?.maxAgeMs ?? RESUME_MAX_AGE_MS,
-    }
+    this.resumeLimits = { ...DEFAULT_RESUME_LIMITS, ...options.resume }
     this.recovering = true
     this.recover()
     this.recovering = false
@@ -316,6 +314,7 @@ export class ExecutionStore {
   }
 
   private recover(): void {
+    let restarted = 0
     for (const record of this.repository.live()) {
       if (record.status === 'paused') {
         this.track(Execution.restore(record, this.journal))
@@ -326,9 +325,12 @@ export class ExecutionStore {
       this.repository.read(record.id)
       const resumable = this.resumable(record)
       if (resumable) {
-        this.track(Execution.restore(this.restartable(record, resumable, events), this.journal))
+        const paused = this.restartable(record, resumable, events, restarted++)
+        this.track(Execution.restore(paused, this.journal))
+        const via = resumable.branch ? ` por "${resumable.branch}"` : ''
+        const inSeconds = Math.round(((paused.pause?.expiresAt ?? Date.now()) - Date.now()) / 1000)
         this.log.warn(
-          `${record.id} se interrumpió con el proceso: se retoma en ${resumable.pauseId}`,
+          `${record.id} se interrumpió con el proceso: se retoma en ${resumable.pauseId}${via} (intento ${paused.checkpoint?.attempts}, en ${inSeconds} s)`,
           {
             'ia.execution.id': record.id,
           },
@@ -369,10 +371,13 @@ export class ExecutionStore {
     }
   }
 
-  /** El checkpoint desde el que se retoma una que corría, si guardó uno y no pasó los topes. */
+  /** El checkpoint desde el que se retoma una que corría, si guardó uno y no pasó los topes: lo
+   *  que guardaba un paso (`state`, la conversación de un agente) o la pausa de la que acababa de
+   *  despertar (`branch`). */
   private resumable(record: ExecutionRecord): Checkpoint | undefined {
     const checkpoint = record.checkpoint
-    if (checkpoint?.state === undefined) return undefined
+    if (checkpoint === undefined) return undefined
+    if (checkpoint.state === undefined && checkpoint.branch === undefined) return undefined
     const attempts = checkpoint.attempts ?? 0
     const age = Date.now() - Date.parse(checkpoint.savedAt ?? record.startedAt)
     if (attempts >= this.resumeLimits.maxAttempts || !(age <= this.resumeLimits.maxAgeMs)) {
@@ -385,12 +390,15 @@ export class ExecutionStore {
     return checkpoint
   }
 
-  /** La que corría, como pausada y ya vencida: el engine la retoma en el próximo `tick`. Lo que
-   *  había recibido sin leer va en el aviso al agente, no a otra corrida que la reemplazaría. */
+  /** La que corría, como pausada que vence en `resumeDelayMs` (la primera de un reinicio, en el
+   *  acto): el engine la retoma en el `tick` que sigue. `index` es cuántas se retoman antes que
+   *  ella en este reinicio. Lo que había recibido sin leer va en el aviso al agente, no a otra
+   *  corrida que la reemplazaría. */
   private restartable(
     record: ExecutionRecord,
     checkpoint: Checkpoint,
     unread: DomainEvent<any>[],
+    index: number,
   ): ExecutionRecord {
     const pending = unread.map((event) => {
       const payload = JSON.stringify(event.payload)
@@ -400,11 +408,13 @@ export class ExecutionStore {
       pending.length > 0
         ? `${RESTART_NOTE}\n\nMientras tanto llegó:\n${pending.join('\n')}`
         : RESTART_NOTE
+    const attempts = (checkpoint.attempts ?? 0) + 1
+    const expiresAt = Date.now() + resumeDelayMs(attempts, index, this.resumeLimits)
     const paused: ExecutionRecord = {
       ...record,
       status: 'paused',
-      pause: { pauseId: checkpoint.pauseId, branches: [], expiresAt: Date.now() },
-      checkpoint: { ...checkpoint, note, attempts: (checkpoint.attempts ?? 0) + 1 },
+      pause: { pauseId: checkpoint.pauseId, branches: [], expiresAt },
+      checkpoint: { ...checkpoint, note, attempts },
     }
     this.save(paused)
     return paused

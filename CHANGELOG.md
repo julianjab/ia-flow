@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.27.1](https://github.com/julianjab/ia-flow/compare/v2.27.0...v2.27.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* recuperación tras la muerte del proceso — checkpoint al despertar, retomar escalonado y «Reintentar» con el evento que abrió la ejecución ([#340](https://github.com/julianjab/ia-flow/issues/340)) ([42e6370](https://github.com/julianjab/ia-flow/commit/42e6370d7ea92cb6b8eafbb258256bdc3881c970))
+
+## [2.27.0](https://github.com/julianjab/ia-flow/compare/v2.26.1...v2.27.0) (2026-10-23)
+
+
+### Features
+
+* **runner-v2:** stacking — tasks que avanzan sobre prerrequisitos construidos (PRs apilados) ([#337](https://github.com/julianjab/ia-flow/issues/337)) ([87cfbc4](https://github.com/julianjab/ia-flow/commit/87cfbc485a27392c79f3d58edd223d525e012de0))
+
+## [2.26.1](https://github.com/julianjab/ia-flow/compare/v2.26.0...v2.26.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **agent-engine:** una corrida que espera lugar sobrevive al reinicio por su evento ([b09fddb](https://github.com/julianjab/ia-flow/commit/b09fddb210249baed45d2322dfffeef3be6e80d8))
+
 ## [2.26.0](https://github.com/julianjab/ia-flow/compare/v2.25.0...v2.26.0) (2026-10-22)
 
 

@@ -6,91 +6,23 @@
  */
 import type { GithubClient } from '@ia-flow/github-api'
 import { sameRepo } from '../shared.js'
+import {
+  closingIssuesQuery,
+  closingPrsQuery,
+  ISSUE_OF_ITEM,
+  ITEMS_OF_ISSUE,
+  LINKED_BRANCHES,
+  PARENT,
+  REVIEW_THREADS,
+} from './queries.js'
 import { type OpenPr, openPr, type RawItem, type RawPr } from './shapes.js'
+import { closingRefs } from './stack.js'
 import type { RawComment, RawReview, RawThread } from './timeline.js'
 
 export interface BoardRef {
   owner: string
   number: number
 }
-
-const PROJECT = 'project { number owner { ... on Organization { login } ... on User { login } } }'
-
-const FIELD_VALUES = `fieldValues(first: 30) {
-  nodes {
-    ... on ProjectV2ItemFieldSingleSelectValue {
-      name
-      field { ... on ProjectV2SingleSelectField { name } }
-    }
-  }
-}`
-
-const ITEMS_OF_ISSUE = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) { projectItems(first: 50) { nodes { id ${PROJECT} ${FIELD_VALUES} } } }
-  }
-}`
-
-const ISSUE_OF_ITEM = `query($id: ID!) {
-  node(id: $id) {
-    ... on ProjectV2Item {
-      ${PROJECT}
-      content { ... on Issue { number repository { name owner { login } } } }
-    }
-  }
-}`
-
-// La sección "Development" del issue: las ramas vinculadas (`createLinkedBranch`) y los PRs
-// abiertos que lo cierran. Una rama que subió el agente sin vincular sólo aparece por su PR.
-// `state`: `includeClosedPrs: false` no saca a los mergeados, y la rama de uno ya no es la de la task.
-const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
-      linkedBranches(first: 10) { nodes { ref { name } } }
-      closedByPullRequestsReferences(first: 10, includeClosedPrs: false) {
-        nodes { number state headRefName isCrossRepository createdAt repository { nameWithOwner } }
-      }
-    }
-  }
-}`
-
-// Las relaciones issue ↔ PR que GitHub ya lleva (sección "Development" y palabras de cierre): el
-// intake las lee, no las deduce del nombre de una rama.
-const CLOSING_ISSUES = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      closingIssuesReferences(first: 10) { nodes { number repository { name owner { login } } } }
-    }
-  }
-}`
-
-// La épica de un issue: su padre en la jerarquía de sub-issues de GitHub.
-const PARENT = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) { parent { number repository { name owner { login } } } }
-  }
-}`
-
-const CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    issue(number: $number) {
-      closedByPullRequestsReferences(first: 10, includeClosedPrs: false) { nodes { number state } }
-    }
-  }
-}`
-
-const REVIEW_THREADS = `query($owner: String!, $repo: String!, $number: Int!) {
-  repository(owner: $owner, name: $repo) {
-    pullRequest(number: $number) {
-      reviewThreads(last: 30) {
-        nodes {
-          id isResolved path line
-          comments(first: 20) { nodes { body createdAt author { login } } }
-        }
-      }
-    }
-  }
-}`
 
 /** Lo que el agente necesita de una task además de su card, tal cual lo devolvió GitHub. */
 export interface RawTaskContext {
@@ -114,15 +46,33 @@ export interface RawTaskContext {
 
 type ItemIssue = Awaited<ReturnType<GithubTaskReader['readItem']>>
 
+export interface GithubTaskReaderOptions {
+  /** El proyecto apila PRs (`stacking`): un PR apilado, que GitHub no vincula a su issue, se
+   *  reconoce por el `Closes #n` de su body y por la rama vinculada al issue. Sin esto, sólo vale
+   *  lo que GitHub vincula. */
+  stacking?: boolean
+}
+
 export class GithubTaskReader {
   private items?: Map<string, Promise<ItemIssue>>
 
-  constructor(private readonly client: GithubClient) {}
+  constructor(
+    private readonly client: GithubClient,
+    private readonly options: GithubTaskReaderOptions = {},
+  ) {}
 
   /** Un lector que lee cada item una sola vez: el de un webhook, que miran varios proyectos. */
   withItemCache(): GithubTaskReader {
-    const reader = new GithubTaskReader(this.client)
+    const reader = new GithubTaskReader(this.client, this.options)
     reader.items = new Map()
+    return reader
+  }
+
+  /** El mismo lector (y su cache de items) para un proyecto que apila PRs. */
+  withStacking(): GithubTaskReader {
+    if (this.options.stacking) return this
+    const reader = new GithubTaskReader(this.client, { ...this.options, stacking: true })
+    if (this.items) reader.items = this.items
     return reader
   }
 
@@ -160,7 +110,10 @@ export class GithubTaskReader {
     return data.repository?.issue?.projectItems?.nodes ?? []
   }
 
-  /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. */
+  /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. Con
+   *  `stacking`, un PR abierto que no apunta a la default branch (uno apilado) no tiene esa sección
+   *  —GitHub ignora sus palabras clave—: sus issues salen del `Closes #n` de su body. Uno ya mergeado en otra rama
+   *  no cerró nada: su código no está en la default, y su issue sigue abierto. */
   async closingIssues(
     owner: string,
     repo: string,
@@ -168,7 +121,11 @@ export class GithubTaskReader {
   ): Promise<Array<{ owner: string; repo: string; number: number }>> {
     const data = await this.client.graphql<{
       repository?: {
+        defaultBranchRef?: { name: string } | null
         pullRequest?: {
+          body?: string | null
+          baseRefName?: string
+          merged?: boolean
           closingIssuesReferences?: {
             nodes?: Array<{
               number: number
@@ -177,12 +134,17 @@ export class GithubTaskReader {
           }
         } | null
       } | null
-    }>(CLOSING_ISSUES, { owner, repo, number })
-    return (data.repository?.pullRequest?.closingIssuesReferences?.nodes ?? []).map((node) => ({
+    }>(closingIssuesQuery(this.options.stacking === true), { owner, repo, number })
+    const pr = data.repository?.pullRequest
+    const linked = (pr?.closingIssuesReferences?.nodes ?? []).map((node) => ({
       owner: node.repository.owner.login,
       repo: node.repository.name,
       number: node.number,
     }))
+    const base = pr?.baseRefName
+    const stacked = base !== undefined && base !== data.repository?.defaultBranchRef?.name
+    if (!this.options.stacking || linked.length > 0 || !stacked || pr?.merged) return linked
+    return closingRefs(pr?.body ?? '', { owner, repo })
   }
 
   /** El issue padre de `owner/repo#number` (del que es sub-issue), si tiene uno. Puede ser de otro
@@ -208,17 +170,30 @@ export class GithubTaskReader {
     }
   }
 
-  /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno. */
+  /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno; con
+   *  `stacking`, si no, el abierto desde una rama vinculada al issue: el de un PR apilado, que
+   *  GitHub no vincula. */
   private async linkedOpenPr(owner: string, repo: string, number: number) {
     const data = await this.client.graphql<{
       repository?: {
         issue?: {
           closedByPullRequestsReferences?: { nodes?: Array<{ number: number; state: string }> }
+          linkedBranches?: {
+            nodes?: Array<{
+              ref?: { associatedPullRequests?: { nodes?: Array<{ number: number }> } } | null
+            }>
+          }
         } | null
       } | null
-    }>(CLOSING_PRS, { owner, repo, number })
-    const nodes = data.repository?.issue?.closedByPullRequestsReferences?.nodes ?? []
-    return nodes.find((node) => node.state === 'OPEN')?.number
+    }>(closingPrsQuery(this.options.stacking === true), { owner, repo, number })
+    const issue = data.repository?.issue
+    const closing = (issue?.closedByPullRequestsReferences?.nodes ?? []).find(
+      (node) => node.state === 'OPEN',
+    )
+    if (closing || !this.options.stacking) return closing?.number
+    return (issue?.linkedBranches?.nodes ?? []).flatMap(
+      (node) => node.ref?.associatedPullRequests?.nodes ?? [],
+    )[0]?.number
   }
 
   pull(
@@ -398,6 +373,33 @@ export class GithubTaskReader {
       statuses: status.statuses,
       workflowRuns: runs.workflow_runs,
     }
+  }
+
+  /** El PR abierto de la task (el de `pr`, o el que GitHub vincula al issue), si hay uno. */
+  openPullRequest(task: {
+    owner: string
+    repo: string
+    number: number
+    pr?: number
+  }): Promise<OpenPr | undefined> {
+    return this.openPr(task)
+  }
+
+  /** El primer commit de un PR: el que trae cualquier rama que salió de la suya, aunque el PR
+   *  haya recibido más commits después. */
+  async firstCommit(owner: string, repo: string, pr: number): Promise<string | undefined> {
+    const commits = await this.client.requestJson<Array<{ sha: string }>>(
+      `/repos/${owner}/${repo}/pulls/${pr}/commits?per_page=1`,
+    )
+    return commits[0]?.sha
+  }
+
+  /** Si `head` ya trae el commit `sha` (`sha` es su ancestro, o es el mismo). */
+  async contains(owner: string, repo: string, sha: string, head: string): Promise<boolean> {
+    const compare = await this.client.requestJson<{ status: string }>(
+      `/repos/${owner}/${repo}/compare/${encodeURIComponent(sha)}...${encodeURIComponent(head)}`,
+    )
+    return compare.status === 'ahead' || compare.status === 'identical'
   }
 
   /** El PR del evento si sigue abierto; si no trae uno, el que GitHub vincula al issue. */

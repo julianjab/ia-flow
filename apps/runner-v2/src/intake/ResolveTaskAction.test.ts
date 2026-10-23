@@ -26,6 +26,7 @@ function reader(
 ): GithubTaskReader {
   const fake = {
     withItemCache: () => fake,
+    withStacking: () => fake,
     itemsOfIssue: async () => [
       {
         id: 'PVTI_1',
@@ -230,6 +231,7 @@ describe('resolve_task on a pull request', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       closingIssues: async () => closing.map((number) => ({ owner: 'o', repo: 'r', number })),
       context: async (task: Record<string, unknown>) => {
         contexts.push(task)
@@ -399,6 +401,7 @@ describe('resolve_task notifyParent', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       parentOf: async (owner: string, repo: string, number: number) => {
         asked.push(`${owner}/${repo}#${number}`)
         if (options.parent === null) return undefined
@@ -502,6 +505,7 @@ describe('resolve_task notifyParentOfStatus', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       issueOfItem: async () => ({
         board: { owner: 'o', number: 1 },
         owner: 'o',
@@ -696,6 +700,7 @@ describe('resolve_task notifySiblingConflicts', () => {
     const fake = {
       ...base,
       withItemCache: () => fake,
+      withStacking: () => fake,
       closingIssues: async () => [{ owner: 'o', repo: 'r', number: 12 }],
       parentOf: async () => ({ owner: 'o', repo: 'r', number: 5 }),
       subIssues: async () => [
@@ -741,5 +746,240 @@ describe('resolve_task notifySiblingConflicts', () => {
     const { result, published } = await resolve(true)
     expect(published).toEqual([])
     expect(result).toEqual({ skipped: 'p: el PR #21 de o/r#7 sigue sin conflictos' })
+  })
+})
+
+describe('resolve_task stacking', () => {
+  const stacking = { ...project, stacking: { label: 'epic-early' } }
+  /** o/r#7 bloqueado por o/r#3, que tiene el PR #30 abierto desde feat/a. */
+  const blocked = (labels: string[]) => {
+    const base = reader(labels) as unknown as Record<string, unknown>
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      withStacking: () => fake,
+      context: async () => ({
+        issue: { title: 't', body: '', html_url: 'https://github.com/o/r/issues/7', labels },
+        blockers: [
+          { number: 3, title: 'a', state: 'open', html_url: 'https://github.com/o/r/issues/3' },
+        ],
+        issueComments: [],
+      }),
+      openPullRequest: async () => ({
+        number: 30,
+        url: '',
+        headSha: 'abc',
+        title: 'a',
+        author: 'bot',
+        headRef: 'feat/a',
+        baseRef: 'main',
+      }),
+    }
+    return fake as unknown as GithubTaskReader
+  }
+
+  async function publish(labels: string[]) {
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (event) => {
+      published.push(event)
+    })
+    const ctx = {
+      event: comment,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [stacking], blocked(labels))
+    await action.execute(action.input.parse({}), ctx)
+    return published[0]?.payload as Record<string, unknown>
+  }
+
+  it('con el label, un blocker con PR abierto no la bloquea y apila sobre su rama', async () => {
+    const payload = await publish(['epic-early'])
+    expect(payload).toMatchObject({
+      item: { blocked: false },
+      task: { stack: { branch: 'feat/a', pr: 30, issue: 'o/r#3' } },
+    })
+  })
+
+  it('sin el label, el blocker abierto la bloquea como siempre', async () => {
+    const payload = await publish([])
+    expect(payload).toMatchObject({ item: { blocked: true } })
+    expect((payload.task as Record<string, unknown>).stack).toBeUndefined()
+  })
+
+  it('sólo un proyecto con `stacking` lee con los vínculos de un PR apilado', async () => {
+    const used: string[] = []
+    const plain = blocked([]) as unknown as Record<string, unknown>
+    const fake = {
+      ...plain,
+      withItemCache: () => fake,
+      withStacking: () => {
+        used.push('stacking')
+        return fake
+      },
+    } as unknown as GithubTaskReader
+    const ctx = {
+      event: comment,
+      bus: new EventBus(),
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project, stacking], fake)
+    await action.execute(action.input.parse({}), ctx)
+    expect(used).toEqual(['stacking'])
+  })
+})
+
+describe('resolve_task unblockDependents', () => {
+  /** El merge del PR #30 (feat/a → main), que cierra o/r#3, del que depende o/r#7. */
+  const merged = createEvent('github.pull_request', {
+    action: 'closed',
+    pull_request: {
+      number: 30,
+      merged: true,
+      head: { ref: 'feat/a', sha: 'abc' },
+      base: { ref: 'main' },
+    },
+    repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+    sender: { login: 'julian' },
+  })
+
+  async function unblock(
+    dependentPr: { number: number; headRef: string; baseRef: string } | null,
+    proyecto: typeof project & { stacking?: { label: string } } = {
+      ...project,
+      stacking: { label: 'epic-early' },
+    },
+    /** El dependiente lleva el label de stacking y ya tiene su PR (`openPr` del contexto). */
+    built = false,
+  ) {
+    const base = reader(built ? ['epic-early'] : []) as unknown as Record<string, unknown>
+    const builtContext = async () => ({
+      issue: {
+        title: 't',
+        body: '',
+        html_url: 'https://github.com/o/r/issues/7',
+        labels: ['epic-early'],
+      },
+      blockers: [],
+      issueComments: [],
+      openPr: {
+        number: 70,
+        url: '',
+        headSha: 'x',
+        title: 't',
+        author: 'a',
+        headRef: 'feat/b',
+        baseRef: 'main',
+      },
+    })
+    const fake = {
+      ...base,
+      ...(built ? { context: builtContext } : {}),
+      withItemCache: () => fake,
+      withStacking: () => fake,
+      closingIssues: async () => [{ owner: 'o', repo: 'r', number: 3 }],
+      dependents: async () => [
+        { number: 7, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
+      ],
+      openPullRequest: async () => dependentPr ?? undefined,
+      contains: async () => false,
+    }
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (event) => {
+      published.push(event)
+    })
+    const ctx = {
+      event: merged,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [proyecto], fake as unknown as GithubTaskReader)
+    const result = await action.execute(action.input.parse({ unblockDependents: true }), ctx)
+    return { result, published }
+  }
+
+  it('un dependiente sin PR apilado recibe issue.unblocked', async () => {
+    const { published } = await unblock(null)
+    expect(published.map((event) => event.type)).toEqual(['issue.unblocked'])
+  })
+
+  it('apilada y con su PR (prerrequisito de otro repo): el merge no la destraba de nuevo', async () => {
+    const { published, result } = await unblock(null, undefined, true)
+    expect(published).toEqual([])
+    expect(result).toEqual({ skipped: 'p: PR #30 no deja ninguna task sin prerrequisitos' })
+  })
+
+  it('sin stacking en el proyecto, nunca issue.base_merged: issue.unblocked como siempre', async () => {
+    const { published } = await unblock(
+      { number: 70, headRef: 'feat/b', baseRef: 'feat/a' },
+      project,
+    )
+    expect(published.map((event) => event.type)).toEqual(['issue.unblocked'])
+  })
+
+  it('un dependiente con el PR apilado sobre la rama mergeada recibe issue.base_merged', async () => {
+    const { result, published } = await unblock({
+      number: 70,
+      headRef: 'feat/b',
+      baseRef: 'feat/a',
+    })
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.base_merged'])
+    expect(published[0]?.payload).toMatchObject({
+      from: 'feat/a',
+      to: 'main',
+      mergedPr: 'o/r#30',
+      pr: { number: 70 },
+    })
+  })
+})
+
+describe('resolve_task notifyParentOfLabels', () => {
+  const labeled = (label: string) =>
+    createEvent('github.issues', {
+      action: 'labeled',
+      label: { name: label },
+      issue: { number: 12, title: 't', labels: [{ name: label }] },
+      repository: { name: 'r', full_name: 'o/r', owner: { login: 'o' } },
+      sender: { login: 'ia-flow[bot]' },
+    })
+
+  async function notify(event: DomainEvent<unknown>) {
+    const base = reader([]) as unknown as Record<string, unknown>
+    const fake = {
+      ...base,
+      withItemCache: () => fake,
+      withStacking: () => fake,
+      parentOf: async () => ({ owner: 'o', repo: 'r', number: 7 }),
+    }
+    const bus = new EventBus()
+    const published: DomainEvent<unknown>[] = []
+    bus.subscribe('*', (e) => {
+      published.push(e)
+    })
+    const ctx = {
+      event,
+      bus,
+      capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
+    } as unknown as PipelineExecutionContext
+    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
+    const input = action.input.parse({ notifyParentOfLabels: ['blocked'] })
+    const result = await action.execute(input, ctx)
+    return { result, published }
+  }
+
+  it('un hijo que recibe uno de los labels avisa a su épica con issue.child_labeled', async () => {
+    const { result, published } = await notify(labeled('blocked'))
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published.map((event) => event.type)).toEqual(['issue.child_labeled'])
+    expect(published[0]?.payload).toMatchObject({ child: 'o/r#12', label: 'blocked' })
+  })
+
+  it('otro label no llega a la épica', async () => {
+    const { result, published } = await notify(labeled('reviewed'))
+    expect(published).toEqual([])
+    expect('skipped' in result && result.skipped).toMatch(/no se avisa al padre/)
   })
 })

@@ -31,7 +31,8 @@ src/
 - **Un proceso por base.** La exclusión por task y el tope viven en memoria (el
   `ExecutionScheduler` del core). Varias réplicas sobre la misma base necesitarían leases.
 - **Al arrancar**, el store recupera lo vivo: pausadas → vuelven a esperar; las que corrían con
-  progreso en `checkpoint_json` (la conversación de un agente, en `state`) → se retoman desde ahí;
+  progreso en `checkpoint_json` (la conversación de un agente, en `state`; o la pausa de la que
+  recién despertaron, con su `branch`) → se retoman desde ahí, escalonadas;
   las demás → `failed` con `close_reason = 'interrupted'`, y lo que no leyeron sale una sola vez por
   `takeOrphaned()` (el `Engine` lo re-despacha).
 - **Migraciones**: una nueva se AGREGA al final de `MIGRATIONS`; nunca se edita una que ya corrió.

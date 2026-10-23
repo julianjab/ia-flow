@@ -194,13 +194,29 @@ function ciRun(type: 'check_suite' | 'workflow_run', raw: Raw): Location {
   }
 }
 
-/** El PR mergeado de un webhook — el issue que cierra (el prerrequisito) lo dice GitHub. */
-export function mergedPullRequest(
-  raw: Raw,
-): { skip: string } | { owner: string; repo: string; pr: number } {
+/** El PR mergeado de un webhook — el issue que cierra (el prerrequisito) lo dice GitHub. Con su
+ *  rama (`head`, y el commit en su punta) y la rama en la que entró (`base`): un PR apilado sobre
+ *  `head` pasa a `base`. */
+export function mergedPullRequest(raw: Raw):
+  | { skip: string }
+  | {
+      owner: string
+      repo: string
+      pr: number
+      head: string
+      headSha: string
+      base: string
+    } {
   const pr = parseGithubPullRequestPayload(raw)
   if (!pr.merged) return { skip: `PR #${pr.number} cerrado sin mergear` }
-  return { owner: pr.owner, repo: pr.repo, pr: pr.number }
+  return {
+    owner: pr.owner,
+    repo: pr.repo,
+    pr: pr.number,
+    head: pr.headRef,
+    headSha: pr.headSha,
+    base: pr.baseRef,
+  }
 }
 
 /**
