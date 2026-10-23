@@ -12,7 +12,8 @@ import { useInboxStore } from '@/features/inbox/store';
 // «Resto del board»: lo que la bandeja no muestra, las cards sin pendientes (Backlog, Todo, lo
 // que terminó…). Arranca plegado, pero se pide al montar (y al cambiar de proyecto) para que la
 // línea de resumen ya diga la cuenta por columna. Abierto, cada columna es otra línea plegada;
-// en cada fila, el botón abre la tarea en grande y el link corto va a GitHub.
+// en cada fila, el botón abre la tarea en grande y el link corto va a GitHub. Al final, «Cerrados»:
+// lo que ya terminó, pedido recién al abrirlo; cada uno se abre en GitHub (ya no tiene detalle).
 
 const store = useInboxStore();
 
@@ -29,6 +30,20 @@ const columns = computed(() =>
 );
 const total = computed(() => columns.value.reduce((n, c) => n + c.items.length, 0));
 const failure = computed(() => (store.restError ? loadFailure('leer el board', store.restError) : null));
+const closedFailure = computed(() =>
+  store.closedError ? loadFailure('leer los cerrados del board', store.closedError) : null,
+);
+
+/** «Cerrados» se pide al abrirlo, una vez por proyecto (cambiar de proyecto lo vuelve a pedir). */
+function onClosedToggle(open: boolean) {
+  if (open && !store.closed && !store.closedLoading) void store.loadClosed();
+}
+watch(
+  () => store.project,
+  () => {
+    if (store.closed) void store.loadClosed();
+  },
+);
 </script>
 
 <template>
@@ -62,6 +77,27 @@ const failure = computed(() => (store.restError ? loadFailure('leer el board', s
           </ul>
         </Disclosure>
       </template>
+
+      <Disclosure title="Cerrados" tag="span" bare class="br__col" data-test="closed" @toggle="onClosedToggle">
+        <template #meta>
+          <span v-if="store.closed" class="br__n mono">{{ store.closed.length }}</span>
+          <span v-else class="br__dim">lo que ya terminó</span>
+        </template>
+        <ActionError v-if="closedFailure" :failure="closedFailure" :busy="store.closedLoading" @retry="store.loadClosed()" />
+        <p v-else-if="store.closedLoading && !store.closed" class="br__dim">· leyendo los cerrados…</p>
+        <p v-else-if="store.closed && !store.closed.length" class="br__dim">No hay cards cerradas en el board.</p>
+        <ul v-if="store.closed?.length" class="br__list">
+          <li v-for="item in store.closed" :key="item.ref" class="br__item" :data-test="`closed-${item.ref}`">
+            <a class="br__row br__row--closed" :href="item.url" target="_blank" rel="noopener noreferrer">
+              <span class="br__title">{{ item.title }}</span>
+              <span class="br__meta">
+                <template v-if="item.status">{{ item.status }} · </template>cerrada <AgeStamp :age="ageOf(item.closed_at ?? item.updated_at, store.now)" />
+              </span>
+            </a>
+            <RefLink :short="shortRef(item.ref)" :url="item.url" />
+          </li>
+        </ul>
+      </Disclosure>
     </div>
   </Disclosure>
 </template>
@@ -101,4 +137,6 @@ const failure = computed(() => (store.restError ? loadFailure('leer el board', s
 .br__row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .br__title { color: var(--fg-mute); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 .br__meta { color: var(--fg-dim); font-size: var(--fs-micro); font-variant-numeric: tabular-nums; }
+.br__row--closed { text-decoration: none; }
+.br__row--closed .br__title { color: var(--fg-dim); }
 </style>

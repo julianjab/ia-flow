@@ -3,6 +3,7 @@ import {
   type AddToBoardResult,
   AddToBoardResultSchema,
   type BoardRest,
+  type BoardRestItem,
   BoardRestSchema,
   type EpicDetail,
   EpicDetailSchema,
@@ -74,6 +75,15 @@ export async function getBoardRest(project?: string): Promise<BoardRest> {
     params: project ? { project } : undefined,
   })
   return BoardRestSchema.parse(data)
+}
+
+/** Las cards cerradas del board (`/api/board?closed=1`), las más recientes primero. Un runner viejo
+ *  no las manda: lista vacía. */
+export async function getClosedCards(project?: string): Promise<BoardRestItem[]> {
+  const { data } = await axios.get<unknown>('/api/board', {
+    params: { ...(project ? { project } : {}), closed: '1' },
+  })
+  return BoardRestSchema.parse(data).closed ?? []
 }
 
 export async function getTaskDetail(ref: string, executionId?: string): Promise<TaskDetail> {
