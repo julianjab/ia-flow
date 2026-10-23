@@ -89,7 +89,7 @@ struct TaskDetailScreen: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Chip(text: "Te preguntó", tone: .warn)
-                if let run { Text("\(stageName(item)) · \(run.agentLabel ?? run.pipeline_id)").font(.lh(11.5)).foregroundStyle(.secondary) }
+                if let run { Text("\(run.pipeline_id.prefix(1).uppercased() + run.pipeline_id.dropFirst()) · \(run.agentLabel ?? run.pipeline_id)").font(.lh(11.5)).foregroundStyle(.secondary) }
                 Spacer()
                 if let age = item.age { Text(age == "ahora" ? age : "hace \(age)").font(.lh(11.5)).foregroundStyle(.tertiary) }
             }
