@@ -1,5 +1,46 @@
 # Changelog
 
+## [2.28.0](https://github.com/julianjab/ia-flow/compare/v2.27.1...v2.28.0) (2026-10-23)
+
+
+### Features
+
+* **menubar:** detalle de tarea con ruta de vuelta, por qué te necesita y pestañas ([88784c1](https://github.com/julianjab/ia-flow/commit/88784c1dc53e4d14c91e29b04adb220bcb24d574))
+* **menubar:** la ventana ancha en tres columnas, con menú lateral y el detalle a la derecha ([a8ae67e](https://github.com/julianjab/ia-flow/commit/a8ae67ec3c2cbe4141f9bf9b270f9251159f9832))
+* **menubar:** Para mí · En curso · Próximo, el runner arriba y el asistente al pie ([85df194](https://github.com/julianjab/ia-flow/commit/85df19492b49cad33f505b0176effaa8ce1c5789))
+* **menubar:** Para mí con hero, deslizar a dos lados, orden, posponer y fijar ([b89f5de](https://github.com/julianjab/ia-flow/commit/b89f5deaf31e5e55913f55e39baa36862d06a580))
+* **menubar:** Próximo sin nada afuera — todas las cards, el resto del board y los issues sin card ([732e9fd](https://github.com/julianjab/ia-flow/commit/732e9fd4c13c9b4f7feb28517c8d87ea897c4e9d))
+* **runner-v2:** GET /api/board?closed=1 trae las cards cerradas del board ([3b316f6](https://github.com/julianjab/ia-flow/commit/3b316f62654abe5425e76a23c80b2a1e8162e415))
+* **runner-v2:** GET /api/repos/issues trae los issues de los repos del catálogo sin card ([7bb7dd0](https://github.com/julianjab/ia-flow/commit/7bb7dd0cfba4874127e559e96e72bea4e5800e4c))
+* **shared:** contrato de los issues de los repos del catálogo sin card ([e3a970e](https://github.com/julianjab/ia-flow/commit/e3a970e760a38943ed771880f310af7f96571e0b))
+* **web:** «¿Por qué?» de una mejora abre el asistente con la mejora como contexto ([02eaf7c](https://github.com/julianjab/ia-flow/commit/02eaf7cc4dac71584795a722b43fdfc11e5a8e40))
+* **web:** «Buscar en GitHub» sin salir de la app ([820cc03](https://github.com/julianjab/ia-flow/commit/820cc03bd4ad1efaaf32b4ea190d3565ae97955d))
+* **web:** «Cerrados» en el resto del board ([742d9b7](https://github.com/julianjab/ia-flow/commit/742d9b74504aec3b1cfe23053c24b9166e629287))
+* **web:** «Estado del runner» y «Logs del server», como en el menú de Mac ([74bebf5](https://github.com/julianjab/ia-flow/commit/74bebf5c4cca8132763178783d3c743f78e99bd9))
+* **web:** «Lo primero» y «Después» se pliegan con un clic en su título ([f65c98d](https://github.com/julianjab/ia-flow/commit/f65c98d663b7a5e9ab8ca412ba85f58dae655c76))
+* **web:** deslizar, posponer y fijar en las decisiones, y En los repos, sin card ([c93274e](https://github.com/julianjab/ia-flow/commit/c93274e2a11aa8172cf26d21bc1e9a59eb23b47c))
+* **web:** el detalle de una tarea la mueve a otra columna del board ([c2f0f31](https://github.com/julianjab/ia-flow/commit/c2f0f3196d4440f0d1f6c5b9677d0a3a8329bcdd))
+* **web:** el detalle dice a qué vista vuelve y por qué te necesita ([54dc7ed](https://github.com/julianjab/ia-flow/commit/54dc7edb61f8a8565cf85f1a42ef83085959c876))
+* **web:** la bandeja en tres vistas: Para mí, En curso y Próximo ([541d1c7](https://github.com/julianjab/ia-flow/commit/541d1c7f649e863972796f7a87d7655ce056f447))
+* **web:** las mejoras son filas cortas con su detalle en un sheet ([285c905](https://github.com/julianjab/ia-flow/commit/285c905139ebc3a0de2ef48bcdb05ca26e76f1fe))
+* **web:** orden, fijadas y pospuestas de Para mí, y los issues de los repos ([6e952ba](https://github.com/julianjab/ia-flow/commit/6e952baeaad3846780fb515e6b70ee4ae78bcee4))
+* **web:** Para mí, el detalle y las vistas con la forma de la maqueta ([d5e34a3](https://github.com/julianjab/ia-flow/commit/d5e34a3c7470fc97c55d2390ecb7e2e8ceaca681))
+* **web:** SwipeRow se desliza a los dos lados ([783878c](https://github.com/julianjab/ia-flow/commit/783878ce27222af1feb80be15affe29a9907ad69))
+* **web:** tokens v5, la paleta y la tipografía del menú de Mac ([cc73349](https://github.com/julianjab/ia-flow/commit/cc733491f23695426bd45b01a4dea884d1e25a4f))
+* **web:** un número en «Toda la-haus» se busca en los repos del board y los más activos ([e02c2ac](https://github.com/julianjab/ia-flow/commit/e02c2ac71f803254c9c942aa8ee2d7d4a77b5ca6))
+
+
+### Bug Fixes
+
+* **menubar:** ⌘X ⌘C ⌘V ⌘A ⌘Z y ⇧⌘Z en los campos del popover ([dbf17ca](https://github.com/julianjab/ia-flow/commit/dbf17cac20e08a6fc5252f629b10fc9ebd065c1d))
+* **menubar:** el detalle de una pregunta nombra la etapa de la ejecución, no el caso ([64b214b](https://github.com/julianjab/ia-flow/commit/64b214b497326446cb19c53e4193de5bc825ee19))
+* **web:** cada PR de un grupo («Mergear 3 PRs») abre su detalle ([fe28b32](https://github.com/julianjab/ia-flow/commit/fe28b3254106119ee9e36b3ddde5d17e08148af1))
+* **web:** el detalle como columna, la burbuja del asistente y el tema de una mejora ([f9f4f1c](https://github.com/julianjab/ia-flow/commit/f9f4f1c3a97d769515cd0f8e65a0fd5a93599799))
+* **web:** el detalle de una mejora es una pantalla, no un modal ([5ddcbf2](https://github.com/julianjab/ia-flow/commit/5ddcbf2dbdc83a66ecc4a2a44520f04f603bf38c))
+* **web:** las tareas de Todo y de «Lo podría ocupar» abren su detalle ([eece066](https://github.com/julianjab/ia-flow/commit/eece06681670cf0d0b7f2019dde06b4b1c71ad6a))
+* **web:** plegado completo de «Lo primero», Posponer al final y el select con el estilo v5 ([f6a0eda](https://github.com/julianjab/ia-flow/commit/f6a0eda454c4f19e27c3bb674e633567922068ad))
+* **web:** un PR o un cerrado en Buscar en GitHub dice por qué no entra al board ([feed19b](https://github.com/julianjab/ia-flow/commit/feed19bed82469edbbfa7620423c49511f518648))
+
 ## [2.27.1](https://github.com/julianjab/ia-flow/compare/v2.27.0...v2.27.1) (2026-10-23)
 
 
