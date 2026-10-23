@@ -168,7 +168,11 @@ describe('Qué le das al pipeline', () => {
     const row = w.get('.fl__row')
     expect(row.text()).toContain('● lista')
     expect(row.get('a.ref').text()).toBe('subs#1203 ↗')
-    await row.get('button').trigger('click')
+    // El título abre la tarea en grande.
+    await row.get('[data-test="feed-open-la-haus/subscriptions#1203"]').trigger('click')
+    expect(useInboxStore().openRef).toBe('la-haus/subscriptions#1203')
+    useInboxStore().collapse()
+    await row.get('.btn').trigger('click')
     await flushPromises()
     expect(postTaskAction).toHaveBeenCalledWith(
       'la-haus/subscriptions#1203',
