@@ -55,17 +55,21 @@ const meta = computed(
         >↗</a
       >
     </div>
-    <div v-if="inBoard || (issue.open && !issue.isPR)" class="gr__foot">
+    <div class="gr__foot">
       <span v-if="inBoard" class="gr__chip" data-test="in-board">
         {{ status ? `En el board · ${status}` : 'En el board' }}
       </span>
       <AddToBoardMenu
-        v-else
+        v-else-if="issue.open && !issue.isPR"
         :issue-ref="issue.ref"
         :projects="projects"
         :add="add"
         @added="emit('added', $event)"
       />
+      <!-- Lo que el runner no deja entrar dice por qué, en vez de no ofrecer nada. -->
+      <span v-else class="gr__why" data-test="not-addable">
+        {{ issue.isPR ? 'Un PR no entra al board: se agrega el issue que cierra.' : 'Está cerrado: no entra al board.' }}
+      </span>
     </div>
   </li>
 </template>
@@ -89,8 +93,8 @@ const meta = computed(
   text-align: left;
 }
 .gr__main--open { cursor: pointer; border-radius: var(--radius-sm); }
-.gr__main--open:hover .gr__title { color: var(--accent); }
-.gr__main--open:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.gr__main--open:hover .gr__title { color: var(--info); }
+.gr__main--open:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .gr__title { overflow-wrap: anywhere; line-height: 1.35; }
 .gr__meta { color: var(--fg-dim); font-size: var(--fs-chrome); overflow-wrap: anywhere; }
 .gr__meta .mono { font-size: var(--fs-micro); }
@@ -105,4 +109,5 @@ const meta = computed(
   color: var(--blue);
   font-size: var(--fs-chrome);
 }
+.gr__why { color: var(--fg-dim); font-size: var(--fs-chrome); }
 </style>
