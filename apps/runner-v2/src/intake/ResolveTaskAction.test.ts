@@ -759,14 +759,15 @@ describe('resolve_task stacking', () => {
         ],
         issueComments: [],
       }),
-      stackBlockers: async () => [
-        {
-          owner: 'o',
-          repo: 'r',
-          number: 3,
-          pr: { number: 30, headRef: 'feat/a', baseRef: 'main' },
-        },
-      ],
+      openPullRequest: async () => ({
+        number: 30,
+        url: '',
+        headSha: 'abc',
+        title: 'a',
+        author: 'bot',
+        headRef: 'feat/a',
+        baseRef: 'main',
+      }),
     }
     return fake as unknown as GithubTaskReader
   }
@@ -816,7 +817,13 @@ describe('resolve_task unblockDependents', () => {
     sender: { login: 'julian' },
   })
 
-  async function unblock(dependentPr: { number: number; headRef: string; baseRef: string } | null) {
+  async function unblock(
+    dependentPr: { number: number; headRef: string; baseRef: string } | null,
+    proyecto: typeof project & { stacking?: { label: string } } = {
+      ...project,
+      stacking: { label: 'epic-early' },
+    },
+  ) {
     const base = reader([]) as unknown as Record<string, unknown>
     const fake = {
       ...base,
@@ -838,13 +845,21 @@ describe('resolve_task unblockDependents', () => {
       bus,
       capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
     } as unknown as PipelineExecutionContext
-    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
+    const action = new ResolveTaskAction(() => [proyecto], fake as unknown as GithubTaskReader)
     const result = await action.execute(action.input.parse({ unblockDependents: true }), ctx)
     return { result, published }
   }
 
   it('un dependiente sin PR apilado recibe issue.unblocked', async () => {
     const { published } = await unblock(null)
+    expect(published.map((event) => event.type)).toEqual(['issue.unblocked'])
+  })
+
+  it('sin stacking en el proyecto, nunca issue.base_merged: issue.unblocked como siempre', async () => {
+    const { published } = await unblock(
+      { number: 70, headRef: 'feat/b', baseRef: 'feat/a' },
+      project,
+    )
     expect(published.map((event) => event.type)).toEqual(['issue.unblocked'])
   })
 
