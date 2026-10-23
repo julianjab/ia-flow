@@ -11,7 +11,8 @@
       "!**/*.sqlite",
       "!**/apps/web/src/**/*.vue",
       "!v2",
-      "!**/otel/grafana/dashboards"
+      "!**/otel/grafana/dashboards",
+      "!docs/design/**/mockup.html"
     ]
   },
   "formatter": {
