@@ -9,6 +9,7 @@ import MoveToSelect from '@/features/inbox/pipeline/MoveToSelect.vue';
 import type { FeedLine, FeedSummary } from '@/features/inbox/queue/build';
 import { moveTargets } from '@/features/inbox/queue/columns';
 import type { QueueAction } from '@/features/inbox/queue/kinds';
+import { useInboxStore } from '@/features/inbox/store';
 
 // «Qué le das al pipeline», debajo de la cola: una línea por tarea lista para arrancar (estado,
 // link, título truncado y la acción que la pone a correr). El encabezado dice cuántos lugares
@@ -46,6 +47,7 @@ const free = computed(() => {
   if (free === undefined) return null;
   return `${free} ${free === 1 ? 'lugar libre' : 'lugares libres'}`;
 });
+const store = useInboxStore();
 </script>
 
 <template>
@@ -65,7 +67,9 @@ const free = computed(() => {
         </span>
         <span v-else class="fl__state mono">● lista</span>
         <RefLink :short="line.short" :url="line.url" />
-        <span class="fl__title" :title="line.title">{{ line.title }}</span>
+        <button type="button" class="fl__title" :title="line.title" :data-test="`feed-open-${line.ref}`" @click="store.expand(line.ref)">
+          {{ line.title }}
+        </button>
         <ActionButton v-if="line.act" ghost :action="line.act" :item="{ ref: line.ref }" />
         <MoveToSelect v-if="line.columns.length" :task-ref="line.ref" :short="line.short" :columns="line.columns" />
       </li>
@@ -81,7 +85,10 @@ const free = computed(() => {
 .fl__row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; min-height: var(--tap-h); padding: 0 0.35rem 0 0.75rem; border-top: 1px solid var(--border-mute); }
 .fl__state { flex: none; display: inline-flex; align-items: center; gap: 0.35rem; color: var(--accent); font-size: var(--fs-micro); }
 .fl__state--wait { color: var(--fg-dim); }
-.fl__title { flex: 1 1 8rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-mute); font-size: var(--fs-body-sm); }
+.fl__title { flex: 1 1 8rem; min-width: 0; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font: inherit; font-size: var(--fs-body-sm); text-align: left; cursor: pointer; }
+.fl__title:hover { color: var(--info); }
+.fl__title:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.fl__row :deep(.ref) { flex: none; }
 .fl__row :deep(.btn--ghost) { color: var(--accent); }
 @media (min-width: 640px) {
   /* Sigue en wrap: el título ya trunca, y el error o el ✓ de la acción bajan a su propia línea. */

@@ -64,8 +64,8 @@ const WORD: Record<RecentRun['status'], string> = { done: 'terminó', failed: 'f
   line-clamp: 2;
   cursor: pointer;
 }
-.rr__title:hover { color: var(--accent); }
-.rr__title:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.rr__title:hover { color: var(--info); }
+.rr__title:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .rr__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.35rem; color: var(--fg-dim); font-size: var(--fs-chrome); }
 .rr__bad { color: var(--danger); }
 </style>

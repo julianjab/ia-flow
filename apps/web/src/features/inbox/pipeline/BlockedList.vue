@@ -43,8 +43,8 @@ const title = computed(() => {
 .bl__row { display: flex; flex-direction: column; padding: 0.25rem 0; }
 .bl__row + .bl__row { border-top: 1px solid var(--border-mute); }
 .bl__title { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--fs-body-sm); line-height: 1.35; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.bl__title:hover { color: var(--accent); }
-.bl__title:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.bl__title:hover { color: var(--info); }
+.bl__title:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .bl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.5rem; color: var(--fg-dim); font-size: var(--fs-micro); }
 .bl__wait { color: var(--warn); }
 </style>

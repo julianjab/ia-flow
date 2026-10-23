@@ -43,7 +43,7 @@ const store = useInboxStore();
 .rl__wait { flex: none; width: 0.4rem; height: 0.4rem; background: var(--fg-dim); }
 .rl__what { flex: 1 1 12rem; min-width: 0; display: flex; flex-direction: column; }
 .rl__title { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; font-size: var(--fs-body); line-height: 1.35; text-align: left; overflow-wrap: anywhere; cursor: pointer; }
-.rl__title:hover { color: var(--accent); }
-.rl__title:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.rl__title:hover { color: var(--info); }
+.rl__title:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 .rl__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.35rem; color: var(--fg-dim); font-size: var(--fs-chrome); }
 </style>
