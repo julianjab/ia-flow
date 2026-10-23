@@ -43,7 +43,11 @@ export class ProjectsV2Board implements Board {
   }
 
   async cards(): Promise<BoardCard[]> {
-    const cards = await this.reader.cards({ projectId: this.projectId, board: this.ref })
+    const cards = await this.reader.cards({
+      projectId: this.projectId,
+      board: this.ref,
+      ...(this.stackingLabel ? { stacking: true } : {}),
+    })
     return withBuiltBlockers(cards, this.stackingLabel)
   }
 

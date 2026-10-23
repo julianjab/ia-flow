@@ -41,14 +41,15 @@ export const LINKED_BRANCHES = `query($owner: String!, $repo: String!, $number: 
 }`
 
 // Las relaciones issue ↔ PR que GitHub ya lleva (sección "Development" y palabras de cierre): el
-// intake las lee, no las deduce del nombre de una rama.
-export const CLOSING_ISSUES = `query($owner: String!, $repo: String!, $number: Int!) {
+// intake las lee, no las deduce del nombre de una rama. Con `stacking`, también lo que hace falta
+// para leer el `Closes #n` de un PR apilado, que GitHub no vincula.
+export const closingIssuesQuery = (
+  stacking: boolean,
+) => `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
-    defaultBranchRef { name }
+    ${stacking ? 'defaultBranchRef { name }' : ''}
     pullRequest(number: $number) {
-      body
-      baseRefName
-      merged
+      ${stacking ? 'body baseRefName merged' : ''}
       closingIssuesReferences(first: 10) { nodes { number repository { name owner { login } } } }
     }
   }
@@ -61,13 +62,14 @@ export const PARENT = `query($owner: String!, $repo: String!, $number: Int!) {
   }
 }`
 
-export const CLOSING_PRS = `query($owner: String!, $repo: String!, $number: Int!) {
+// Los PRs abiertos que cierran el issue; con `stacking`, también los de sus ramas vinculadas.
+export const closingPrsQuery = (
+  stacking: boolean,
+) => `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     issue(number: $number) {
       closedByPullRequestsReferences(first: 10, includeClosedPrs: false) { nodes { number state } }
-      linkedBranches(first: 10) {
-        nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number } } } }
-      }
+      ${stacking ? 'linkedBranches(first: 10) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number } } } } }' : ''}
     }
   }
 }`

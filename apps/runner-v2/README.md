@@ -699,7 +699,9 @@ stacking:
 - **GitHub no vincula un PR que no apunta a la default branch** (ignora su `Closes #n`). El lector
   lo cubre sin ese vínculo: del PR al issue, por las palabras clave de su body; del issue al PR,
   por el PR abierto de su rama vinculada (`link_branch`). Al apuntarlo a la default, `retarget_pr`
-  vuelve a guardar el body para que GitHub lo vincule y el merge cierre el issue.
+  vuelve a guardar el body para que GitHub lo vincule y el merge cierre el issue. Esas lecturas
+  (y el PR de la card desde la rama vinculada, en el board) son **sólo** de un proyecto con
+  `stacking`: sin él, el intake y el board leen lo mismo que antes, sólo lo que GitHub vincula.
 
 **Una épica que se entera de un hijo trabado.** `resolve_task` con `notifyParentOfLabels: [blocked]`
 publica `issue.child_labeled` (`child`, `label`) sobre el padre cuando un sub-issue recibe uno de

@@ -182,11 +182,12 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     const reader = this.reader.withItemCache()
     const results = await Promise.all(
       projects.map((project) =>
-        new ProjectResolver(project, reader, this.userComments, this.announced).resolve(
-          input,
-          ctx,
-          slackLocation,
-        ),
+        new ProjectResolver(
+          project,
+          project.stacking ? reader.withStacking() : reader,
+          this.userComments,
+          this.announced,
+        ).resolve(input, ctx, slackLocation),
       ),
     )
     const emitted = results.flatMap((result) => ('emitted' in result ? result.emitted : []))

@@ -78,8 +78,13 @@ interface IssuesPage {
 
 const REF = 'number state url repository { name owner { login } }'
 
+/** El PR de un issue desde la rama vinculada a él: el de un PR apilado, que GitHub no vincula. */
+const LINKED_PR =
+  'linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }'
+
 const issuesQuery = (
   withBlockers: boolean,
+  stacking: boolean,
 ) => `query($owner: String!, $repo: String!, $after: String) {
   repository(owner: $owner, name: $repo) {
     issues(states: OPEN, first: 100, after: $after, orderBy: { field: UPDATED_AT, direction: DESC }) {
@@ -88,7 +93,7 @@ const issuesQuery = (
         number title url updatedAt
         labels(first: 100) { nodes { name } }
         closedByPullRequestsReferences(first: 5, includeClosedPrs: false) { nodes { ${REF} } }
-        linkedBranches(first: 5) { nodes { ref { associatedPullRequests(states: OPEN, first: 1) { nodes { number url } } } } }
+        ${stacking ? LINKED_PR : ''}
         ${withBlockers ? `blockedBy(first: 20) { nodes { ${REF} } }` : ''}
       }
     }
@@ -367,11 +372,17 @@ export class IssuesBoard implements Board {
   private async page(repo: { owner: string; repo: string }, after: string | null) {
     const variables = { owner: repo.owner, repo: repo.repo, after }
     try {
-      return await this.client.graphql<IssuesPage>(issuesQuery(this.withBlockers), variables)
+      return await this.client.graphql<IssuesPage>(
+        issuesQuery(this.withBlockers, this.stackingLabel !== undefined),
+        variables,
+      )
     } catch (err) {
       if (!this.withBlockers || !/blockedBy/.test((err as Error).message)) throw err
       this.withBlockers = false
-      return this.client.graphql<IssuesPage>(issuesQuery(false), variables)
+      return this.client.graphql<IssuesPage>(
+        issuesQuery(false, this.stackingLabel !== undefined),
+        variables,
+      )
     }
   }
 }

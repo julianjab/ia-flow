@@ -7,8 +7,8 @@
 import type { GithubClient } from '@ia-flow/github-api'
 import { sameRepo } from '../shared.js'
 import {
-  CLOSING_ISSUES,
-  CLOSING_PRS,
+  closingIssuesQuery,
+  closingPrsQuery,
   ISSUE_OF_ITEM,
   ITEMS_OF_ISSUE,
   LINKED_BRANCHES,
@@ -46,15 +46,33 @@ export interface RawTaskContext {
 
 type ItemIssue = Awaited<ReturnType<GithubTaskReader['readItem']>>
 
+export interface GithubTaskReaderOptions {
+  /** El proyecto apila PRs (`stacking`): un PR apilado, que GitHub no vincula a su issue, se
+   *  reconoce por el `Closes #n` de su body y por la rama vinculada al issue. Sin esto, sólo vale
+   *  lo que GitHub vincula. */
+  stacking?: boolean
+}
+
 export class GithubTaskReader {
   private items?: Map<string, Promise<ItemIssue>>
 
-  constructor(private readonly client: GithubClient) {}
+  constructor(
+    private readonly client: GithubClient,
+    private readonly options: GithubTaskReaderOptions = {},
+  ) {}
 
   /** Un lector que lee cada item una sola vez: el de un webhook, que miran varios proyectos. */
   withItemCache(): GithubTaskReader {
-    const reader = new GithubTaskReader(this.client)
+    const reader = new GithubTaskReader(this.client, this.options)
     reader.items = new Map()
+    return reader
+  }
+
+  /** El mismo lector (y su cache de items) para un proyecto que apila PRs. */
+  withStacking(): GithubTaskReader {
+    if (this.options.stacking) return this
+    const reader = new GithubTaskReader(this.client, { ...this.options, stacking: true })
+    if (this.items) reader.items = this.items
     return reader
   }
 
@@ -92,9 +110,9 @@ export class GithubTaskReader {
     return data.repository?.issue?.projectItems?.nodes ?? []
   }
 
-  /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. Un PR
-   *  abierto que no apunta a la default branch (uno apilado) no tiene esa sección —GitHub ignora
-   *  sus palabras clave—: sus issues salen del `Closes #n` de su body. Uno ya mergeado en otra rama
+  /** Los issues que el PR cierra (su sección "Development"), en el orden que GitHub los da. Con
+   *  `stacking`, un PR abierto que no apunta a la default branch (uno apilado) no tiene esa sección
+   *  —GitHub ignora sus palabras clave—: sus issues salen del `Closes #n` de su body. Uno ya mergeado en otra rama
    *  no cerró nada: su código no está en la default, y su issue sigue abierto. */
   async closingIssues(
     owner: string,
@@ -116,7 +134,7 @@ export class GithubTaskReader {
           }
         } | null
       } | null
-    }>(CLOSING_ISSUES, { owner, repo, number })
+    }>(closingIssuesQuery(this.options.stacking === true), { owner, repo, number })
     const pr = data.repository?.pullRequest
     const linked = (pr?.closingIssuesReferences?.nodes ?? []).map((node) => ({
       owner: node.repository.owner.login,
@@ -125,7 +143,7 @@ export class GithubTaskReader {
     }))
     const base = pr?.baseRefName
     const stacked = base !== undefined && base !== data.repository?.defaultBranchRef?.name
-    if (linked.length > 0 || !stacked || pr?.merged) return linked
+    if (!this.options.stacking || linked.length > 0 || !stacked || pr?.merged) return linked
     return closingRefs(pr?.body ?? '', { owner, repo })
   }
 
@@ -152,8 +170,9 @@ export class GithubTaskReader {
     }
   }
 
-  /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno; si no, el
-   *  abierto desde una rama vinculada al issue: el de un PR apilado, que GitHub no vincula. */
+  /** El PR abierto que cierra el issue (vinculado a mano o con `Closes #n`), si hay uno; con
+   *  `stacking`, si no, el abierto desde una rama vinculada al issue: el de un PR apilado, que
+   *  GitHub no vincula. */
   private async linkedOpenPr(owner: string, repo: string, number: number) {
     const data = await this.client.graphql<{
       repository?: {
@@ -166,12 +185,12 @@ export class GithubTaskReader {
           }
         } | null
       } | null
-    }>(CLOSING_PRS, { owner, repo, number })
+    }>(closingPrsQuery(this.options.stacking === true), { owner, repo, number })
     const issue = data.repository?.issue
     const closing = (issue?.closedByPullRequestsReferences?.nodes ?? []).find(
       (node) => node.state === 'OPEN',
     )
-    if (closing) return closing.number
+    if (closing || !this.options.stacking) return closing?.number
     return (issue?.linkedBranches?.nodes ?? []).flatMap(
       (node) => node.ref?.associatedPullRequests?.nodes ?? [],
     )[0]?.number
