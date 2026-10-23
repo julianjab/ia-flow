@@ -1,0 +1,7 @@
+/* La columna de una vista de la bandeja: encabezado y bloques, uno debajo del otro. */
+.vb {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  min-width: 0;
+}

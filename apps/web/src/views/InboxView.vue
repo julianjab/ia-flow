@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import ImprovementsSection from '@/features/improvements/ImprovementsSection.vue';
-import InboxBoard from '@/features/inbox/InboxBoard.vue';
+import MineBoard from '@/features/inbox/MineBoard.vue';
 import { useTaskFocusStore } from '@/stores/taskFocus';
 
-// Composición: la bandeja y, debajo, las mejoras que propuso un agente. Son dos features y
-// ninguna importa a la otra: la ref de una tarea se pide a la bandeja por `taskFocus`.
+// «Para mí»: lo que te necesita y, debajo, las mejoras que propuso un agente (también te esperan).
+// Son dos features y ninguna importa a la otra: la ref de una tarea se pide por `taskFocus`.
 const taskFocus = useTaskFocusStore();
 </script>
 
 <template>
   <div class="inbox-view">
-    <InboxBoard />
+    <MineBoard />
     <ImprovementsSection @open="taskFocus.focus($event)" />
   </div>
 </template>

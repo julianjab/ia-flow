@@ -9,7 +9,7 @@ import { ageOf } from '@/features/inbox/queue/age';
 import { shortRef } from '@/features/inbox/queue/shortRef';
 import { useInboxStore } from '@/features/inbox/store';
 
-// «Board de GitHub»: lo que la bandeja no muestra, las cards sin pendientes (Backlog, Todo, lo
+// «Resto del board»: lo que la bandeja no muestra, las cards sin pendientes (Backlog, Todo, lo
 // que terminó…). Arranca plegado, pero se pide al montar (y al cambiar de proyecto) para que la
 // línea de resumen ya diga la cuenta por columna. Abierto, cada columna es otra línea plegada;
 // en cada fila, el botón abre la tarea en grande y el link corto va a GitHub.
@@ -32,7 +32,7 @@ const failure = computed(() => (store.restError ? loadFailure('leer el board', s
 </script>
 
 <template>
-  <Disclosure title="Board de GitHub" class="br">
+  <Disclosure title="Resto del board" class="br">
     <template #meta>
       <span v-if="store.rest" class="br__dim">
         {{ total }} {{ total === 1 ? 'card' : 'cards' }}<template v-for="c in columns" :key="c.status"> · {{ c.status }} {{ c.items.length }}</template>

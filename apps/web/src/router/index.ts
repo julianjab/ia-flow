@@ -3,7 +3,10 @@ import { historySettled } from '@/composables/useBackClose'
 import { hasChosenServer } from '@/features/servers/selection'
 import AppShell from '@/views/AppShell.vue'
 import ConfigView from '@/views/ConfigView.vue'
+import ImprovementsView from '@/views/ImprovementsView.vue'
 import InboxView from '@/views/InboxView.vue'
+import NextView from '@/views/NextView.vue'
+import RunningView from '@/views/RunningView.vue'
 import ServerPickerView from '@/views/ServerPickerView.vue'
 import WebhooksView from '@/views/WebhooksView.vue'
 
@@ -16,8 +19,11 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     component: AppShell,
     children: [
-      // Home: la bandeja sobre el board.
+      // Las tres vistas de la bandeja (v5): «Para mí» es la home.
       { path: '', name: 'inbox', component: InboxView },
+      { path: 'en-curso', name: 'running', component: RunningView },
+      { path: 'proximo', name: 'next', component: NextView },
+      { path: 'mejoras', name: 'improvements', component: ImprovementsView },
       { path: 'config', name: 'config', component: ConfigView },
       { path: 'webhooks', name: 'webhooks', component: WebhooksView },
     ],
