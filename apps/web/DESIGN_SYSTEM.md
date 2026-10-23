@@ -4,7 +4,7 @@
 
 **Rule zero-bis — mobile first, sin dejar de lado el desktop.** El CSS base describe el teléfono y `@media (min-width: …)` **agrega** densidad para pantallas grandes. Un `max-width` es un parche, y por eso siempre falta uno. Los tres únicos anchos son `768` / `640` / `1100` (ver «Breakpoints»), y todo control presionable mide `--tap-h` en **cualquier** ancho, no sólo bajo un breakpoint. Las doce reglas transversales (R1–R12) están al final de este archivo y aplican a **toda** pantalla, incluida la que estés escribiendo ahora. `theme.css` es la fuente única: si algo de acá contradice al CSS, gana el CSS y este archivo está desactualizado — arréglalo en el mismo cambio.
 
-v4 nace del mockup de rediseño del editor de agentes (`src/features/agents/`). Arranca por los tokens porque cascadean solos a cada pantalla; migrar componente por componente es el paso siguiente. Eso quiere decir que **vas a encontrar componentes todavía en v3** (mono en todo, radio 0, verde ácido). No los tomes como referencia: la referencia es este archivo.
+v5 es la UI unificada con el menú de Mac (`docs/design/ui-unificada/`: `mockup.html` aprobado y `SPEC.md`): mismas vistas, nombres y acciones que `apps/menubar`. Los tokens cascadean solos; si encontrás un componente con el verde como foco o selección, IBM Plex escrito a mano, `border-radius: 0` o hex sueltos, está atrasado: la referencia es este archivo y la maqueta.
 
 ## v5 — la UI unificada con el menú de Mac
 
@@ -77,12 +77,13 @@ Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono
 
 | Var | Uso |
 | --- | --- |
-| `--bg` | Fondo raíz de la app |
-| `--panel` | Cards, tablas, popovers |
-| `--panel-alt` | Filas alternas (zebra), cards secundarios, hover de botón |
-| `--panel-hi` | Hover de fila, headers de panel, fondo de chip |
-| `--border` | Hairlines entre celdas y bordes de card |
-| `--border-hi` | Bordes de foco / énfasis |
+| `--bg` (`#1c1c1e`) | Fondo raíz de la app, fondo de campos y del segmentado |
+| `--panel` (`#262628`) | Superficie: barra, menú lateral, paneles |
+| `--panel-alt` (`#2f2f32`) | Card (una decisión, una mejora, una lista), hover de botón |
+| `--panel-hi` (`#3a3a3d`) | Botón neutro, chip, hover de fila |
+| `--panel-top` (`#4a4a4e`) | El segmento elegido, la celda abierta, la pestaña actual del menú |
+| `--border` | Bordes de card (translúcido) |
+| `--border-hi` | Bordes de control y de énfasis |
 | `--border-mute` | Separadores dentro de una lista |
 | `--scrim` | El fondo detrás de un overlay modal (sheet, panel de detalle): oscurece y cierra al tocarlo. Un solo valor para todos (`BottomSheet`, `TaskDetailDrawer`) |
 
@@ -95,28 +96,32 @@ Los tokens no cambian; cambia cómo se escribe y cómo se navega en el teléfono
 | `--fg-dim` | Meta, labels secundarios, unidades |
 | `--fg-dimmer` | Placeholders, ausencia ("sin PR"), glifos apagados |
 
-Los neutros son **cálidos** (`--fg: #ece9e2`), no gris azulado: es lo que hace que el teal lea como color elegido y no como "el verde que había". Nada por debajo de 4.5:1 contra su fondo. Si necesitás destacar, subí un escalón; no bajes el fondo.
+Los neutros son los del menú de Mac (`--fg: #ececec`, `--fg-mute: #c7c7cc`, `--fg-dim: #a1a1a6`). Nada por debajo de 4.5:1 contra su fondo. Si necesitás destacar, subí un escalón; no bajes el fondo.
 
 ### Acentos
 
 | Var | Rol |
 | --- | --- |
-| `--accent` (`--green`) | Teal-sage. Foco, selección, éxito, PR abierto. `--green-hi` es su hover. |
+| `--primary` (`#1f6feb`) | **Sólo la acción principal** (`.btn--primary`, con `--on-primary`) y el anillo de foco. `--primary-hi` es su hover. |
+| `--accent` (`--green`, `#7ee787`) | Corre / ok / éxito / PR abierto. **No** es foco ni selección (eso es `--primary` o `--panel-top`). `--live` es el punto «en vivo». |
 | `--danger` (`--red`) | Errores, destructivo, PR cerrado |
-| `--warn` (`--yellow`) | En curso, refining, bloqueos |
-| `--info` (`--cyan`) | Rutas, repos, ramas, providers, referencias |
-| `--ai` (`--magenta`) | **Sólo salida de modelo** — ver R16. Nada calculado usa magenta. |
-| `--green-bg` / `--red-bg` / `--yellow-bg` | Fondos de estado |
+| `--warn` (`--yellow`) | Te pregunta, espera, bloqueos, fijada |
+| `--info` (`--cyan`/`--blue`, `#6cb6ff`) | Links, refs, la ruta de vuelta, el hover de un título que navega |
+| `--teal` | PRD |
+| `--ai` (`--magenta`) | **Sólo salida de modelo y el asistente** — ver R16. Nada calculado usa magenta. |
+| `--green-bg` / `--red-bg` / `--yellow-bg` / `--blue-bg` | Fondos de estado («Por qué te necesita» va en `--blue-bg`) |
 
-Regla: cada estado usa **una** ranura. No hay dos "ok".
+Regla: cada estado usa **una** ranura. No hay dos "ok". El color dice estado; nunca decora.
 
 ### Tipografía — tres roles, no uno
 
 | Var | Cuándo |
 | --- | --- |
-| `--font-display` (IBM Plex Sans Condensed) | Headings y kickers. Ya aplicado a `h1`–`h6` por `theme.css` |
-| `--font-body` (IBM Plex Sans) | Texto de UI, botones, inputs, descripciones. **Default del `body`** |
-| `--font-mono` (IBM Plex Mono) | Código, valores literales, ids, paths, ramas, números de issue, chips |
+| `--font-display` (sistema: SF Pro Display) | Headings. Ya aplicado a `h1`–`h6` por `theme.css` |
+| `--font-body` (sistema: SF Pro Text) | Texto de UI, botones, inputs, descripciones. **Default del `body`** |
+| `--font-mono` (SF Mono) | Código, valores literales, ids, paths, ramas, refs (`subs#1203`) |
+
+Sin fuentes externas: la del sistema (SF en Mac y iPhone, Segoe/Roboto en otros).
 
 La regla práctica: **mono es para lo que el usuario podría copiar y pegar**. Un título de tarea es prosa → Sans. `#1240`, `fix/sms-add-sid`, `PVTI_lADO…` → Mono.
 
@@ -166,7 +171,7 @@ Escribir el número suelto está bien. Inventar un cuarto ancho, no.
 
 ### Radio y sombra
 
-- Radio por token: `--radius` para cards/controles, `--radius-sm` para chips y elementos chicos. No inventes `6px`.
+- Radio por token: `--radius-lg` (12px) para cards, paneles y sheets; `--radius` (8px) para botones y controles; `--radius-sm` (6px) para chips y elementos chicos. No inventes `10px`.
 - Sin `box-shadow` de color. Máximo el pulso de `.live-dot`.
 
 ## Primitivas listas para reutilizar
