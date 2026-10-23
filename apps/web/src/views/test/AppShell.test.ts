@@ -61,6 +61,8 @@ async function render() {
           { path: 'buscar', name: 'github-search', component: Blank },
           { path: 'config', name: 'config', component: Blank },
           { path: 'webhooks', name: 'webhooks', component: Blank },
+          { path: 'estado', name: 'health', component: Blank },
+          { path: 'estado/logs', name: 'logs', component: Blank },
         ],
       },
       { path: '/servers', component: Blank },
@@ -93,6 +95,7 @@ describe('AppShell', () => {
       'Para mí',
       'En curso',
       'Próximo',
+      'Estado del runner',
       'Mejoras',
       'Buscar en GitHub',
       'Webhooks',
@@ -156,9 +159,16 @@ describe('AppShell', () => {
     await w.get('[data-test="more"]').trigger('click')
     await flushPromises()
     const links = [...document.body.querySelectorAll('.more__label')].map((l) => l.textContent)
-    expect(links).toEqual(['Mejoras', 'Buscar en GitHub', 'Webhooks', 'Config', 'Runners'])
+    expect(links).toEqual([
+      'Estado del runner',
+      'Mejoras',
+      'Buscar en GitHub',
+      'Webhooks',
+      'Config',
+      'Runners',
+    ])
     ;(document.body.querySelector('.more__link') as HTMLElement).click()
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('improvements')
+    expect(router.currentRoute.value.name).toBe('health')
   })
 })
