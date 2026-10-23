@@ -8,13 +8,13 @@ import type { RunnerCapacity, RunnerResources, RunnerStreamEvent } from '@ia-flo
 import { addLogSink } from '@ia-flow/telemetry'
 import { Assistant } from '../assistant/Assistant.js'
 import { withLiveness } from '../assistant/liveness.js'
-import type { Boards } from '../board/Boards.js'
 import type { MountedRunner } from '../boot.js'
 import type { RunnerConfig } from '../config/RunnerConfig.js'
 import { DeviceFlow } from '../github/deviceFlow.js'
 import type { ApiRouter } from '../http/ApiRouter.js'
 import { GITHUB_WEBHOOK_PATH } from '../http/server.js'
 import { SseHub } from '../http/sse.js'
+import type { Delivery } from '../intake/dispatch.js'
 import { dispatchRaw } from '../intake/dispatch.js'
 import type { ActivityStore } from '../storage/activityStore.js'
 import { taskOfKey } from './ActivityPort.js'
@@ -26,6 +26,7 @@ import { EpicReader } from './EpicReader.js'
 import { InboxService } from './InboxService.js'
 import { IngressService } from './IngressService.js'
 import { issueBoards } from './issueBoards.js'
+import { issuesWebhookRepo, RepoIssuesReader } from './RepoIssuesReader.js'
 import { RunnerLogs } from './RunnerLogs.js'
 import { redispatchEvent } from './redispatchEvent.js'
 import { resumeStage } from './resumeStage.js'
@@ -35,7 +36,9 @@ import { TaskActions } from './TaskActions.js'
 
 export interface MountedInbox {
   api: ApiRouter
-  board: Pick<Boards, 'invalidate' | 'markStale'>
+  /** Un webhook verificado: la bandeja relee el board en segundo plano y, si es un `issues.*`,
+   *  suelta lo leído de ese repo (`GET /api/repos/issues`). */
+  delivered(delivery: Delivery): void
   close(): void
 }
 
@@ -85,9 +88,11 @@ export function mountInbox(
     ),
   }))
   const boards = mounted.boards
+  const repoIssues = new RepoIssuesReader(mounted.github)
   const inbox = new InboxService({
     projects: specs,
     board: boards,
+    repoIssues,
     activity: store.activity,
     waitingKeys: () => mounted.executions?.waitingKeys() ?? [],
     explain: async (event) => {
@@ -335,7 +340,11 @@ export function mountInbox(
 
   return {
     api,
-    board: boards,
+    delivered: (delivery) => {
+      boards.markStale()
+      const repo = issuesWebhookRepo(delivery.event, delivery.payload)
+      if (repo) repoIssues.invalidate(repo)
+    },
     close: () => {
       clearInterval(pruning)
       for (const stop of unsubscribe) stop()

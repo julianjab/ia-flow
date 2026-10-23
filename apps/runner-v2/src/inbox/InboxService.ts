@@ -12,6 +12,7 @@ import type {
   Inbox,
   InboxItem,
   InboxProject,
+  RepoIssues,
   RunnerCapacity,
   TaskDetail,
   TaskFact,
@@ -30,6 +31,7 @@ import {
 import { feedOf, pipelineOf } from './feed.js'
 import type { InboxSettings } from './InboxSection.js'
 import { prioritize } from './prioritize.js'
+import { type RepoIssuesRead, withoutCards } from './RepoIssuesReader.js'
 import type { TaskActionDefs } from './TaskActionDef.js'
 import { availableTaskActions } from './TaskActionRunner.js'
 import { buildTaskFacts, unlocksOf } from './taskFacts.js'
@@ -43,6 +45,9 @@ export interface InboxServiceOptions {
     meta?(spec: BoardSpec): Promise<BoardMeta>
   }
   activity: ActivityPort
+  /** Los issues abiertos de un repo del catálogo (`RepoIssuesReader`). Sin esto, no hay
+   *  `repoIssues`. */
+  repoIssues?: { issues(repo: string): Promise<RepoIssuesRead> }
   /** Las claves de ejecución con una corrida esperando turno (`ExecutionStore.waitingKeys`). */
   waitingKeys: () => string[]
   explain: ExplainPort
@@ -199,6 +204,32 @@ export class InboxService {
           status,
           items: items.sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
         })),
+    }
+  }
+
+  /** Por repo del catálogo de los proyectos, sus issues abiertos sin card en NINGÚN board del
+   *  runner (cumpla o no el `when` de su proyecto), el más reciente primero. Un repo en el catálogo
+   *  de dos proyectos va una vez, con el primero. Sin lector de repos, `undefined`. */
+  async repoIssues(projectId?: string): Promise<RepoIssues | undefined> {
+    const reader = this.options.repoIssues
+    if (!reader) return undefined
+    const catalog = new Map<string, { repo: string; projectId: string }>()
+    for (const spec of this.specs(projectId)) {
+      for (const repo of spec.repos ?? []) {
+        const key = repo.toLowerCase()
+        if (!catalog.has(key)) catalog.set(key, { repo, projectId: spec.projectId })
+      }
+    }
+    if (catalog.size === 0) return { repos: [] }
+    const [boards, reads] = await Promise.all([
+      Promise.all(this.options.projects.map((spec) => this.options.board.cards(spec))),
+      Promise.all([...catalog.values()].map(({ repo }) => reader.issues(repo))),
+    ])
+    const carded = new Set(boards.flat().map((card) => card.ref.toLowerCase()))
+    return {
+      repos: [...catalog.values()].map((entry, i) =>
+        withoutCards(entry, reads[i] as RepoIssuesRead, carded),
+      ),
     }
   }
 

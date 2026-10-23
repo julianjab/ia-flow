@@ -203,6 +203,14 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   // Lo que la bandeja no muestra: se pide aparte (la web, sólo al abrir esa sección).
   router.get('/api/board', (req) => inbox.rest(req.query.get('project') ?? undefined))
 
+  // Los issues abiertos de los repos del catálogo que no tienen card: nada de lo que el runner
+  // maneja queda fuera de la vista.
+  router.get('/api/repos/issues', async (req) => {
+    const issues = await inbox.repoIssues(req.query.get('project') ?? undefined)
+    if (!issues) throw new HttpError(501, 'Este runner no lee los issues de sus repos')
+    return issues
+  })
+
   router.get('/api/tasks/:owner/:repo/:number', async (req) => {
     const detail = await inbox.detail(refOf(req.params), req.query.get('execution') ?? undefined)
     if (!detail)

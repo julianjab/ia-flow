@@ -163,7 +163,7 @@ async function startServing(
         inbox.api.handle(req, res),
     },
     // Un webhook no frena a nadie: la bandeja se relee en segundo plano y avisa si cambió.
-    onDelivery: () => inbox.board.markStale(),
+    onDelivery: (delivery) => inbox.delivered(delivery),
     onIgnored: (event, reason) => store.ignored(event, reason),
   })
   // Lo que se retoma tras un reinicio queda vencido: que corra ya, con los providers registrados
