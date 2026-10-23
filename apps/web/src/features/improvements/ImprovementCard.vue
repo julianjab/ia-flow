@@ -69,7 +69,7 @@ const column = ref(columns.value.find(isTodo) ?? columns.value[0]);
     <!-- Su repo tiene un board: el issue entra en la columna que elija la persona. -->
     <label v-if="!done && columns.length" class="ic__col">
       <span class="uc-label">Columna</span>
-      <select v-model="column" class="mono" data-test="column" :disabled="running">
+      <select v-model="column" data-test="column" :disabled="running">
         <option v-for="c in columns" :key="c" :value="c">{{ c }}</option>
       </select>
     </label>

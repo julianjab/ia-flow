@@ -223,6 +223,44 @@ textarea::placeholder {
   color: var(--fg-dimmer);
 }
 
+/* El select (v5): como un botón del menú de Mac, no el control nativo. Sin la apariencia del
+   sistema, con su flecha dibujada en `currentColor` (sin hex) y el alto táctil; el borde azul del
+   foco sale sólo con el teclado, no se queda pegado después de elegir con el mouse o el dedo. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: var(--tap-h);
+  padding: 0 2rem 0 0.75rem;
+  border: 1px solid var(--border-hi);
+  border-radius: var(--radius);
+  background-color: var(--panel-alt);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-dim) 50%),
+    linear-gradient(135deg, var(--fg-dim) 50%, transparent 50%);
+  background-position:
+    calc(100% - 1rem) 52%,
+    calc(100% - 0.7rem) 52%;
+  background-size: 0.3rem 0.3rem;
+  background-repeat: no-repeat;
+  color: var(--fg);
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+select:hover {
+  background-color: var(--panel-hi);
+}
+select:focus {
+  border-color: var(--border-hi);
+}
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* Default buttons — components that already ship a class-based style are
    scoped so this only catches plain ones. */
 button {

@@ -70,6 +70,7 @@ const folded = useCollapsed('after');
 .dq__n { color: var(--fg); font-weight: 700; }
 .dq__fold { display: inline-flex; align-items: center; gap: 0.35rem; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .dq__chev { width: 0.8rem; color: var(--fg-dim); }
+.dq__fold:focus:not(:focus-visible) { outline: none; }
 @media (min-width: 640px) {
   .dq__head, .dq__filters { padding-left: 1rem; padding-right: 1rem; }
 }

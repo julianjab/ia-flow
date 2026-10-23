@@ -107,7 +107,7 @@ async function press() {
       <div id="first-detail" class="fd__detail" :class="{ 'fd__detail--open': whyOpen }">
         <DecisionDetail ref="detail" v-model:comment="act.comment.value" :entry="entry" />
       </div>
-      <ArrangeActions :item="entry.item" />
+      <ArrangeActions class="fd__arrange" :item="entry.item" />
     </article>
   </div>
 </template>
@@ -131,8 +131,7 @@ async function press() {
 .fd__fold { display: inline-flex; align-items: center; gap: 0.35rem; min-height: var(--tap-h-sm); padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .fd__chev { width: 0.8rem; color: var(--fg-dim); }
 .fd__peek { flex: 1 1 100%; margin: 0; color: var(--fg-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fd--folded > :not(.fd__top),
-.fd--folded .fd__main > * { display: none; }
+.fd__fold:focus:not(:focus-visible) { outline: none; }
 /* Teléfono: los hijos de .fd__main se ordenan con los de la card —el botón va después del link y
    las razones— y el porqué queda plegado. */
 .fd__main { display: contents; }
@@ -143,6 +142,8 @@ async function press() {
 .fd__in { order: 4; }
 .fd__more { order: 5; align-self: flex-start; padding: 0 0.6rem; margin-left: -0.6rem; color: var(--fg-mute); }
 .fd__detail { order: 6; }
+/* Posponer y Fijar: lo último de la card, debajo del porqué. */
+.fd__arrange { order: 7; }
 .fd__detail:not(.fd__detail--open) { display: none; }
 .fd__what { display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
 .fd__verb {
@@ -173,6 +174,11 @@ async function press() {
   .fd__what { flex: 1 1 20rem; }
   .fd__act { width: auto; margin-left: auto; }
   .fd__verb { font-size: var(--fs-display); }
-  .fd__in, .fd__why, .fd__detail { margin-left: 1.7rem; }
+  .fd__in, .fd__why, .fd__detail, .fd__arrange { margin-left: 1.7rem; }
+  .fd__arrange { order: 5; }
 }
+/* Plegada queda sólo el encabezado (con el título de la tarea): va al final y con más
+   especificidad que el `display` de cada pieza, también el del ancho de escritorio. */
+.fd.fd--folded > :not(.fd__top),
+.fd.fd--folded .fd__main > * { display: none; }
 </style>
