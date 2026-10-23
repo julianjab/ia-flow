@@ -161,7 +161,7 @@ struct SearchResults: View {
                 InboxSection(title: "Épicas", count: epics.count) {
                     ForEach(Array(epics.enumerated()), id: \.element.id) { i, epic in
                         if i > 0 { Divider().opacity(0.4).padding(.vertical, 8) }
-                        EpicRow(runner: runner, epic: epic)
+                        EpicCard(runner: runner, epic: epic)
                     }
                 }
             }

@@ -1,63 +1,84 @@
 import SwiftUI
 
-// Las filas que mueven cards en el board: una card de Todo («Por arrancar», con «Mover a ▸») y el menú «Agregar al
-// board ▸» de un resultado de «Buscar en GitHub». Sólo dibujan; lo que hacen está en Feed.swift.
+// Las filas que mueven cards en el board: una card de Todo (Próximo, con «Mover a ▾») y el menú «Agregar al board ▸»
+// de un resultado de «Buscar en GitHub». Sólo dibujan; lo que hacen está en Feed.swift.
 
-/// Una card de Todo: el título (abre el issue), a quién espera si espera, su repo y «Mover a ▸» con las columnas.
+/// Una card de Todo: «subscriptions #4320 · Todo» (o «· espera #4281»), el título (abre el issue) y «Mover a ▾» con las
+/// columnas de su proyecto (la actual deshabilitada; sale con tu login, sin confirmar). Clic derecho: el resto.
 struct FeedRow: View {
     @ObservedObject var runner: RunnerModel
     let item: FeedItem
 
     var body: some View {
         let busy = runner.busy.contains(item.ref)
-        HStack(spacing: 6) {
+        let waiting = item.waitingFor
+        HStack(alignment: .center, spacing: 8) {
             Button { runner.open(item) } label: {
-                HStack(spacing: 6) {
-                    Text(item.displayTitle).font(.lh(12)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    let waiting = item.waitingFor
-                    if !waiting.isEmpty {
-                        Text("espera \(waiting.joined(separator: ", "))").font(.lh(11)).foregroundStyle(Color.orange).lineLimit(1).fixedSize()
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(refLabel(item.ref)).font(.mono(10.5)).foregroundStyle(.secondary).lineLimit(1)
+                        if !waiting.isEmpty {
+                            Text("· espera \(waiting.joined(separator: ", "))").font(.lh(11)).foregroundStyle(Palette.amber).lineLimit(1)
+                        } else if let status = item.status {
+                            Text("· \(status)").font(.lh(11)).foregroundStyle(.tertiary)
+                        }
                     }
-                    refTag(item.ref)
+                    Text(item.displayTitle).font(.lh(12.5)).lineLimit(2).multilineTextAlignment(.leading)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(help)
             if busy {
-                ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 24, height: 20)
+                ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 30, height: 20)
+            } else if waiting.isEmpty {
+                Menu { moveMenu } label: {
+                    Text("Mover a ▾").font(.lh(11.5, .semibold))
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Palette.control))
+                }
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                .help("Mover a otra columna (con tu login, sin confirmar)")
             } else {
-                Menu {
-                    moveMenu
-                    Divider()
-                    Button("Abrir issue en GitHub") { runner.open(item) }
-                    ForEach(item.blocked_by ?? [], id: \.self) { blocker in
-                        Button("Abrir \(blocker)") { runner.openTask(blocker) }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 24, height: 20).contentShape(Rectangle())
+                Menu { moveMenu; Divider(); others } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).frame(width: 26, height: 20).contentShape(Rectangle())
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().foregroundStyle(.secondary)
-                .help("Mover a otra columna")
             }
         }
+        .contextMenu { moveMenu; Divider(); others }
     }
 
+    /// Las columnas del proyecto, la actual deshabilitada, y la aclaración.
     @ViewBuilder private var moveMenu: some View {
-        let columns = runner.destinations(item)
+        let columns = runner.statuses(project: item.project_id)
         if columns.isEmpty {
             Text("Este runner no informa las columnas del board")
         } else {
-            Menu("Mover a") {
-                ForEach(columns, id: \.self) { status in Button(status) { runner.move(item, to: status) } }
+            ForEach(columns, id: \.self) { status in
+                let current = status.caseInsensitiveCompare(item.status ?? "") == .orderedSame
+                Button(current ? "\(status) · actual" : status) { runner.move(item, to: status) }.disabled(current)
             }
+            Divider()
+            Text("Se mueve con tu login, sin confirmar.")
+        }
+    }
+
+    @ViewBuilder private var others: some View {
+        Button("Abrir el issue en GitHub ↗") { runner.open(item) }
+        ForEach(item.blocked_by ?? [], id: \.self) { blocker in
+            Button("Ver \(shortRef(blocker)), que la bloquea") { runner.goTo(blocker) }
+        }
+        Button("Abrir worktree del issue en iTerm") { runner.openWorktree(ref: item.ref, pr: nil) }
+        Button("Copiar \(item.ref.split(separator: "/").last.map(String.init) ?? item.ref)") {
+            runner.copy(item.ref.split(separator: "/").last.map(String.init) ?? item.ref)
         }
     }
 
     private var help: String {
         let waiting = (item.blocked_by ?? []).joined(separator: ", ")
-        return waiting.isEmpty ? "\(item.title)\nPuede arrancar" : "\(item.title)\nEspera a \(waiting)"
+        return waiting.isEmpty ? "\(item.title)\nPuede arrancar · clic: abrir el issue" : "\(item.title)\nEspera a \(waiting)"
     }
 }
 

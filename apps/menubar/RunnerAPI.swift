@@ -180,12 +180,45 @@ struct BoardItem: Codable, Hashable, Identifiable {
     let url: String
     let status: String?
     let pr: PullRef?
+    var project_id: String? = nil
+    var updated_at: String? = nil
     var id: String { ref }
 }
 
+/// Una columna del resto del board (`GET /api/board`), con todas sus cards.
+struct BoardColumn: Codable, Hashable, Identifiable {
+    let status: String
+    let items: [BoardItem]
+    var id: String { status }
+}
+
 private struct BoardRest: Codable {
-    struct Column: Codable { let status: String; let items: [BoardItem] }
-    let columns: [Column]
+    let columns: [BoardColumn]
+}
+
+/// Un issue abierto de un repo del catálogo del runner que no tiene card (`RepoIssueSchema`).
+struct RepoIssue: Codable, Hashable, Identifiable {
+    let ref: String
+    var project_id: String? = nil
+    let title: String
+    let url: String
+    var labels: [String]? = nil
+    var updated_at: String? = nil
+    var author: String? = nil
+    var id: String { ref }
+}
+
+/// `GET /api/repos/issues`: por repo, sus issues sin card (el más reciente primero), si se cortó y si no se pudo leer.
+struct RepoIssues: Codable, Hashable {
+    struct Repo: Codable, Hashable, Identifiable {
+        let repo: String
+        var project_id: String? = nil
+        let items: [RepoIssue]
+        var truncated: Bool? = nil
+        var error: String? = nil
+        var id: String { repo }
+    }
+    let repos: [Repo]
 }
 
 private struct TaskDetail: Codable { let item: InboxItem }
@@ -418,9 +451,23 @@ struct RunnerClient {
     }
 
     /// Las cards que no están en la bandeja, de todas las columnas.
-    func board() async throws -> [BoardItem] {
+    func board() async throws -> [BoardItem] { try await boardColumns().flatMap(\.items) }
+
+    /// El resto del board por columna, en el orden del board.
+    func boardColumns() async throws -> [BoardColumn] {
         let rest: BoardRest = try await get("/api/board")
-        return rest.columns.flatMap(\.items)
+        return rest.columns
+    }
+
+    /// Los issues de los repos del catálogo sin card. nil si el runner todavía no lo expone (404/501): la sección no
+    /// se dibuja. Tolerante: lo que no viene en el contrato no rompe.
+    func repoIssues(project: String?) async throws -> RepoIssues? {
+        let query = project.flatMap { $0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) }.map { "?project=\($0)" } ?? ""
+        do {
+            return try await get("/api/repos/issues\(query)")
+        } catch let error as RunnerError where error.status == 404 || error.status == 501 {
+            return nil
+        }
     }
 
     /// Una tarea por su ref, esté o no en la bandeja (con sus acciones); nil si no está en ningún board.

@@ -365,56 +365,6 @@ struct TaskMenu: View {
 /// `la-haus/subscriptions#4281` → `#4281`.
 func shortRef(_ ref: String) -> String { ref.split(separator: "#").last.map { "#\($0)" } ?? ref }
 
-/// Una épica: avance de sus sub-issues y la próxima tarea que la mueve, con su acción a mano.
-struct EpicRow: View {
-    @ObservedObject var runner: RunnerModel
-    let epic: EpicView
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Button { runner.showEpic(epic.epic.ref) } label: {
-                    (Text(shortRef(epic.epic.ref)).foregroundStyle(.secondary) + Text(" ") + Text(epic.epic.displayTitle))
-                        .font(.lh(13, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                }
-                .buttonStyle(.plain).help("Ver \(epic.epic.ref) y sus sub-issues")
-                Spacer()
-                Text("\(epic.epic.done)/\(epic.epic.total)").font(.lh(11.5, .semibold)).foregroundStyle(.secondary)
-            }
-            ProgressBar(value: epic.progress)
-            if let next = epic.next {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(next.isDecision ? "Sigue" : next.group == "run" ? "Corre" : "Espera").font(.lh(11, .bold))
-                        .foregroundStyle(next.isDecision ? Color.orange : .secondary)
-                    Button { runner.open(next) } label: {
-                        Text("\(next.shortRef) · \(next.displayTitle)").font(.lh(11.5)).foregroundStyle(.primary.opacity(0.8)).lineLimit(2)
-                            .multilineTextAlignment(.leading)
-                    }
-                    .buttonStyle(.plain)
-                    Spacer(minLength: 4)
-                    if next.isDecision, let action = mainAction(actionsOf(next)) {
-                        Button(action.confirms ? "\(action.label)…" : action.label) { runner.trigger(action, on: next) }
-                            .buttonStyle(PillButtonStyle(tint: .accentColor, compact: true)).fixedSize().disabled(runner.busy.contains(next.ref))
-                    }
-                }
-            }
-            if epic.items.count > 1 {
-                Text(summary).font(.lh(11)).foregroundStyle(.tertiary)
-            }
-        }
-    }
-
-    private var summary: String {
-        let decisions = epic.items.filter(\.isDecision).count
-        var parts: [String] = []
-        if decisions > 0 { parts.append("\(decisions) te esperan") }
-        if epic.running > 0 { parts.append("\(epic.running) corriendo") }
-        let rest = epic.items.count - decisions - epic.running
-        if rest > 0 { parts.append("\(rest) en cola") }
-        return parts.joined(separator: " · ")
-    }
-}
-
 struct ProgressBar: View {
     let value: Double
 
@@ -422,7 +372,7 @@ struct ProgressBar: View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.08))
-                Capsule().fill(Color.green.opacity(0.8)).frame(width: max(g.size.width * value, value > 0 ? 6 : 0))
+                Capsule().fill(Palette.live).frame(width: max(g.size.width * value, value > 0 ? 6 : 0))
             }
         }
         .frame(height: 5)

@@ -238,6 +238,15 @@ final class RunnerModel: ObservableObject {
     /// La pantalla «GitHub» (buscar en cualquier repo de la organización); se crea al abrirla y se conserva.
     @Published private(set) var githubSearch: GithubSearchModel?
     private var boardCache: (items: [BoardItem], at: Date)?
+    /// El resto del board por columna (Próximo).
+    @Published private(set) var boardColumns: [BoardColumn] = []
+    /// «En los repos, sin card»: nil mientras no se leyó o si el runner no lo expone.
+    @Published private(set) var repoIssues: RepoIssues?
+    private var repoIssuesAt: Date?
+    /// El proyecto que filtra Próximo (sólo con más de uno).
+    @Published var nextProject: String? { didSet { if nextProject != oldValue { repoIssuesAt = nil; warmNext() } } }
+    /// Los grupos de Próximo que se despliegan enteros («Ver las N») y las columnas abiertas del resto del board.
+    @Published var expanded: Set<String> = []
     private var searchTask: Task<Void, Never>?
 
     /// Las secciones colapsadas de la bandeja, por título. «En cola» arranca colapsada.
@@ -464,7 +473,10 @@ final class RunnerModel: ObservableObject {
             defer { if !Task.isCancelled { searching = false } }
             let client = RunnerClient(server: server)
             if boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 {
-                if let items = try? await client.board() { boardCache = (items, Date()) }
+                if let columns = try? await client.boardColumns() {
+                    boardCache = (columns.flatMap(\.items), Date())
+                    boardColumns = columns
+                }
             }
             guard !Task.isCancelled, server == selected else { return }
             let inBox = Set((inbox?.items ?? []).map(\.ref))
@@ -520,9 +532,9 @@ final class RunnerModel: ObservableObject {
         guard !isFixture, boardCache == nil || Date().timeIntervalSince(boardCache!.at) > 60 else { return }
         let server = selected
         Task { @MainActor in
-            guard let items = try? await RunnerClient(server: server).board(), server == selected else { return }
-            boardCache = (items, Date())
-            objectWillChange.send()
+            guard let columns = try? await RunnerClient(server: server).boardColumns(), server == selected else { return }
+            boardCache = (columns.flatMap(\.items), Date())
+            boardColumns = columns
         }
     }
 
@@ -530,10 +542,23 @@ final class RunnerModel: ObservableObject {
     func warmNext() {
         guard tab == .next || searchOpen else { return }
         warmBoard()
+        guard tab == .next, !isFixture, repoIssuesAt.map({ Date().timeIntervalSince($0) > 60 }) ?? true else { return }
+        repoIssuesAt = Date()
+        let server = selected, project = nextProject
+        Task { @MainActor in
+            do {
+                let fresh = try await RunnerClient(server: server).repoIssues(project: project)
+                guard server == selected, project == nextProject else { return }
+                repoIssues = fresh
+            } catch {
+                // una falla de red no tapa lo que ya se vio; se reintenta en la próxima
+                repoIssuesAt = nil
+            }
+        }
     }
 
     /// Algo cambió el board desde acá: la próxima consulta lo vuelve a traer.
-    func forgetBoard() { boardCache = nil }
+    func forgetBoard() { boardCache = nil; repoIssuesAt = nil }
 
     /// La organización del runner: el owner de sus tareas.
     var organization: String? {
@@ -582,6 +607,10 @@ final class RunnerModel: ObservableObject {
         inbox = nil
         improvements = []
         boardCache = nil
+        boardColumns = []
+        repoIssues = nil
+        repoIssuesAt = nil
+        nextProject = nil
         query = ""
         repoFilter = nil
         searchOpen = false
@@ -1157,7 +1186,11 @@ extension RunnerModel {
         let feed = InboxFeed(ready: [
             card(4320, "feat(crm): exportar leads del funnel a CSV"),
             card(4322, "fix(widget): el teléfono no valida el indicativo", repo: "lh-seller-v2-frontend"),
-        ], waiting: [
+        ] + [
+            "Paginación del listado de leads", "Exportar citas a Google Calendar", "Webhook de cambio de etapa",
+            "Índice por empresa en leads", "Copys del correo de bienvenida", "Filtro por fecha en el funnel",
+            "Métrica de conversión por etapa",
+        ].enumerated().map { i, title in card(4330 + i, title) }, waiting: [
             card(4325, "feat(360): timeline usa la etapa del funnel", blocked: ["la-haus/subscriptions#4281"]),
         ])
         // un review con dos agentes en paralelo: el reviewer ya cerró (su `agent_id` es el de la ejecución), el e2e sigue
@@ -1202,7 +1235,25 @@ extension RunnerModel {
                  actions: ["stop"], epic: epic, pr: 918, repo: "lh-seller-v2-frontend", execution: review),
             item(4310, "Copys del widget", group: "queue", kind: "turn", why: "Espera un lugar libre", actions: []),
         ], pipeline: InboxPipeline(running: 2, queued: 1, paused: 0, capacity: 3, free: 1), feed: feed)
-        let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x")], inbox: inbox)
+        let model = RunnerModel(servers: [RunnerServer(baseUrl: "https://ia-flow.ss.lahaus.com", label: nil, token: "x"),
+                                          RunnerServer(baseUrl: "http://localhost:3001", label: "Local", token: nil)], inbox: inbox)
+        func board(_ n: Int, _ title: String, _ status: String, repo: String = "subscriptions") -> BoardItem {
+            BoardItem(ref: "la-haus/\(repo)#\(n)", title: title, url: "https://github.com", status: status, pr: nil, project_id: "p")
+        }
+        model.boardColumns = [
+            BoardColumn(status: "Backlog", items: [board(4102, "Reglas de asignación por zona", "Backlog"), board(4108, "Historial de etapas", "Backlog")]),
+            BoardColumn(status: "Done", items: [board(4270, "Etapas por empresa en la base", "Done"), board(4271, "API de etapas", "Done"),
+                                                board(812, "Login con Google", "Done", repo: "lh-seller-v2-frontend")]),
+        ]
+        model.repoIssues = RepoIssues(repos: [
+            .init(repo: "la-haus/subscriptions", project_id: "p", items: [
+                RepoIssue(ref: "la-haus/subscriptions#4331", project_id: "p", title: "Asignación por zona usa la etapa configurable",
+                          url: "https://github.com", updated_at: isoAgo(90), author: "mariacamila"),
+                RepoIssue(ref: "la-haus/subscriptions#4329", project_id: "p", title: "El webhook de leads duplica el evento al reintentar",
+                          url: "https://github.com", updated_at: isoAgo(60 * 26), author: "julianjab"),
+            ], truncated: true),
+            .init(repo: "la-haus/ims", project_id: "p", items: [], error: "sin acceso con la identidad del runner"),
+        ])
         model.improvements = [
             Improvement(id: "1", created_at: "2026-10-15T09:00:00Z", task_ref: "la-haus/subscriptions#4281", pr_url: "https://github.com",
                         agent: "retrospective", target: "docs", repo: "la-haus/subscriptions",
