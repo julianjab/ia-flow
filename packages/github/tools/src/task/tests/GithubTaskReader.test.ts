@@ -2,6 +2,7 @@ import { GithubClient } from '@ia-flow/github-api'
 import { GithubTokenAuth } from '@ia-flow/github-auth'
 import { describe, expect, it, vi } from 'vitest'
 import { GithubTaskReader } from '../GithubTaskReader.js'
+import { stackBlockers } from '../stack.js'
 
 /** El repo de la task, como lo devuelve GitHub (mayúsculas incluidas). */
 const REPO = { nameWithOwner: 'O/R' }
@@ -145,7 +146,7 @@ function routedReader(
   return new GithubTaskReader(client)
 }
 
-describe('GithubTaskReader.stackBlockers', () => {
+describe('stackBlockers (con GithubTaskReader)', () => {
   it('los blockers abiertos con su PR abierto; los cerrados no cuentan', async () => {
     const reader = routedReader(
       { 1: 10, 2: undefined },
@@ -161,7 +162,7 @@ describe('GithubTaskReader.stackBlockers', () => {
     )
 
     expect(
-      await reader.stackBlockers([
+      await stackBlockers(reader, [
         { state: 'open', html_url: 'https://github.com/la-haus/api/issues/1' },
         { state: 'open', html_url: 'https://github.com/la-haus/web/issues/2' },
         { state: 'closed', html_url: 'https://github.com/la-haus/api/issues/3' },
@@ -190,5 +191,73 @@ describe('GithubTaskReader.contains', () => {
 
     expect(await reader.contains('o', 'r', 'abc', 'feat/b')).toBe(true)
     expect(await reader.contains('o', 'r', 'abc', 'feat/c')).toBe(false)
+  })
+})
+
+/** Un GitHub cuyo GraphQL contesta `data` y cuyo REST contesta por ruta. */
+function graphqlReader(data: Record<string, unknown>, rest: Record<string, unknown> = {}) {
+  const fetchImpl = vi.fn(async (url: string | URL) => {
+    const path = new URL(String(url)).pathname
+    if (path === '/graphql') return new Response(JSON.stringify({ data }))
+    return new Response(JSON.stringify(rest[path] ?? {}))
+  })
+  const client = new GithubClient({
+    auth: new GithubTokenAuth('t'),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  })
+  return new GithubTaskReader(client)
+}
+
+describe('GithubTaskReader.closingIssues — PR apilado', () => {
+  const pr = (baseRefName: string, nodes: unknown[] = []) => ({
+    repository: {
+      defaultBranchRef: { name: 'main' },
+      pullRequest: { body: 'Closes #5', baseRefName, closingIssuesReferences: { nodes } },
+    },
+  })
+
+  it('un PR que no apunta a la default: sus issues salen del Closes del body', async () => {
+    expect(await graphqlReader(pr('feat/a')).closingIssues('o', 'r', 20)).toEqual([
+      { owner: 'o', repo: 'r', number: 5 },
+    ])
+  })
+
+  it('un PR contra la default sin vínculo no se inventa uno', async () => {
+    expect(await graphqlReader(pr('main')).closingIssues('o', 'r', 20)).toEqual([])
+  })
+})
+
+describe('GithubTaskReader.openPullRequest — PR apilado', () => {
+  it('sin PR que cierre el issue, el abierto desde una rama vinculada', async () => {
+    const reader = graphqlReader(
+      {
+        repository: {
+          issue: {
+            closedByPullRequestsReferences: { nodes: [] },
+            linkedBranches: {
+              nodes: [
+                { ref: { associatedPullRequests: { nodes: [] } } },
+                { ref: { associatedPullRequests: { nodes: [{ number: 20 }] } } },
+              ],
+            },
+          },
+        },
+      },
+      {
+        '/repos/o/r/pulls/20': {
+          number: 20,
+          state: 'open',
+          html_url: 'https://github.com/o/r/pull/20',
+          head: { ref: 'feat/b', sha: 'def' },
+          base: { ref: 'feat/a' },
+        },
+      },
+    )
+
+    expect(await reader.openPullRequest({ owner: 'o', repo: 'r', number: 5 })).toMatchObject({
+      number: 20,
+      headRef: 'feat/b',
+      baseRef: 'feat/a',
+    })
   })
 })

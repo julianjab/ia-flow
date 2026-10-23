@@ -22,7 +22,7 @@ function fakeGithub(base: string) {
   const patches: unknown[] = []
   const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
     if (init.method === 'PATCH') patches.push(JSON.parse(init.body as string))
-    return new Response(JSON.stringify({ number: 20, base: { ref: base } }))
+    return new Response(JSON.stringify({ number: 20, base: { ref: base }, body: 'Closes #2' }))
   })
   const client = new GithubClient({
     auth: new GithubTokenAuth('t'),
@@ -37,17 +37,17 @@ describe('RetargetPullRequestAction', () => {
 
     const result = await new RetargetPullRequestAction({ client }).run(ctxFor(), {})
 
-    expect(patches).toEqual([{ base: 'main' }])
+    expect(patches).toEqual([{ base: 'main', body: 'Closes #2' }])
     expect(result).toBe('PR #20: base feat/a → main')
   })
 
-  it('no toca un PR que GitHub ya reapuntó', async () => {
+  it('a un PR que GitHub ya reapuntó le relee el body, para que vincule el Closes', async () => {
     const { client, patches } = fakeGithub('main')
 
     expect(await new RetargetPullRequestAction({ client }).run(ctxFor(), {})).toContain(
-      'ya apunta a main',
+      'ya apuntaba a main',
     )
-    expect(patches).toEqual([])
+    expect(patches).toEqual([{ base: 'main', body: 'Closes #2' }])
   })
 
   it('no toca un PR que una persona apuntó a otra rama', async () => {

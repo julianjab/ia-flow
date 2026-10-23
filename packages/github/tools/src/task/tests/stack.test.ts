@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type StackBlocker, stackOf } from '../stack.js'
+import { closingRefs, issueOfUrl, type StackBlocker, stackOf } from '../stack.js'
 
 const task = { owner: 'la-haus', repo: 'api' }
 const blocker = (
@@ -75,5 +75,30 @@ describe('stackOf', () => {
     ])
     expect(stack.base).toBeUndefined()
     expect(stack.pending).toEqual(['la-haus/api#1', 'la-haus/api#2'])
+  })
+})
+
+describe('closingRefs', () => {
+  it('los issues que el body cierra, del repo del PR o de otro, sin repetir', () => {
+    expect(
+      closingRefs('Closes #2\nfixes la-haus/web#9 y resolves #2. Ver #3', {
+        owner: 'la-haus',
+        repo: 'api',
+      }),
+    ).toEqual([
+      { owner: 'la-haus', repo: 'api', number: 2 },
+      { owner: 'la-haus', repo: 'web', number: 9 },
+    ])
+  })
+})
+
+describe('issueOfUrl', () => {
+  it('la URL de un issue; otra cosa, undefined', () => {
+    expect(issueOfUrl('https://github.com/o/r/issues/7')).toEqual({
+      owner: 'o',
+      repo: 'r',
+      number: 7,
+    })
+    expect(issueOfUrl('https://github.com/o/r/pull/7')).toBeUndefined()
   })
 })
