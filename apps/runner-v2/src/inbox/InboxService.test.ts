@@ -195,6 +195,43 @@ describe('InboxService', () => {
     expect((await inbox.rest()).columns.flatMap((c) => c.items.map((i) => i.ref))).toEqual([])
   })
 
+  it('the rest of the board brings the closed cards only when asked, newest first', async () => {
+    const closed = [
+      {
+        ref: 'o/r#8',
+        projectId: 'p',
+        title: 'Vieja',
+        url: 'u8',
+        status: 'Done',
+        labels: [],
+        closedAt: '2026-01-01T00:00:00Z',
+      },
+      {
+        ref: 'o/r#9',
+        projectId: 'p',
+        title: 'Nueva',
+        url: 'u9',
+        status: 'Done',
+        labels: [],
+        closedAt: '2026-01-05T00:00:00Z',
+      },
+    ]
+    const inbox = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'o', number: 1 } }],
+      board: { cards: async () => [], closed: async () => closed },
+      activity: fakeActivity(),
+      waitingKeys: () => [],
+      explain: async () => [],
+      settings: InboxSection.parse({}),
+    })
+    expect((await inbox.rest()).closed).toBeUndefined()
+    const rest = await inbox.rest(undefined, { closed: true })
+    expect(rest.closed?.map((c) => [c.ref, c.closed_at])).toEqual([
+      ['o/r#9', '2026-01-05T00:00:00Z'],
+      ['o/r#8', '2026-01-01T00:00:00Z'],
+    ])
+  })
+
   it('a task outside the inbox still has a detail, as idle', async () => {
     const { inbox } = service([card('o/r#4', { status: 'Todo' })], fakeActivity())
     const detail = await inbox.detail('o/r#4')
