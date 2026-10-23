@@ -106,20 +106,20 @@ const column = ref(columns.value.find(isTodo) ?? columns.value[0]);
 </template>
 
 <style scoped>
-.ic { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.6rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--panel-alt); }
+.ic { display: flex; flex-direction: column; gap: 0.35rem; padding: 0.75rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel-alt); }
 .ic[data-done='true'] { border-color: var(--border); }
 .ic p { margin: 0; overflow-wrap: anywhere; }
 .ic__head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.5rem; }
-.ic__title { color: var(--fg); }
+.ic__title { color: var(--fg); font-size: var(--fs-body); }
 /* Chip que no se toca: `--row-h`, mono, `--radius-sm`. */
-.ic__chip { padding: 0 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg-mute); font-family: var(--font-mono); font-size: var(--fs-micro); line-height: var(--row-h); }
+.ic__chip { padding: 0 0.4rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-hi); color: var(--fg-mute); font-size: var(--fs-micro); line-height: var(--row-h); }
 .ic__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0 0.75rem; }
-.ic__repo { color: var(--info); font-size: var(--fs-micro); }
+.ic__repo { color: var(--fg-dim); font-size: var(--fs-chrome); }
 /* Link de texto en la línea: el blanco táctil lo da el alto (R1), no una caja. */
 .ic__ref { min-height: var(--tap-h); padding: 0; border: 0; background: none; color: var(--info); font-size: var(--fs-body-sm); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .ic__ref:hover { text-decoration: underline; }
-.ic__link { display: inline-flex; align-items: center; min-height: var(--tap-h); color: var(--accent); font-size: var(--fs-body-sm); }
-.ic__link:hover { background: none; color: var(--accent); text-decoration: underline; }
+.ic__link { display: inline-flex; align-items: center; min-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); }
+.ic__link:hover { background: none; color: var(--fg); text-decoration: underline; }
 .ic__why { color: var(--fg-mute); font-size: var(--fs-body-sm); line-height: 1.45; }
 .ic__ai { color: var(--ai); }
 .ic__body summary { display: list-item; line-height: var(--tap-h); color: var(--info); font-size: var(--fs-body-sm); cursor: pointer; }
@@ -128,7 +128,7 @@ const column = ref(columns.value.find(isTodo) ?? columns.value[0]);
 .ic__col { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; }
 .ic__col select { min-height: var(--tap-h); max-width: 100%; }
 .ic__row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.15rem; }
-.ic__hint { color: var(--info); font-size: var(--fs-body-sm); }
+.ic__hint { color: var(--fg-dim); font-size: var(--fs-chrome); }
 .ic__done { color: var(--accent); font-size: var(--fs-body-sm); font-weight: 600; }
 .ic__err { color: var(--danger); font-size: var(--fs-body-sm); }
 </style>

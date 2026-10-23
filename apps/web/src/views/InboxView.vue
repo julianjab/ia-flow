@@ -1,17 +1,15 @@
 <script setup lang="ts">
-import ImprovementsSection from '@/features/improvements/ImprovementsSection.vue';
+import ImprovementsLink from '@/features/improvements/ImprovementsLink.vue';
 import MineBoard from '@/features/inbox/MineBoard.vue';
-import { useTaskFocusStore } from '@/stores/taskFocus';
 
-// «Para mí»: lo que te necesita y, debajo, las mejoras que propuso un agente (también te esperan).
-// Son dos features y ninguna importa a la otra: la ref de una tarea se pide por `taskFocus`.
-const taskFocus = useTaskFocusStore();
+// «Para mí»: lo que te necesita y, al pie, una fila con las mejoras que esperan (su pantalla es
+// «Mejoras»). Son dos features y ninguna importa a la otra.
 </script>
 
 <template>
   <div class="inbox-view">
     <MineBoard />
-    <ImprovementsSection @open="taskFocus.focus($event)" />
+    <ImprovementsLink />
   </div>
 </template>
 

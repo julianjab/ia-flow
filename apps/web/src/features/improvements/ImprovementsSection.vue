@@ -49,13 +49,13 @@ onMounted(() => void store.load());
 </template>
 
 <style scoped>
-.imp { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.imp { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); }
 .imp__head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; min-height: var(--tap-h); padding: 0 0.75rem; cursor: pointer; list-style: none; }
 .imp__head::-webkit-details-marker { display: none; }
 .imp__head:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
 .imp__chev { flex: none; color: var(--fg-dim); font-size: var(--fs-micro); transition: transform 120ms ease; }
 .imp[open] > .imp__head .imp__chev { transform: rotate(90deg); }
-.imp__n { color: var(--accent); font-size: var(--fs-chrome); }
+.imp__n { color: var(--fg); font-size: var(--fs-chrome); font-weight: 600; }
 .imp__dim { color: var(--fg-dim); font-size: var(--fs-body-sm); overflow-wrap: anywhere; }
 .imp__body { display: flex; flex-direction: column; gap: 0.5rem; padding: 0 0.75rem 0.75rem; }
 </style>

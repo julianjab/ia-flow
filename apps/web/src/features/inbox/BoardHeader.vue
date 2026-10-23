@@ -17,8 +17,8 @@ const { isMobile } = useIsMobile();
     <div class="bh__title-row">
       <h1 class="bh__title">{{ title }}</h1>
       <span v-if="sub" class="bh__sub">{{ sub }}</span>
-    </div>
-    <InboxToolbar
+      <InboxToolbar
+        class="bh__tools"
       :projects="store.projects"
       :project="store.project"
       :stream="store.streamState"
@@ -26,7 +26,8 @@ const { isMobile } = useIsMobile();
       :compact="isMobile"
       @project="store.project = $event"
       @refresh="store.refresh()"
-    />
+      />
+    </div>
     <slot />
   </header>
 </template>
@@ -36,4 +37,7 @@ const { isMobile } = useIsMobile();
 .bh__title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
 .bh__title { margin: 0; font-size: var(--fs-display); letter-spacing: -0.01em; }
 .bh__sub { color: var(--fg-mute); }
+.bh__tools { flex: 1 1 auto; justify-content: flex-end; }
+/* El subtítulo va debajo, a lo ancho: el título y sus controles quedan en una línea. */
+.bh__sub { order: 3; flex-basis: 100%; }
 </style>

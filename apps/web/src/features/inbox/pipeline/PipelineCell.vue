@@ -45,10 +45,10 @@ const emit = defineEmits<{ (e: 'toggle'): void }>();
 }
 button.pc__cell { cursor: pointer; }
 button.pc__cell:hover { background: var(--panel-hi); color: var(--fg); }
-button.pc__cell:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
-/* La celda abierta es la seleccionada: video inverso (DESIGN_SYSTEM «Selección»), no un contorno. */
-button.pc__cell[aria-expanded='true'],
-.pc__cell[aria-expanded='true'] .pc__n { background: var(--accent); color: var(--panel); }
+button.pc__cell:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* La celda abierta: el fondo del segmento elegido (v5), no un relleno de color. */
+button.pc__cell[aria-expanded='true'] { background: var(--panel-top); color: var(--fg); }
+.pc__cell[aria-expanded='true'] .pc__n { background: none; color: var(--fg); }
 .pc__top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem; align-self: stretch; }
 .pc__chev { flex: none; }
 .pc__n { color: var(--fg); font-size: var(--fs-num); font-weight: 700; line-height: 1.35; font-variant-numeric: tabular-nums; }

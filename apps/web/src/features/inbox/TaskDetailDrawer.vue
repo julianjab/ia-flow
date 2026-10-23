@@ -133,7 +133,7 @@ useBackClose(
 .dd__meta { display: flex; flex: 1; align-items: center; min-width: 0; }
 .dd__close { flex: none; display: grid; place-items: center; width: var(--tap-h); height: var(--tap-h); border: none; border-radius: var(--radius); background: none; color: var(--fg-mute); cursor: pointer; }
 .dd__close svg { width: 1.25rem; height: 1.25rem; }
-.dd__close { width: auto; gap: 0.15rem; padding: 0 0.5rem; color: var(--info); }
+.dd__close { display: inline-flex; align-items: center; width: auto; gap: 0.15rem; padding: 0 0.5rem; color: var(--info); }
 .dd__back { font-weight: 500; }
 .dd__sep { color: var(--fg-dimmer); }
 .dd__need { display: flex; flex-direction: column; gap: 0.2rem; margin: 0.5rem 1rem 0; padding: 0.75rem 0.9rem; border: 1px solid var(--border-hi); border-radius: var(--radius-lg); background: var(--blue-bg); }

@@ -58,7 +58,7 @@ const folded = useCollapsed('after');
 <style scoped>
 /* Contenedor de las filas: «Después» vive en una columna (con el aside o el menú lateral), así que
    la fila cambia de forma según el ancho de la lista, no el de la ventana (DecisionRow). */
-.dq { container: decisions / inline-size; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); min-width: 0; }
+.dq { container: decisions / inline-size; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel-alt); min-width: 0; overflow: hidden; }
 .dq__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.65rem 0.75rem; }
 /* En una columna angosta los filtros son UNA fila que se desliza de costado (R2: la página no): en
    tres filas le comían media pantalla a la cola. Con lugar, vuelven a partirse en líneas. */
@@ -74,4 +74,7 @@ const folded = useCollapsed('after');
 @media (min-width: 640px) {
   .dq__head, .dq__filters { padding-left: 1rem; padding-right: 1rem; }
 }
+.dq__head .sec-hd { color: var(--fg-dim); font-size: var(--fs-chrome); font-weight: 600; }
+.dq__head .uc-label { color: var(--fg-dim); }
+.dq__head { padding-top: 0.35rem; padding-bottom: 0.35rem; }
 </style>

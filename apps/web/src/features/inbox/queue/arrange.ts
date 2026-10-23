@@ -8,8 +8,8 @@ export type SortMode = 'priority' | 'recent' | 'oldest'
 
 export const SORT_MODES: readonly { id: SortMode; label: string }[] = [
   { id: 'priority', label: 'Prioridad' },
-  { id: 'recent', label: 'Más reciente' },
-  { id: 'oldest', label: 'Más antigua' },
+  { id: 'recent', label: 'Recientes' },
+  { id: 'oldest', label: 'Antiguas' },
 ]
 
 /** Una tarea pospuesta: vuelve cuando su huella cambia o, si tiene plazo, cuando vence. */

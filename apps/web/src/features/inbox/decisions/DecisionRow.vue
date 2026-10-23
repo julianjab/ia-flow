@@ -207,4 +207,18 @@ async function confirm() {
   .dr__toggle { order: 1; }
   .dr__act { display: inline-flex; order: 2; flex: none; }
 }
+/* v5 (la fila de la maqueta): sin número de rango —el orden ya se ve—, qué es chico en el tono
+   del tipo y el título de la tarea en negrita, que es lo que se lee. */
+.dr .dr__rank { display: none; }
+.dr__verb { font-size: var(--fs-body-sm); }
+.dr__title { color: var(--fg); font-weight: 600; }
+@container decisions (min-width: 36rem) {
+  .dr__head { grid-template-columns: minmax(0, 1fr) auto; }
+  .dr__what { grid-column: 1; }
+  .dr__side { grid-column: 2; }
+  .dr__in,
+  .dr__ok { margin-left: 0; }
+}
+.dr { padding-top: 0.55rem; padding-bottom: 0.55rem; gap: 0.35rem; }
+.dr__what { gap: 0.1rem; }
 </style>

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { InboxProject } from '@ia-flow/shared';
 import { computed } from 'vue';
-import { useIsMobile } from '@/composables/useIsMobile';
 import ActionButton from '@/features/inbox/decisions/ActionButton.vue';
 import RefLink from '@/features/inbox/decisions/RefLink.vue';
 import Disclosure from '@/features/inbox/Disclosure.vue';
@@ -14,7 +13,7 @@ import type { QueueAction } from '@/features/inbox/queue/kinds';
 // «Qué le das al pipeline», debajo de la cola: una línea por tarea lista para arrancar (estado,
 // link, título truncado y la acción que la pone a correr). El encabezado dice cuántos lugares
 // libres hay para llenar (como el mockup: es la pregunta que contesta el feed) y cuántas hay
-// listas. En el teléfono arranca plegado. Las que esperan a otra tarea (el feed del runner) van
+// listas. Arranca abierto en cualquier ancho: Todo no queda escondido. Las que esperan a otra tarea (el feed del runner) van
 // después, con «○ espera <ref>»: todavía no pueden arrancar. Cada línea se puede mover a otra
 // columna del board («Mover a…», si el runner manda las columnas), y al pie se agrega al board un
 // issue que no está.
@@ -29,7 +28,6 @@ const props = withDefaults(
   }>(),
   { projects: () => [], project: null },
 );
-const { isMobile } = useIsMobile();
 
 /** Mover una card al pipeline es reversible: no confirma, pero va firmado con tu usuario. */
 const actionOf = (line: FeedLine): QueueAction | null =>
@@ -51,7 +49,7 @@ const free = computed(() => {
 </script>
 
 <template>
-  <Disclosure :title="feed.title" :open="!isMobile" data-test="feed">
+  <Disclosure :title="feed.title" open data-test="feed">
     <template #meta>
       <span v-if="free" class="uc-label fl__free" data-test="feed-free">{{ free }}</span>
       <span v-if="n" class="fl__slots">{{ n }} {{ n === 1 ? 'lista para correr' : 'listas para correr' }}</span>
