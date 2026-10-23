@@ -27,12 +27,15 @@ vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'https://runner.test', url: (p: string) => p }),
 }))
 
-import InboxBoard from '@/features/inbox/InboxBoard.vue'
+import { BoardHarness as InboxBoard } from '@/features/inbox/test/boardHarness'
 
 async function mountBoard() {
   const pinia = createPinia()
   setActivePinia(pinia)
-  const wrapper = mount(InboxBoard, { global: { plugins: [pinia] }, attachTo: document.body })
+  const wrapper = mount(InboxBoard, {
+    global: { plugins: [pinia], stubs: ['RouterLink'] },
+    attachTo: document.body,
+  })
   await flushPromises()
   return { wrapper, pinia }
 }
@@ -110,13 +113,6 @@ describe('InboxBoard — carga por sección', () => {
     expect(wrapper.find('[data-test="skeleton-queue"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="skeleton-pipeline"]').exists()).toBe(true)
     expect(wrapper.get('[data-test="feed"]').text()).toContain('Lista para arrancar')
-  })
-
-  it('lo que llega aparece con `.reveal` en la primera carga', async () => {
-    getTasks.mockResolvedValue(published)
-    getInbox.mockResolvedValue(runnerInbox)
-    const { wrapper } = await mountBoard()
-    expect(wrapper.get('[data-test="first"]').classes()).toContain('reveal')
   })
 
   it('un refresco no vuelve al esqueleto: lo pintado se queda', async () => {

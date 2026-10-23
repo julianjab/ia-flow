@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 
-// La pantalla de la bandeja entera (la cola y, debajo, las mejoras): un solo primario, el de
+// «Para mí» entera (la cola y, debajo, las mejoras): un solo primario, el de
 // «Lo primero». Las mejoras se dibujan con botones normales.
 
 const item = (over: Partial<InboxItem>): InboxItem => ({
@@ -66,17 +66,22 @@ vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'https://runner.test', url: (p: string) => p }),
 }))
 
+import { useInboxStore } from '@/features/inbox/store'
 import InboxView from '@/views/InboxView.vue'
 
 describe('InboxView', () => {
   it('hay un solo .btn--primary en la pantalla: el de «Lo primero»', async () => {
     setActivePinia(createPinia())
-    const w = mount(InboxView, { global: { plugins: [createPinia()] } })
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const w = mount(InboxView, { global: { plugins: [pinia], stubs: ['RouterLink'] } })
+    // La bandeja la arranca el shell (AppShell): acá, a mano.
+    useInboxStore().start()
     await flushPromises()
     expect(w.find('[data-test="improvements"]').exists()).toBe(true)
     const primaries = w.findAll('.btn--primary')
     expect(primaries).toHaveLength(1)
     expect(w.get('[data-test="first"]').find('.btn--primary').exists()).toBe(true)
-    expect(w.findAll('h1').map((h) => h.text())).toEqual(['Bandeja'])
+    expect(w.findAll('h1').map((h) => h.text())).toEqual(['Para mí'])
   })
 })

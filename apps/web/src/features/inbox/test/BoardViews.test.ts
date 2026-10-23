@@ -13,6 +13,7 @@ vi.mock('@/features/inbox/api', () => ({
   getTasks: (...a: unknown[]) => getTasks(...a),
   getTaskDetail: (...a: unknown[]) => getTaskDetail(...a),
   getBoardRest: vi.fn(),
+  getRepoIssues: vi.fn().mockResolvedValue(null),
   postTaskAction: vi.fn(),
   explainTask: vi.fn(),
 }))
@@ -27,7 +28,7 @@ vi.mock('@/composables/useServerTarget', () => ({
   serverTarget: () => ({ base: 'https://runner.test', url: (p: string) => p }),
 }))
 
-import InboxBoard from '@/features/inbox/InboxBoard.vue'
+import { BoardHarness as InboxBoard } from '@/features/inbox/test/boardHarness'
 import { useAssistantStore } from '@/stores/assistant'
 import { useTaskFocusStore } from '@/stores/taskFocus'
 
@@ -57,7 +58,10 @@ const waiting = item({ ref: 'acme/api#4', group: 'queue', kind: 'agent', title: 
 async function mountBoard() {
   const pinia = createPinia()
   setActivePinia(pinia)
-  const wrapper = mount(InboxBoard, { global: { plugins: [pinia] }, attachTo: document.body })
+  const wrapper = mount(InboxBoard, {
+    global: { plugins: [pinia], stubs: ['RouterLink'] },
+    attachTo: document.body,
+  })
   await flushPromises()
   return { wrapper, pinia }
 }
@@ -75,15 +79,11 @@ describe('InboxBoard', () => {
     close.mockReset()
   })
 
-  it('titular, «Lo primero» con la primera decisión y «Después» numerado; lo que corre no es una card', async () => {
+  it('«Para mí» dice cuántas tareas, «Lo primero» va en grande y el resto numerado; lo que corre no es una card', async () => {
     getInbox.mockResolvedValue(inbox([merge, fail, run, waiting]))
     const { wrapper } = await mountBoard()
 
-    const headline = wrapper.get('[data-test="headline"]').text()
-    expect(headline).toContain('2 decisiones te esperan')
-    // Tantas tareas como decisiones: el número no se repite.
-    expect(headline).not.toContain('tareas')
-    expect(headline).toContain('✕ 1 falló')
+    expect(wrapper.get('.bh__sub').text()).toBe('2 tareas')
 
     const first = wrapper.get('[data-test="first"]')
     expect(first.text()).toContain('Lo primero · 1 de 2')
@@ -92,11 +92,12 @@ describe('InboxBoard', () => {
     expect(wrapper.get('.dr').text()).toContain('Se rompió')
 
     // Lo que corre o espera no sale como card: sólo en el pipeline.
-    expect(wrapper.find('#card-acme\\/api\\#4').exists()).toBe(false)
-    expect(wrapper.findAll('article').some((a) => a.text().includes('Corriendo ahora'))).toBe(false)
-    const line = wrapper.get('[data-test="pipeline-line"]').text()
-    expect(line).toContain('1 corriendo')
-    expect(line).toContain('1 en cola')
+    const mine = wrapper.findAll('.vb')[0]
+    expect(mine?.find('#card-acme\\/api\\#4').exists()).toBe(false)
+    expect(mine?.findAll('article').some((a) => a.text().includes('Corriendo ahora'))).toBe(false)
+    // Va en «En curso»: una celda por lugar del runner.
+    expect(wrapper.get('[data-test="cell-running"]').text()).toContain('1')
+    expect(wrapper.get('[data-test="cell-waiting"]').text()).toContain('1')
     // Sin el bloque viejo de grupos.
     expect(wrapper.text()).not.toContain('Nada por acá')
     expect(wrapper.find('.sum__stat').exists()).toBe(false)
@@ -141,48 +142,22 @@ describe('InboxBoard', () => {
     expect(wrapper.findAll('.btn--primary')).toHaveLength(1)
   })
 
-  it('sin fallas, el titular lo dice; toda referencia es un link corto a GitHub', async () => {
+  it('toda referencia es un link corto a GitHub', async () => {
     getInbox.mockResolvedValue(inbox([merge]))
     const { wrapper } = await mountBoard()
-    expect(wrapper.get('[data-test="headline"]').text()).toContain('nada falló')
     const link = wrapper.get('[data-test="first"] a.ref')
     expect(link.text()).toBe('api#1 ↗')
     expect(link.attributes('target')).toBe('_blank')
     expect(link.attributes('rel')).toContain('noopener')
   })
 
-  it('desde 1100 px el pipeline va al costado y no se repite bajo el titular', async () => {
-    split.value = true
-    getInbox.mockResolvedValue(inbox([merge, run]))
-    const { wrapper } = await mountBoard()
-    expect(wrapper.find('[data-test="pipeline-line"]').exists()).toBe(false)
-    const aside = wrapper.get('aside')
-    expect(aside.get('[data-test="cell-running"]').text()).toContain('1')
-    expect(aside.text()).toContain('Corriendo ahora')
-    expect(aside.text()).toContain('Cuenta tarjetas')
-  })
-
-  it('desde 1100 px «Dónde se traba cada épica» va al costado, entre el pipeline y la higiene', async () => {
-    split.value = true
-    const epic = { ref: 'acme/api#100', title: 'Filtros del listado', done: 3, total: 5 }
-    getInbox.mockResolvedValue(inbox([{ ...merge, epic }, run]))
-    const { wrapper } = await mountBoard()
-    const section = wrapper.get('aside [data-test="epics"]')
-    expect(section.get('h2').text()).toBe('Dónde se traba cada épica')
-    expect(section.text()).toContain('3/5')
-    expect(section.get('[data-test="epic-neck"]').text()).toBe('#1 espera tu merge')
-    expect(
-      wrapper.find('main [data-test="epics"], .board__main [data-test="epics"]').exists(),
-    ).toBe(false)
-  })
-
-  it('bajo 1100 las épicas van plegadas con cuántas están trabadas en vos; sin épicas, nada', async () => {
+  it('«Próximo» lleva dónde se traba cada épica; sin épicas, nada', async () => {
     const epic = { ref: 'acme/api#100', title: 'Filtros del listado', done: 3, total: 5 }
     getInbox.mockResolvedValue(inbox([{ ...merge, epic }, fail]))
     const { wrapper } = await mountBoard()
-    const folded = wrapper.get('.board__main [data-test="epics"]')
-    expect(folded.find('details').attributes('open')).toBeUndefined()
-    expect(folded.get('[data-test="epics-stuck"]').text()).toBe('1 trabada en vos')
+    const section = wrapper.get('[data-test="epics"]')
+    expect(section.text()).toContain('3/5')
+    expect(section.get('[data-test="epic-neck"]').text()).toBe('#1 espera tu merge')
     wrapper.unmount()
 
     getInbox.mockResolvedValue(inbox([merge, fail]))
@@ -312,7 +287,8 @@ describe('InboxBoard', () => {
       ),
     )
     const { wrapper } = await mountBoard()
-    const chips = wrapper.findAll('.tb__chips .filter-chip')
+    // Cada vista lleva el filtro en su encabezado: el de «Para mí».
+    const chips = wrapper.findAll('.vb')[0]?.findAll('.tb__chips .filter-chip') ?? []
     expect(chips.map((c) => c.text())).toEqual(['Todos', 'core', 'web'])
     await chips[2]?.trigger('click')
     expect(wrapper.get('[data-test="first"]').text()).toContain('Otro proyecto')
@@ -322,8 +298,7 @@ describe('InboxBoard', () => {
   it('sin decisiones lo dice; con error muestra el mensaje y una acción', async () => {
     getInbox.mockResolvedValue(inbox([run]))
     const empty = (await mountBoard()).wrapper
-    expect(empty.text()).toContain('Todo en orden')
-    expect(empty.find('[data-test="headline"]').exists()).toBe(false)
+    expect(empty.get('[data-test="empty"]').text()).toContain('Nada te espera')
 
     getInbox.mockRejectedValue(new Error('runner caído'))
     const { wrapper } = await mountBoard()
@@ -337,19 +312,17 @@ describe('InboxBoard', () => {
     getInbox.mockReturnValue(new Promise(() => {}))
     const pinia = createPinia()
     setActivePinia(pinia)
-    const wrapper = mount(InboxBoard, { global: { plugins: [pinia] } })
+    const wrapper = mount(InboxBoard, { global: { plugins: [pinia], stubs: ['RouterLink'] } })
     await flushPromises()
     const busy = wrapper.findAll('[aria-busy="true"]')
     expect(busy.map((b) => b.attributes('data-test'))).toEqual([
-      'skeleton-pipeline-line',
       'skeleton-queue',
+      'skeleton-pipeline',
       'skeleton-feed',
     ])
     expect(wrapper.get('[data-test="skeleton-queue"] [role="status"]').text()).toBe(
       'cargando las decisiones…',
     )
-    // El titular es parte de las decisiones: no se anuncia dos veces.
-    expect(wrapper.get('[data-test="skeleton-headline"]').attributes('aria-hidden')).toBe('true')
     expect(wrapper.text()).not.toContain('cargando la bandeja')
   })
 
@@ -369,7 +342,7 @@ describe('InboxBoard', () => {
       ],
     })
     const { wrapper } = await mountBoard()
-    const links = wrapper.findAll('.tb__link')
+    const links = wrapper.findAll('.vb')[0]?.findAll('.tb__link') ?? []
     expect(links.map((l) => [l.text(), l.attributes('href')])).toEqual([
       ['Proyecto ↗', url],
       ['Board ↗', `${url}/views/3`],
@@ -377,11 +350,11 @@ describe('InboxBoard', () => {
     for (const l of links) expect(l.classes()).toContain('link')
   })
 
-  it('al final, plegados, el board de GitHub y «Cómo se ordenan las decisiones»', async () => {
+  it('plegados, el resto del board y «Cómo se ordenan las decisiones»', async () => {
     getInbox.mockResolvedValue(inbox([]))
     const { wrapper } = await mountBoard()
     expect(wrapper.get('.br details').attributes('open')).toBeUndefined()
-    expect(wrapper.get('.br summary').text()).toContain('Board de GitHub')
+    expect(wrapper.get('.br summary').text()).toContain('Resto del board')
     expect(wrapper.get('.lg h2').text()).toBe('Cómo se ordenan las decisiones')
     expect(wrapper.get('.lg').text()).toContain('status Review + label reviewed')
   })

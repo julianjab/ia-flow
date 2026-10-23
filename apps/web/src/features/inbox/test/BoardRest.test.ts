@@ -56,9 +56,9 @@ describe('BoardRest', () => {
     expect(getBoardRest).toHaveBeenCalledOnce()
     expect(w.get('details').attributes('open')).toBeUndefined()
     const sum = w.get('summary')
-    expect(w.get('h2').text()).toBe('Board de GitHub')
+    expect(w.get('h2').text()).toBe('Resto del board')
     expect(sum.find('h2').exists()).toBe(false)
-    expect(sum.text()).toContain('Board de GitHub')
+    expect(sum.text()).toContain('Resto del board')
     expect(sum.text()).toContain('3 cards · Backlog 1 · Todo 2')
   })
 

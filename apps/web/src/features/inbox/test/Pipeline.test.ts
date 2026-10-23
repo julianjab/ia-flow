@@ -19,7 +19,6 @@ vi.mock('@/composables/useIsMobile', () => ({
 
 import FeedList from '@/features/inbox/pipeline/FeedList.vue'
 import PipelineCells from '@/features/inbox/pipeline/PipelineCells.vue'
-import PipelineLine from '@/features/inbox/pipeline/PipelineLine.vue'
 import { buildQueue } from '@/features/inbox/queue/build'
 import { useInboxStore } from '@/features/inbox/store'
 import { useGithubSessionStore } from '@/stores/githubSession'
@@ -141,32 +140,14 @@ describe('el pipeline', () => {
   it('con un runner viejo (sin capacity) cuenta las tarjetas y no inventa libres', () => {
     const pinia = setup()
     const q = buildQueue({ items: [running, item({ ref: 'a/b#9', group: 'queue' })], now: NOW })
-    const w = mount(PipelineLine, {
+    const w = mount(PipelineCells, {
       props: { pipeline: q.pipeline, running: q.running },
       global: { plugins: [pinia] },
     })
-    const sum = w.get('summary').text()
-    expect(w.get('summary .dz__chev').text()).toBe('▸')
-    expect(sum).toContain('1 corriendo')
-    expect(sum).toContain('1 en cola')
-    expect(sum).not.toContain('libre')
+    expect(w.get('[data-test="cell-running"]').text()).toContain('1')
+    expect(w.get('[data-test="cell-waiting"]').text()).toContain('1')
+    expect(w.find('[data-test="cell-free"]').exists()).toBe(false)
     expect(w.text()).toContain('Cuenta tarjetas')
-  })
-
-  it('la línea arranca abierta si algo corre (Detener… a la vista) y plegada si no', () => {
-    const pinia = setup()
-    const busy = buildQueue({ items: [running], capacity, now: NOW })
-    const open = mount(PipelineLine, {
-      props: { pipeline: busy.pipeline, running: busy.running },
-      global: { plugins: [pinia] },
-    })
-    expect(open.get('details').attributes('open')).toBeDefined()
-    const idle = buildQueue({ items: [], capacity, now: NOW })
-    const closed = mount(PipelineLine, {
-      props: { pipeline: idle.pipeline, running: idle.running },
-      global: { plugins: [pinia] },
-    })
-    expect(closed.get('details').attributes('open')).toBeUndefined()
   })
 })
 
@@ -271,10 +252,10 @@ describe('el pipeline con los datos del :3011', () => {
     expect(useInboxStore().expanded).toBe(true)
   })
 
-  it('sin tarjetas que esperan a otra, la línea no se dibuja', () => {
+  it('sin tarjetas que esperan a otra, su línea no se dibuja', () => {
     const pinia = setup()
     const q = buildQueue({ items: [running], capacity, now: NOW })
-    const w = mount(PipelineLine, {
+    const w = mount(PipelineCells, {
       props: { pipeline: q.pipeline, running: q.running, blocked: q.blocked },
       global: { plugins: [pinia] },
     })

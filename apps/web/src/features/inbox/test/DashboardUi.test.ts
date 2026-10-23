@@ -25,12 +25,12 @@ vi.mock('@/composables/useServerTarget', () => ({
 
 import DashboardEditor from '@/features/inbox/DashboardEditor.vue'
 import DecisionRow from '@/features/inbox/decisions/DecisionRow.vue'
-import InboxBoard from '@/features/inbox/InboxBoard.vue'
 import FeedList from '@/features/inbox/pipeline/FeedList.vue'
 import { buildQueue } from '@/features/inbox/queue/build'
 import RulesLegend from '@/features/inbox/RulesLegend.vue'
 import { useInboxStore } from '@/features/inbox/store'
 import TaskActions from '@/features/inbox/TaskActions.vue'
+import { BoardHarness as InboxBoard } from '@/features/inbox/test/boardHarness'
 import { useGithubSessionStore } from '@/stores/githubSession'
 
 const fact = (ref: string, status: string, patch: Record<string, unknown> = {}) => ({
@@ -124,7 +124,7 @@ describe('el dashboard en la pantalla', () => {
 
   it('desde 1100 px, el pipeline tiene su celda de libres y el feed dice cuántos lugares hay para llenar', async () => {
     const { pinia } = setup()
-    const wrapper = mount(InboxBoard, { global: { plugins: [pinia] } })
+    const wrapper = mount(InboxBoard, { global: { plugins: [pinia], stubs: ['RouterLink'] } })
     await flushPromises()
     expect(wrapper.get('[data-test="cell-free"]').text()).toContain('3')
     const feed = wrapper.get('[data-test="feed"] summary').text()

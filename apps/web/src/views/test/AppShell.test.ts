@@ -3,6 +3,24 @@ import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { useAssistantStore } from '@/stores/assistant'
+
+// El shell arranca la bandeja: sin red, el inbox vacío y el stream de mentira.
+vi.mock('@/features/inbox/api', () => ({
+  getInbox: async () => ({
+    generated_at: '2026-01-01T10:05:00.000Z',
+    projects: [{ id: 'core', board: { owner: 'acme', number: 1 } }],
+    items: [],
+  }),
+  getTasks: async () => null,
+  getTaskDetail: vi.fn(),
+  getBoardRest: vi.fn(),
+  getRepoIssues: vi.fn(),
+  getEpic: vi.fn(),
+  postTaskAction: vi.fn(),
+  explainTask: vi.fn(),
+}))
+vi.mock('@/features/inbox/stream', () => ({ connectRunnerStream: () => ({ close: vi.fn() }) }))
+
 import AppShell from '../AppShell.vue'
 
 const Blank = { template: '<p>pantalla</p>' }
@@ -37,6 +55,9 @@ async function render() {
         component: AppShell,
         children: [
           { path: '', name: 'inbox', component: Blank },
+          { path: 'en-curso', name: 'running', component: Blank },
+          { path: 'proximo', name: 'next', component: Blank },
+          { path: 'mejoras', name: 'improvements', component: Blank },
           { path: 'config', name: 'config', component: Blank },
           { path: 'webhooks', name: 'webhooks', component: Blank },
         ],
@@ -65,39 +86,43 @@ afterEach(() => {
 })
 
 describe('AppShell', () => {
-  it('en desktop, el menú lateral lleva a Bandeja, Config, Webhooks y Runners', async () => {
+  it('en desktop, el menú lateral lleva a las tres vistas y, debajo, a lo que se consulta', async () => {
     const { w } = await render()
     expect(w.findAll('.side__label').map((l) => l.text())).toEqual([
-      'Bandeja',
-      'Config',
+      'Para mí',
+      'En curso',
+      'Próximo',
+      'Mejoras',
       'Webhooks',
+      'Config',
       'Runners',
     ])
-    expect(w.find('.side__link.router-link-exact-active .side__label').text()).toBe('Bandeja')
+    expect(w.find('.side__link.router-link-exact-active .side__label').text()).toBe('Para mí')
     expect(w.find('[data-test="tab-inbox"]').exists()).toBe(false)
   })
 
-  it('el chip del runner lleva a /servers', async () => {
+  it('el runner de la barra dice cómo está y lleva a /servers', async () => {
     const { w, router } = await render()
-    await w.get('.bar__server').trigger('click')
+    expect(w.get('[data-test="runner-status"]').text()).toBe('0 corriendo · 0 en cola')
+    await w.get('.bar__runner').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.path).toBe('/servers')
   })
 
-  it('en un teléfono no hay menú lateral: hay tab bar, y la Bandeja es la pestaña actual', async () => {
+  it('en un teléfono no hay menú lateral: la tab bar lleva a las tres vistas y al asistente', async () => {
     phone()
     const { w } = await render()
     expect(w.find('.side').exists()).toBe(false)
     expect(w.findAll('.tb__label').map((l) => l.text())).toEqual([
-      'Bandeja',
+      'Para mí',
+      'En curso',
+      'Próximo',
       'Asistente',
-      'Webhooks',
-      'Config',
     ])
     expect(w.get('[data-test="tab-inbox"]').classes()).toContain('router-link-exact-active')
   })
 
-  it('sin decisiones la pestaña Bandeja no dibuja un contador en cero', async () => {
+  it('sin decisiones la pestaña Para mí no dibuja un contador en cero', async () => {
     phone()
     const { w } = await render()
     expect(w.find('[data-test="tab-inbox"] .tb__badge').exists()).toBe(false)
@@ -118,8 +143,20 @@ describe('AppShell', () => {
   it('las pestañas de ruta navegan', async () => {
     phone()
     const { w, router } = await render()
-    await w.get('[data-test="tab-config"]').trigger('click')
+    await w.get('[data-test="tab-running"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('config')
+    expect(router.currentRoute.value.name).toBe('running')
+  })
+
+  it('en un teléfono, el avatar abre «Más» con lo que se consulta', async () => {
+    phone()
+    const { w, router } = await render()
+    await w.get('[data-test="more"]').trigger('click')
+    await flushPromises()
+    const links = [...document.body.querySelectorAll('.more__label')].map((l) => l.textContent)
+    expect(links).toEqual(['Mejoras', 'Webhooks', 'Config', 'Runners'])
+    ;(document.body.querySelector('.more__link') as HTMLElement).click()
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('improvements')
   })
 })
