@@ -6,7 +6,7 @@
 import type { GithubTaskReader, RawTaskContext, Stack } from '@ia-flow/github-tools'
 import { issueOfUrl, stackBlockers, stackOf } from '@ia-flow/github-tools'
 
-type StackReader = Pick<GithubTaskReader, 'openPullRequest' | 'contains'>
+type StackReader = Pick<GithubTaskReader, 'openPullRequest' | 'contains' | 'firstCommit'>
 
 interface IssueRef {
   owner: string
@@ -42,12 +42,14 @@ export async function taskStack(
 }
 
 /** El PR abierto de `dependent` si estaba apilado sobre la rama del PR mergeado: apunta a ella, o
- *  ya la trae (GitHub lo reapunta solo cuando borra la rama mergeada). Sólo en el mismo repo. Si
+ *  ya la trae (GitHub lo reapunta solo cuando borra la rama mergeada). "La trae" es tener el primer
+ *  commit del PR mergeado: la punta no alcanza, porque el prerrequisito pudo recibir commits (su
+ *  review) después de que la rama del dependiente salió de la suya. Sólo en el mismo repo. Si
  *  GitHub no contesta (la rama del PR ya no está, un fork), no estaba apilado: el merge no deja sin
  *  aviso a los demás dependientes. */
 export async function stackedOn(
   reader: StackReader,
-  merged: { owner: string; repo: string; head: string; headSha: string; base: string },
+  merged: { owner: string; repo: string; pr: number; head: string; base: string },
   dependent: IssueRef,
 ): Promise<number | undefined> {
   if (!same(dependent.owner, merged.owner) || !same(dependent.repo, merged.repo)) return undefined
@@ -55,8 +57,10 @@ export async function stackedOn(
     const pr = await reader.openPullRequest(dependent)
     if (!pr) return undefined
     if (pr.baseRef === merged.head) return pr.number
-    if (pr.baseRef !== merged.base || !merged.headSha) return undefined
-    const carries = await reader.contains(merged.owner, merged.repo, merged.headSha, pr.headRef)
+    if (pr.baseRef !== merged.base) return undefined
+    const first = await reader.firstCommit(merged.owner, merged.repo, merged.pr)
+    if (!first) return undefined
+    const carries = await reader.contains(merged.owner, merged.repo, first, pr.headRef)
     return carries ? pr.number : undefined
   } catch {
     return undefined

@@ -366,6 +366,15 @@ export class GithubTaskReader {
     return this.openPr(task)
   }
 
+  /** El primer commit de un PR: el que trae cualquier rama que salió de la suya, aunque el PR
+   *  haya recibido más commits después. */
+  async firstCommit(owner: string, repo: string, pr: number): Promise<string | undefined> {
+    const commits = await this.client.requestJson<Array<{ sha: string }>>(
+      `/repos/${owner}/${repo}/pulls/${pr}/commits?per_page=1`,
+    )
+    return commits[0]?.sha
+  }
+
   /** Si `head` ya trae el commit `sha` (`sha` es su ancestro, o es el mismo). */
   async contains(owner: string, repo: string, sha: string, head: string): Promise<boolean> {
     const compare = await this.client.requestJson<{ status: string }>(
