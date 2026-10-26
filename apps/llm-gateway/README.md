@@ -35,6 +35,28 @@ Settings > General > AI > **Manage AI Models…**: agregá un modelo con la URL
 `http://127.0.0.1:4141/v1/chat/completions`, el nombre de un modelo de la lista y tipo OpenAI
 Chat Completions. Como API key, el `LLM_GATEWAY_TOKEN`.
 
+## Cloud Run
+
+`.github/workflows/deploy-gateway.yml` lo publica en Cloud Run en cada push a `main` que lo toque
+(o a mano con *Run workflow*): typecheck + tests, `bun run bundle`, la imagen de
+[`deploy/Dockerfile`](deploy/Dockerfile) y `gcloud run deploy`. Para uso propio: una instancia, a
+cero sin tráfico, dentro del free tier.
+
+Una sola vez, con una cuenta de facturación abierta (`gcloud billing accounts list`):
+
+```bash
+CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-... \
+LLM_GATEWAY_TOKEN=$(openssl rand -hex 24) \
+  apps/llm-gateway/deploy/setup-gcp.sh <project-id> <billing-account-id>
+```
+
+Crea el proyecto, los secretos en Secret Manager, las service accounts, la federación con GitHub
+(sin keys JSON, sólo `main` de este repo) y las variables `GCP_*` del repo. Sin esas variables el
+workflow no corre. Rotar un token = volver a correr el script con el valor nuevo y redeployar.
+
+El servicio es público (`--allow-unauthenticated`): lo único que lo protege es
+`LLM_GATEWAY_TOKEN`. La URL (`https://llm-gateway-….run.app`) la imprime el job al final.
+
 ## Límites
 
 - `temperature` se recorta a 1 (OpenAI acepta hasta 2, Anthropic hasta 1).
