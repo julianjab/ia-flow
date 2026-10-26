@@ -6,6 +6,7 @@
   "description": "Gateway local compatible con la API de OpenAI (chat completions) que responde con los providers de ia-flow: apunta cualquier cliente OpenAI-compatible (iTerm2, editores, scripts) a Claude",
   "scripts": {
     "start": "bun run src/main.ts",
+    "bundle": "bun build --target=bun src/main.ts --outfile=dist/gateway.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test"
   },
