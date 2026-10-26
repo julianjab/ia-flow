@@ -1,0 +1,90 @@
+# Publica `apps/llm-gateway` en Cloud Run en cada push a main que lo toque.
+#
+# El proyecto de GCP se prepara una vez con `apps/llm-gateway/deploy/setup-gcp.sh`, que deja las
+# variables `GCP_*` del repo. Sin ellas el job no corre (no falla): el repo sigue verde mientras
+# el deploy no esté configurado.
+#
+# Sin keys JSON: GitHub se autentica con Workload Identity Federation, y la federación sólo acepta
+# a `refs/heads/main` de este repo. Los tokens viven en Secret Manager, nunca en el repo ni en el CI.
+name: Deploy gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/llm-gateway/**
+      - packages/providers/anthropic/api/**
+      - packages/telemetry/**
+      - packages/agent-engine/**
+      - bun.lock
+      - .github/workflows/deploy-gateway.yml
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-gateway
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Cloud Run (llm-gateway)
+    if: vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/llm-gateway/llm-gateway:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # El mismo pin que ci.yml y que la imagen (deploy/Dockerfile).
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Typecheck + test
+        run: bun run typecheck:llm-gateway && bun run test:llm-gateway
+
+      - name: Bundle
+        run: bun run --cwd apps/llm-gateway bundle
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Imagen
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" -f apps/llm-gateway/deploy/Dockerfile apps/llm-gateway/dist
+          docker push "$IMAGE"
+
+      # `--update-*` y no `--set-*`: una variable agregada a mano en la consola (el system prompt,
+      # los modelos) sobrevive al siguiente deploy. Una sola instancia y a cero sin tráfico: el
+      # free tier, y un tope si el token se filtra. 3600 s porque un turno largo no manda bytes.
+      - name: Deploy
+        run: |
+          gcloud run deploy llm-gateway \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ vars.GCP_REGION }}" \
+            --image="$IMAGE" \
+            --service-account="${{ vars.GCP_RUNTIME_SA }}" \
+            --update-secrets=CLAUDE_CODE_OAUTH_TOKEN=llm-gateway-oauth-token:latest,LLM_GATEWAY_TOKEN=llm-gateway-token:latest \
+            --port=8080 \
+            --cpu=1 --memory=256Mi \
+            --min-instances=0 --max-instances=1 \
+            --timeout=3600 \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Health
+        run: |
+          url=$(gcloud run services describe llm-gateway --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="${{ vars.GCP_REGION }}" --format='value(status.url)')
+          curl -fsS "$url/health"
+          echo "::notice::llm-gateway en $url"
