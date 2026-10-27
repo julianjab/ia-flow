@@ -257,11 +257,8 @@ class ProjectResolver {
     if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
-    if (input.notifyBlockersRefined && this.refinedStatuses) {
-      return this.refinedDependents(location, ctx, when, this.refinedStatuses)
-    }
-    const toParent = this.toParent(input, location, ctx, when)
-    if (toParent) return toParent
+    const notified = this.notifyInstead(input, location, ctx, when)
+    if (notified) return notified
     if ('skip' in location) return { skipped: location.skip }
     const prOnly = input.pullRequestsWithoutIssue?.map((row) => new Condition(row))
     const task =
@@ -274,6 +271,20 @@ class ProjectResolver {
     return 'skip' in published
       ? { skipped: published.skip }
       : { emitted: [String(published.scope?.issue)] }
+  }
+
+  /** Lo que el intake publica en vez del evento de la task: el aviso a los dependientes de un
+   *  prerrequisito refinado, o lo que un hijo le avisa a su épica. */
+  private notifyInstead(
+    input: z.infer<typeof Input>,
+    location: Location,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> | undefined {
+    if (input.notifyBlockersRefined && this.refinedStatuses) {
+      return this.refinedDependents(location, ctx, when, this.refinedStatuses)
+    }
+    return this.toParent(input, location, ctx, when)
   }
 
   /** Lo que un hijo le avisa a su épica (`notifyParentOfStatus`, `notifyParentOfLabels`), si el
@@ -371,16 +382,14 @@ class ProjectResolver {
       options.closedBlocker,
     )
     const refined = await this.blockersRefinedOf(task, context.blockers, options)
-    if (options.onlyIfBlockersRefined && refined && !refined.refined) {
-      return { skip: `${ref} todavía espera que se refinen ${refined.waiting.join(', ')}` }
-    }
+    if ('skip' in refined) return refined
     const build = (branch: string) =>
       taskPayload({
         ...task,
         ...fields,
         ...context,
         ...(stack ? { stack } : {}),
-        ...(refined ? { blockersRefined: refined.refined } : {}),
+        ...(refined.value !== undefined ? { blockersRefined: refined.value } : {}),
         card,
         ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
         projectId: this.project.id,
@@ -543,13 +552,28 @@ class ProjectResolver {
     return event
   }
 
-  /** `item.blockersRefined` de la task: sólo con `refinedStatuses` (si no, ni una lectura de más). */
+  /** `item.blockersRefined` de la task —sólo con `refinedStatuses`: si no, ni una lectura de más—, o
+   *  por qué no publicar si `onlyIfBlockersRefined` y todavía espera a alguno. */
   private async blockersRefinedOf(
+    task: TaskRef,
+    blockers: Array<{ state: string; html_url: string }>,
+    options: { closedBlocker?: string; refinedBlocker?: TaskRef; onlyIfBlockersRefined?: boolean },
+  ): Promise<{ value?: boolean } | { skip: string }> {
+    if (!this.refinedStatuses) return {}
+    const result = await this.readBlockersRefined(task, blockers, options)
+    if (options.onlyIfBlockersRefined && !result.refined) {
+      const ref = `${task.owner}/${task.repo}#${task.number}`
+      return { skip: `${ref} todavía espera que se refinen ${result.waiting.join(', ')}` }
+    }
+    return { value: result.refined }
+  }
+
+  private readBlockersRefined(
     task: TaskRef,
     blockers: Array<{ state: string; html_url: string }>,
     options: { closedBlocker?: string; refinedBlocker?: TaskRef },
   ) {
-    if (!this.refinedStatuses) return undefined
+    const refinedStatuses = this.refinedStatuses ?? []
     const open = blockers
       .filter((b) => b.state === 'open' && b.html_url !== options.closedBlocker)
       .map((b) => b.html_url)
@@ -561,7 +585,7 @@ class ProjectResolver {
       },
       task,
       open,
-      this.refinedStatuses,
+      refinedStatuses,
       options.refinedBlocker,
     )
   }

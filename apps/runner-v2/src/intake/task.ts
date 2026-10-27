@@ -80,6 +80,17 @@ export interface TaskInput {
   repos: string
 }
 
+/** `item.blocked`: hay prerrequisitos abiertos. `item.kind`: `pr` para una task que es sólo un PR
+ *  (sin card ni PRD), `issue` para el resto. `item.blockersRefined`: los prerrequisitos abiertos ya
+ *  tienen PRD (sólo con `refinedStatuses` en el intake). */
+function itemExtra(input: TaskInput, blocked: boolean) {
+  return {
+    blocked,
+    kind: input.pullRequestOnly ? 'pr' : 'issue',
+    ...(input.blockersRefined !== undefined ? { blockersRefined: input.blockersRefined } : {}),
+  }
+}
+
 export function taskPayload(input: TaskInput) {
   const open = (input.blockers ?? []).filter(
     (b) => b.state === 'open' && b.html_url !== input.closedBlocker,
@@ -125,14 +136,8 @@ export function taskPayload(input: TaskInput) {
       // `ensure_pull_request`).
       ...(input.stack?.base ? { stack: input.stack.base } : {}),
     },
-    // Lo que filtra el gate de las pipelines (`item.blocked`): hay prerrequisitos abiertos.
-    // `item.kind`: `pr` para una task que es sólo un PR (sin card ni PRD), `issue` para el resto.
-    // `item.blockersRefined`: los prerrequisitos abiertos ya tienen PRD (sólo con `refinedStatuses`).
-    itemExtra: {
-      blocked: blockers.length > 0,
-      kind: input.pullRequestOnly ? 'pr' : 'issue',
-      ...(input.blockersRefined !== undefined ? { blockersRefined: input.blockersRefined } : {}),
-    },
+    // Lo que filtran las pipelines en `item.*`.
+    itemExtra: itemExtra(input, blockers.length > 0),
   }
   const issue = {
     title: input.issue.title,
