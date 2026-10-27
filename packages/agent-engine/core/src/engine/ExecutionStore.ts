@@ -95,6 +95,9 @@ export class ExecutionStore {
   /** Cuántas veces se canceló cada task (`cancel`): una corrida que empezó a esperar antes de la
    *  última, cede el turno sin arrancar. */
   private readonly cancellations = new Map<string, number>()
+  /** La espera anotada (`ExecutionRepository.queued`) de cada ejecución que arrancó y todavía no
+   *  guardó por dónde seguir: si el proceso muere antes, su evento se re-despacha al reiniciar. */
+  private readonly trigger = new Map<string, string>()
   private orphaned: OrphanedEvents[] = []
   private readonly resumeLimits: ResumeLimits
   private readonly newId: () => string
@@ -187,11 +190,28 @@ export class ExecutionStore {
     const cancelled = this.cancellations.get(key) ?? 0
     const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
     const waiting = this.noteQueued(key, pipelineId, queuedAt, event)
+    let execution: Execution | undefined
     try {
-      return await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket, cancelled)
+      execution = await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket, cancelled)
+      return execution
     } finally {
-      if (waiting) this.repository.unqueued?.(waiting)
+      // Ya arrancó: su espera queda anotada hasta que la ejecución guarde por dónde seguir (ver
+      // `settleTrigger`). Arrancar no alcanza: si el proceso muere antes de que su agente guarde
+      // la conversación, la ejecución se cierra `interrupted` y sin esto su evento se perdía
+      // (subscriptions#2041: el refiner nunca corrió).
+      if (waiting && execution?.status === 'running') this.trigger.set(execution.id, waiting)
+      else if (waiting) this.repository.unqueued?.(waiting)
     }
+  }
+
+  /** La ejecución ya guardó por dónde seguir, se pausó o cerró: un reinicio la retoma (o ya no
+   *  hay nada que retomar), así que su evento ya no se re-despacha. */
+  private settleTrigger(record: ExecutionRecord): void {
+    const waiting = this.trigger.get(record.id)
+    if (!waiting) return
+    if (record.status === 'running' && record.checkpoint === undefined) return
+    this.trigger.delete(record.id)
+    this.repository.unqueued?.(waiting)
   }
 
   /** Anota la espera con su evento, si el repositorio sabe guardarla. Devuelve su id. */
@@ -394,7 +414,8 @@ export class ExecutionStore {
   }
 
   /**
-   * Las corridas que esperaban turno o lugar cuando el proceso murió: su evento vuelve a pasar por
+   * Las corridas que esperaban turno o lugar cuando el proceso murió —o que ya habían arrancado
+   * pero no guardaron por dónde seguir, y se cerraron `interrupted`—: su evento vuelve a pasar por
    * las reglas, como lo que una interrumpida no leyó (`takeOrphaned`). Una vez por evento: un
    * mismo evento pudo encolar varias pipelines, y re-despacharlo las vuelve a decidir a todas con
    * los hechos de ahora.
@@ -407,7 +428,7 @@ export class ExecutionStore {
       seen.add(run.event.id)
       this.orphaned.push({ executionId: run.id, events: [run.event] })
       this.log.warn(
-        `${run.pipelineId} esperaba turno en ${run.key} cuando el proceso se reinició: su evento se re-despacha`,
+        `${run.pipelineId} no llegó a guardar progreso en ${run.key} antes del reinicio (esperaba turno o recién arrancaba): su evento se re-despacha`,
         { 'ia.pipeline.id': run.pipelineId },
       )
     }
@@ -465,6 +486,7 @@ export class ExecutionStore {
   /** Guarda y, si cambió su estado, avisa. */
   private save(record: ExecutionRecord): void {
     this.repository.save(record)
+    this.settleTrigger(record)
     if (this.lastStatus.get(record.id) === record.status) return
     if (record.status === 'running' || record.status === 'paused') {
       this.lastStatus.set(record.id, record.status)
