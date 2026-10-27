@@ -1,5 +1,31 @@
 # Changelog
 
+## [2.29.0](https://github.com/julianjab/ia-flow/compare/v2.28.0...v2.29.0) (2026-10-27)
+
+
+### Features
+
+* **agent-engine:** cancelar todo lo vivo de una task (ExecutionStore.cancel) ([940626b](https://github.com/julianjab/ia-flow/commit/940626b5fe1950ba9337fb143e8860172be03544))
+* **llm-gateway:** bundle, imagen y setup de GCP para Cloud Run ([6fd0a38](https://github.com/julianjab/ia-flow/commit/6fd0a38030742ad5dc349a54056a5972af6a8b67))
+* **runner-v2:** la bandeja no relanza una task tomada en local y stop cancela una pausada ([1d0b265](https://github.com/julianjab/ia-flow/commit/1d0b265d7049e7a52d570be7f4cf064636e5faec))
+* **runner-v2:** soltar lo vivo de una task al tomarla en local (inbox.labels.local) ([9a32d47](https://github.com/julianjab/ia-flow/commit/9a32d472196e85af2d0cd8ea3090530df89a83e2))
+* **runner-v2:** TaskDetail.activity.waiting explícito ([f1a08df](https://github.com/julianjab/ia-flow/commit/f1a08dfc65e8e86cad7ed561aaa1c7a348a1b37e))
+
+
+### Bug Fixes
+
+* **agent-engine:** con el store cerrado no arranca ni se retoma nada ([05ec62a](https://github.com/julianjab/ia-flow/commit/05ec62a6629bf41d59802c1239eda725af088a8a))
+* **agent-engine:** el onError de un grupo parallel publica el motivo con el reporte del miembro que falló ([e25656c](https://github.com/julianjab/ia-flow/commit/e25656ceb96af2797200ab2b97c16aac2840a636))
+* **agent-engine:** un agente que muere en el apagado no corre su onError ([f4d438b](https://github.com/julianjab/ia-flow/commit/f4d438b0d1d0403b585cbccd5d99ac998f648659))
+* **agent-engine:** una ejecución que muere antes de guardar progreso re-despacha su evento al reiniciar ([5ca21f1](https://github.com/julianjab/ia-flow/commit/5ca21f1ddef1ffba1ec93400a42f79b3a25dbf04))
+* **runner-v2:** la bandeja no pone en cola por dependencia a una card cuya columna no espera blockers ([466cc49](https://github.com/julianjab/ia-flow/commit/466cc49b6a53e52fbf254d49aadee1de48cbe473))
+* **runner-v2:** la bandeja trata el escalamiento del custodio como una duda ([235b6e5](https://github.com/julianjab/ia-flow/commit/235b6e56bf53f80a9de8156f1a323073d3e35447))
+
+
+### Performance Improvements
+
+* **runner-v2:** la bandeja recuerda si la columna espera a los blockers mientras la card no cambie ([a57b401](https://github.com/julianjab/ia-flow/commit/a57b40179b9fbeff13a1fd916f5f3479dccf871e))
+
 ## [2.28.0](https://github.com/julianjab/ia-flow/compare/v2.27.1...v2.28.0) (2026-10-23)
 
 
