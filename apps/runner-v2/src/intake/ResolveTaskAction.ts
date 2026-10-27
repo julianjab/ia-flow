@@ -199,6 +199,9 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     private readonly userComments?: { has(commentId: number): boolean },
     /** Las tasks tomadas en local: sin esto, el intake no conoce el concepto. */
     private readonly localClaims?: LocalClaimPort,
+    /** Cuándo arrancó la última corrida cerrada de una task (`o/r#n`): sin esto, el evento no trae
+     *  `task.news`. */
+    private readonly lastRunAt?: (ref: string) => string | undefined,
   ) {
     super({ id: 'resolve_task' })
   }
@@ -227,6 +230,7 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
           this.announced,
           this.localClaims,
           input.refinedStatuses,
+          this.lastRunAt,
         ).resolve(input, ctx, slackLocation),
       ),
     )
@@ -252,6 +256,7 @@ class ProjectResolver {
     private readonly localClaims?: LocalClaimPort,
     /** `refinedStatuses` del intake: sin esto, el evento no trae `item.blockersRefined`. */
     private readonly refinedStatuses?: string[],
+    private readonly lastRunAt?: (ref: string) => string | undefined,
   ) {
     this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
   }
@@ -420,6 +425,7 @@ class ProjectResolver {
         ...context,
         ...(stack ? { stack } : {}),
         ...(refined.value !== undefined ? { blockersRefined: refined.value } : {}),
+        ...this.lastRunOf(ref),
         card,
         ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
         projectId: this.project.id,
@@ -580,6 +586,12 @@ class ProjectResolver {
     })
     await ctx.bus.publish(event)
     return event
+  }
+
+  /** `lastRunAt` de la task, si ya corrió alguna vez (de ahí sale `task.news`). */
+  private lastRunOf(ref: string): { lastRunAt?: string } {
+    const lastRunAt = this.lastRunAt?.(ref)
+    return lastRunAt ? { lastRunAt } : {}
   }
 
   /** `item.blockersRefined` de la task —sólo con `refinedStatuses`: si no, ni una lectura de más—, o

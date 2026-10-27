@@ -53,5 +53,7 @@ export default defineAction({
       },
       ctx.services.userComments,
       ctx.services.localClaims,
+      // `task.news`: lo que llegó desde la última corrida cerrada de la task.
+      (ref) => ctx.services.tasks.lastRunAt(ref),
     ),
 })

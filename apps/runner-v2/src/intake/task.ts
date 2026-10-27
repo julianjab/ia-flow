@@ -11,6 +11,7 @@ import {
   type RawThread,
   rollupCi,
   type Stack,
+  taskNews,
   taskTimeline,
 } from '@ia-flow/github-tools'
 import { assemblePayload, type EventArgs } from './payload.js'
@@ -74,6 +75,9 @@ export interface TaskInput {
   /** Con `refinedStatuses` en el intake: si cada prerrequisito abierto ya está refinado
    *  (`item.blockersRefined`, ver `refinedBlockers.ts`). Sin él, el campo no viaja. */
   blockersRefined?: boolean
+  /** Cuándo arrancó la última corrida cerrada de la task (ISO). Con esto el evento trae
+   *  `task.lastRunAt` y `task.news`: lo del timeline posterior, para empezar por las novedades. */
+  lastRunAt?: string
   /** La rama de la task (`task.branch`). */
   branch: string
   /** `{{project.repos}}` de los prompts. */
@@ -83,6 +87,16 @@ export interface TaskInput {
 /** `item.blocked`: hay prerrequisitos abiertos. `item.kind`: `pr` para una task que es sólo un PR
  *  (sin card ni PRD), `issue` para el resto. `item.blockersRefined`: los prerrequisitos abiertos ya
  *  tienen PRD (sólo con `refinedStatuses` en el intake). */
+/** `task.lastRunAt` y `task.news` (lo del timeline posterior a la última corrida): sólo si la task
+ *  ya corrió alguna vez. */
+function sinceLastRun(input: TaskInput) {
+  if (!input.lastRunAt) return {}
+  return {
+    lastRunAt: input.lastRunAt,
+    news: taskNews({ ...input, pr: input.openPr?.number }, input.lastRunAt),
+  }
+}
+
 function itemExtra(input: TaskInput, blocked: boolean) {
   return {
     blocked,
@@ -135,6 +149,7 @@ export function taskPayload(input: TaskInput) {
       // `task.stack`: la rama del prerrequisito sobre la que sale la suya (`link_branch`,
       // `ensure_pull_request`).
       ...(input.stack?.base ? { stack: input.stack.base } : {}),
+      ...sinceLastRun(input),
     },
     // Lo que filtran las pipelines en `item.*`.
     itemExtra: itemExtra(input, blockers.length > 0),

@@ -219,6 +219,11 @@ export function mountInbox(
 
     // Los contadores de `maxRuns` son por clave de ejecución (el scope de la task): la de su
     // última ejecución. Sin ninguna, no hay nada contado.
+    // `task.news` del intake: lo posterior al arranque de la última corrida cerrada. El arranque,
+    // no el cierre: lo que llegó mientras corría puede no haberlo visto.
+    lastRunAt: (ref: string) =>
+      store.activity.executions({ taskRef: ref, statuses: ['done', 'failed'], limit: 1 })[0]
+        ?.started_at,
     resetRuns: (ref: string, by: string) => {
       const last = store.activity.executions({ taskRef: ref, limit: 1 })[0]
       if (!last) return `${ref} no tenía corridas contadas`

@@ -15,6 +15,9 @@ export interface TaskDeskPort {
   /** Pone en cero los topes de corridas (`maxRuns`) de la task: una persona la destraba y le da
    *  una ronda nueva. Opcional: un puerto viejo no lo trae. */
   resetRuns?(ref: string, by: string): string
+  /** Cuándo arrancó la última corrida cerrada de la task (ISO): de ahí sale `task.news` en el
+   *  intake. Opcional: un puerto viejo no lo trae. */
+  lastRunAt?(ref: string): string | undefined
 }
 
 export class TaskDesk {
@@ -45,5 +48,10 @@ export class TaskDesk {
     const port = this.connected()
     if (!port.resetRuns) throw new Error('este runner no lleva topes de corridas')
     return port.resetRuns(ref, by)
+  }
+
+  /** Sin la bandeja servida (o con un puerto viejo), `undefined`: el evento no trae `task.news`. */
+  lastRunAt(ref: string): string | undefined {
+    return this.port?.lastRunAt?.(ref)
   }
 }
