@@ -317,12 +317,21 @@ export class GithubTaskReader {
     return files
   }
 
-  /** El body del issue (el PRD, si ya lo refinaron). */
-  async issueBody(owner: string, repo: string, number: number): Promise<string> {
-    const issue = await this.client.requestJson<{ body?: string | null }>(
+  /** El título y el body del issue (el PRD, si ya lo refinaron), sin el resto de su contexto. */
+  async issueText(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<{ title: string; body: string }> {
+    const issue = await this.client.requestJson<{ title?: string; body?: string | null }>(
       `/repos/${owner}/${repo}/issues/${number}`,
     )
-    return issue.body ?? ''
+    return { title: issue.title ?? '', body: issue.body ?? '' }
+  }
+
+  /** El body del issue (el PRD, si ya lo refinaron). */
+  async issueBody(owner: string, repo: string, number: number): Promise<string> {
+    return (await this.issueText(owner, repo, number)).body
   }
 
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
