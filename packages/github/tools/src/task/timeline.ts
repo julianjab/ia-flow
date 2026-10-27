@@ -153,13 +153,32 @@ const fromRaw = (origin: string) => (c: RawComment) => ({
 
 /** El timeline de la task: los comentarios del issue y, con PR abierto, los del PR, sus hilos
  *  sin resolver y sus reviews. */
-export function taskTimeline(input: {
+/** Lo que lee el timeline de una task: los comentarios del issue y, con PR, los del PR, sus threads
+ *  sin resolver y sus reviews. */
+export interface TimelineInput {
   issueComments?: RawComment[]
   pr?: number
   prComments?: RawComment[]
   threads?: RawThread[]
   reviews?: RawReview[]
-}): string {
+}
+
+export function taskTimeline(input: TimelineInput): string {
+  return formatComments(timelineEntries(input))
+}
+
+/**
+ * Sólo lo que llegó después de `since` (ISO): las novedades desde la última corrida, para que un
+ * agente que vuelve sobre la task empiece por ahí y no relea todo el timeline. Vacío si no hay nada
+ * nuevo.
+ */
+export function taskNews(input: TimelineInput, since: string): string {
+  const from = Date.parse(since)
+  if (Number.isNaN(from)) return formatComments(timelineEntries(input))
+  return formatComments(timelineEntries(input).filter((c) => Date.parse(c.createdAt) > from))
+}
+
+function timelineEntries(input: TimelineInput): Comment[] {
   const comments: Comment[] = (input.issueComments ?? []).map(fromRaw('issue'))
   if (input.pr !== undefined) {
     const label = `PR #${input.pr}`
@@ -176,5 +195,5 @@ export function taskTimeline(input: {
         })),
     )
   }
-  return formatComments(comments)
+  return comments
 }
