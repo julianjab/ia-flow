@@ -21,6 +21,7 @@ export const KIND_LABEL: Record<InboxKind, string> = {
   crash: 'Error del runner',
   ci: 'Esperando CI',
   agent: 'Agente trabajando',
+  local: 'En una sesión local',
   turn: 'Esperando turno',
   dep: 'Esperando otro issue',
   idle: 'Sin pendientes',

@@ -17,6 +17,7 @@ export type InboxGroup = z.infer<typeof InboxGroupSchema>
  *   del agente), `stale` (Refine/Build sin ejecución ni cambios hace rato)
  * - fail: `crash` (la corrida falló por el runner o el provider)
  * - run: `agent` (ejecución corriendo), `ci` (pausada esperando el CI)
+ * - run: `local` (la tomó una sesión local con `inbox.labels.local`: no es del runner)
  * - queue: `turn` (encolada detrás de otra), `dep` (bloqueada por otro issue)
  * - idle: `idle` (fuera de la bandeja)
  */
@@ -33,6 +34,7 @@ export const InboxKindSchema = z.enum([
   'crash',
   'agent',
   'ci',
+  'local',
   'turn',
   'dep',
   'idle',

@@ -9,7 +9,8 @@ export interface TaskDeskPort {
   redispatch(ref: string, by: string): Promise<string>
   /** Vuelve a correr el pipeline de Review, como si la card acabara de llegar ahí. */
   rerunReview(ref: string, by: string): Promise<string>
-  /** Le pide al agente que corre para la task que termine su turno. */
+  /** Le pide al agente que corre para la task que termine su turno, o cancela su ejecución
+   *  pausada. Ninguna de las dos aplica salidas. */
   stop(ref: string, by: string): string
   /** Pone en cero los topes de corridas (`maxRuns`) de la task: una persona la destraba y le da
    *  una ronda nueva. Opcional: un puerto viejo no lo trae. */

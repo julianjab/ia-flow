@@ -69,6 +69,23 @@ function excerpt(text: string, max = 160): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
+/** Tomada por una sesión local (`labels.local`): no es del runner mientras tenga el label. Gana
+ *  sobre todo —lo que el runner tenía vivo lo soltó al llegar el label— y no ofrece acciones:
+ *  relanzarla o comentarle desde acá competiría con la sesión que la trabaja. */
+function claimedLocally(
+  card: BoardCard,
+  { labels }: ClassifyOptions['settings'],
+): Classification | undefined {
+  if (!labels.local || !card.labels.includes(labels.local)) return undefined
+  return {
+    group: 'run',
+    kind: 'local',
+    why: `Tomada por una sesión local (${labels.local})`,
+    since: card.updatedAt,
+    actions: [],
+  }
+}
+
 /** Lo que corre o espera: gana sobre lo que dice el board. */
 function fromActivity(activity: TaskActivity): Classification | undefined {
   const { live } = activity
@@ -90,7 +107,8 @@ function fromActivity(activity: TaskActivity): Classification | undefined {
       kind: ci ? 'ci' : 'agent',
       why: ci ? `Esperando el CI (${pauseId})${until}` : `Pausada en ${pauseId}${until}`,
       since: live.started_at,
-      actions: [],
+      // Parar una pausada la cancela: no vence ni despierta, y no aplica ninguna salida.
+      actions: ['stop'],
     }
   }
   if (activity.waiting) {
@@ -227,6 +245,8 @@ export function anytimeActions(
   activity: TaskActivity,
   { labels, statuses }: ClassifyOptions['settings'],
 ): TaskAction[] {
+  // Tomada en local: ninguna, ni comentar (el intake lo retiene y no lo re-entrega al soltarla).
+  if (labels.local && card.labels.includes(labels.local)) return []
   const idle = !activity.waiting && !activity.live
   // Una card con `blocked` no corre nada: el intake descarta sus eventos (para eso, `retry`).
   const rerunnable =
@@ -258,6 +278,8 @@ function classifyCase(
   activity: TaskActivity,
   options: ClassifyOptions,
 ): Classification | undefined {
+  const local = claimedLocally(card, options.settings)
+  if (local) return local
   const running = fromActivity(activity)
   if (running) return { ...running, since: running.since || card.updatedAt }
   return (

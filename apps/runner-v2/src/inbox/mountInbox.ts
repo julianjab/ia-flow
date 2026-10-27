@@ -137,10 +137,19 @@ export function mountInbox(
     addLogSink(logs.sink),
   ]
 
+  /** Una task tomada por una sesión local (`inbox.labels.local`) no se relanza desde acá:
+   *  competiría con la sesión que la trabaja. */
+  const assertNotClaimed = (ref: string, labels: readonly string[]) => {
+    if (mounted.services.localClaims.claimed(labels)) {
+      throw new Error(`${ref} la tomó una sesión local (${cfg.inbox.labels.local}): no se relanza`)
+    }
+  }
+
   /** Despacha un cambio de columna sintético a `status` (default: la columna actual de la card). */
   const rerunColumn = async (ref: string, by: string, status?: string) => {
     const card = await inbox.card(ref)
     if (!card) throw new Error(`${ref} no está en el board`)
+    assertNotClaimed(ref, card.labels)
     const column = status ?? card.status
     if (!column) throw new Error(`${ref} no está en ninguna columna`)
     const delivery = boards.of(card.projectId).statusChange(card, column, by)
@@ -156,6 +165,10 @@ export function mountInbox(
   // `services.tasks`, las actions `redispatch_task` y `rerun_review` de una `taskActions`.
   const taskDesk = {
     redispatch: async (ref: string, by: string) => {
+      // El último evento se despacha directo, sin pasar por el intake: el `when` que descarta una
+      // task tomada en local no lo ve. Se mira la card como está.
+      const card = await inbox.card(ref)
+      if (card) assertNotClaimed(ref, card.labels)
       const last = relaunchEvent(store.activity, ref)
       if (!last) throw new Error(`${ref} no tiene un evento que volver a despachar`)
       const event = redispatchEvent(last)
@@ -182,13 +195,20 @@ export function mountInbox(
     // Lo mismo con la columna en la que está la card (Refine, Build): su pipeline arranca de nuevo.
     rerunStage: (ref: string, by: string) => rerunColumn(ref, by),
 
+    // Una pausada se cancela (no vence ni despierta, no aplica salidas); a una que corre se le
+    // pide al agente que ceda su turno (tampoco aplica salidas: corre su `onInterrupt`).
     stop: (ref: string, by: string) => {
-      const running = store.activity.executions({
+      const live = store.activity.executions({
         taskRef: ref,
-        statuses: ['running'],
+        statuses: ['running', 'paused'],
         limit: 1,
       })[0]
-      const execution = running ? mounted.executions?.current(running.key) : undefined
+      const execution = live ? mounted.executions?.current(live.key) : undefined
+      if (execution?.status === 'paused') {
+        execution.cancel(`${by} la paró desde la bandeja`)
+        options.log(`${ref}: ${by} canceló la ejecución pausada ${execution.id}`)
+        return 'cancelé la ejecución pausada'
+      }
       const asked = execution?.interrupt(
         { by: 'inbox', event: 'inbox.stop', reason: `${by} pidió que pare desde la bandeja` },
         `${by} pidió desde la bandeja que termines ahora: cerrá tu turno con lo que tengas.`,
