@@ -393,15 +393,25 @@ describe('resolve_task notifyParent', () => {
     options: {
       parent?: { owner: string; repo: string; number: number } | null
       labels?: string[]
+      /** Lo que el hijo bloquea (número → PR abierto, o `undefined` si no tiene). */
+      dependents?: Record<number, number | undefined>
     } = {},
     input: Record<string, unknown> = {},
   ) {
     const base = reader(options.labels ?? []) as unknown as Record<string, unknown>
     const asked: string[] = []
+    const dependents = options.dependents ?? {}
     const fake = {
       ...base,
       withItemCache: () => fake,
       withStacking: () => fake,
+      dependents: async () =>
+        Object.keys(dependents).map((n) => ({
+          number: Number(n),
+          state: 'open',
+          repository_url: 'https://api.github.com/repos/o/r',
+        })),
+      openPullOf: async (_o: string, _r: string, n: number) => dependents[n],
       parentOf: async (owner: string, repo: string, number: number) => {
         asked.push(`${owner}/${repo}#${number}`)
         if (options.parent === null) return undefined
@@ -435,6 +445,18 @@ describe('resolve_task notifyParent', () => {
       message: 'Se cerró el sub-issue o/r#12 (completed).',
     })
     expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it('builtDependents lists what the closed child blocks that already has an open PR', async () => {
+    const { published } = await notify(closed('closed', 'completed'), {
+      dependents: { 20: 301, 21: undefined },
+    })
+    expect(published[0]?.payload).toMatchObject({ builtDependents: ['o/r#20'] })
+  })
+
+  it('with nothing built on the child, builtDependents is empty', async () => {
+    const { published } = await notify(closed('closed', 'completed'))
+    expect(published[0]?.payload).toMatchObject({ builtDependents: [] })
   })
 
   it('a sub-issue closed as not planned also reaches the epic: deciding what follows is its job', async () => {
