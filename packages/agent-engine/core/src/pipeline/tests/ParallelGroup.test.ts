@@ -210,6 +210,53 @@ describe('ParallelGroup', () => {
     expect(log).toEqual(['blocked'])
   })
 
+  it('el `onError` del grupo se anuncia con el reporte del miembro que falló (subscriptions#1892)', async () => {
+    const log: string[] = []
+    const { members } = reviewGate(
+      {
+        reviewer: { submit: 'submit_approved', payload: { report: { summary: 'ok' } } },
+        e2e: { fail: 'session limit' },
+      },
+      log,
+    )
+    const gate = new ParallelGroup({
+      id: 'gate',
+      members,
+      until: { all: ['approved', 'passed'] },
+      onError: {
+        to: recorder('blocked', log),
+        report: (err) => ({ summary: `La corrida falló: ${err.message}` }),
+      },
+    })
+    await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx())
+    expect(log).toEqual([
+      'report {"summary":"ok"}',
+      `report ${JSON.stringify({ summary: 'La corrida falló: grupo "gate": e2e: session limit' })}`,
+      'blocked',
+    ])
+  })
+
+  it('un consultivo que falla no hace fallar al grupo ni se anuncia como su motivo', async () => {
+    const log: string[] = []
+    const { members } = reviewGate(
+      {
+        reviewer: { submit: 'submit_approved', payload: { report: { summary: 'ok' } } },
+        e2e: { fail: 'host caído' },
+      },
+      log,
+    )
+    const gate = new ParallelGroup({
+      id: 'gate',
+      members,
+      until: { all: ['approved'] },
+      advisory: ['e2e'],
+      routes: { passed: { to: recorder('slack-review', log) } },
+      onError: { to: recorder('blocked', log), report: () => ({ summary: 'no' }) },
+    })
+    await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx())
+    expect(log).toEqual(['report {"summary":"ok"}', 'slack-review'])
+  })
+
   it('un miembro que termina sin elegir salida es un error, no un "no pasó"', async () => {
     const log: string[] = []
     const registry = scriptedRegistry({ a: { submit: 'submit_ok' }, b: { none: true } })
