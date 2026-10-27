@@ -25,6 +25,10 @@ export interface TaskActivity {
   lastEventAt?: string
 }
 
+/** Las salidas en las que el agente deja una pregunta para una persona: la del custodio de una
+ *  épica (`escalate`) es una decisión que le falta, no un fallo (subscriptions#2028). */
+const QUESTION_EXITS = new Set(['doubt', 'escalate'])
+
 export interface Classification {
   group: InboxGroup
   kind: InboxKind
@@ -182,7 +186,8 @@ function stuck(
       actions: ['answer_and_unblock'],
     }
   }
-  if (blockedLabel && (lastClosed?.exit === 'doubt' || failure?.by === 'agent')) {
+  const asked = lastClosed?.exit !== undefined && QUESTION_EXITS.has(lastClosed.exit)
+  if (blockedLabel && (asked || failure?.by === 'agent')) {
     return {
       group: 'need',
       kind: 'doubt',
