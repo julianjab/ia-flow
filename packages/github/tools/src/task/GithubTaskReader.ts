@@ -304,6 +304,27 @@ export class GithubTaskReader {
     }
   }
 
+  /** Las rutas de los archivos que cambió el PR (hasta 3000, el tope de GitHub). */
+  async pullFiles(owner: string, repo: string, pr: number): Promise<string[]> {
+    const files: string[] = []
+    for (let page = 1; page <= 30; page++) {
+      const batch = await this.client.requestJson<Array<{ filename: string }>>(
+        `/repos/${owner}/${repo}/pulls/${pr}/files?per_page=100&page=${page}`,
+      )
+      files.push(...batch.map((file) => file.filename))
+      if (batch.length < 100) break
+    }
+    return files
+  }
+
+  /** El body del issue (el PRD, si ya lo refinaron). */
+  async issueBody(owner: string, repo: string, number: number): Promise<string> {
+    const issue = await this.client.requestJson<{ body?: string | null }>(
+      `/repos/${owner}/${repo}/issues/${number}`,
+    )
+    return issue.body ?? ''
+  }
+
   /** Los issues que `owner/repo#number` bloquea (`mark_blocked_by`). */
   dependents(owner: string, repo: string, number: number) {
     return this.client.requestJson<
