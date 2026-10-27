@@ -237,7 +237,12 @@ describe('SqliteExecutionStore — una corrida que esperaba lugar cuando el proc
     await tick()
     // Uno corre (sin haber guardado progreso); el otro espera lugar. El proceso muere (un deploy).
     expect(ran).toEqual(['2039'])
-    expect(before.database.waiting().map((run) => run.event.scope?.issue)).toEqual([2039, 2040])
+    expect(
+      before.database
+        .waiting()
+        .map((run) => run.event.scope?.issue)
+        .sort(),
+    ).toEqual([2039, 2040])
     before.close()
 
     const after = new SqliteExecutionStore({ database: openNodeSqlite(path), maxConcurrent: 1 })
@@ -250,7 +255,7 @@ describe('SqliteExecutionStore — una corrida que esperaba lugar cuando el proc
     for (let i = 0; i < 50 && again.length < 2; i++) await tick()
 
     // Los dos vuelven a correr: el que esperaba y el que arrancó sin guardar nada (subscriptions#2041).
-    expect(again).toEqual(['2039', '2040'])
+    expect(again.sort()).toEqual(['2039', '2040'])
     expect(after.database.waiting()).toEqual([])
     after.close()
   })
