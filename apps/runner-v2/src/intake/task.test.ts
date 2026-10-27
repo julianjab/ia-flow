@@ -51,3 +51,18 @@ describe('taskPayload — stack', () => {
     expect(task(payload).blockers).toBe('#2 t2 (https://github.com/la-haus/web/issues/2)')
   })
 })
+
+describe('taskPayload — blockersRefined', () => {
+  const refined = (payload: Record<string, unknown>) =>
+    (payload.item as { blockersRefined?: boolean }).blockersRefined
+
+  it('sin refinedStatuses en el intake, el campo no viaja', () => {
+    expect(refined(taskPayload(base).payload)).toBeUndefined()
+  })
+
+  it('con el cálculo del intake, viaja en item.blockersRefined junto a item.blocked', () => {
+    const { payload } = taskPayload({ ...base, blockersRefined: true })
+    expect(refined(payload)).toBe(true)
+    expect(item(payload).blocked).toBe(true)
+  })
+})
