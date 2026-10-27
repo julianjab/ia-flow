@@ -65,68 +65,64 @@ export interface ResolveTaskProject {
   locate?: (type: string, raw: Record<string, unknown>) => Location
 }
 
-const Input = z
-  .strictObject({
-    /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
-     *  sin prerrequisitos abiertos (`mark_blocked_by`). */
-    unblockDependents: z.boolean().optional(),
-    /** En vez del evento de la task: `issue.child_closed` sobre el issue PADRE (la épica) del issue
-     *  que un `issues.closed` acaba de cerrar —por el merge de su PR o a mano—, con el hijo en
-     *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
-     *  antes de que sigan los demás hijos. */
-    notifyParent: z.boolean().optional(),
-    /** En vez del evento de la task: `issue.child_status_changed` sobre el issue PADRE cuando un
-     *  sub-issue cambia de columna, con el hijo en `child` y la columna en `from`/`to`. Cae sobre la
-     *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
-     *  quedó refinado sin que ningún evento del hijo la interrumpa. */
-    notifyParentOfStatus: z.boolean().optional(),
-    /** Con `notifyParentOfStatus`: cuando el hijo llega a una de estas columnas (`[Refined]`), el
-     *  evento de la épica trae `childTitle` y `childPrd` (el body del hijo). Así la revisión de ESE
-     *  hijo contra la épica arranca con su PRD en el prompt, no lo busca. */
-    childPrdOn: z.array(z.string().min(1)).min(1).optional(),
-    /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
-     *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
-     *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
-    notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
-    /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
-     *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
-     *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
-    notifySiblingConflicts: z.boolean().optional(),
-    /**
-     * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
-     * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
-     * `task.*` y los campos del evento—. Una task que no cumple no publica nada: ni las pipelines,
-     * ni los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de
-     * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
-     */
-    when: ConditionRows.optional(),
-    /**
-     * Qué eventos de un PR que NO cierra ningún issue publican igual, con el PR como task: filas
-     * como `when`, contra el evento ya armado (`eventType`, `action`, `label`, `item.labels` —los del
-     * PR—…). La task no tiene card ni PRD: `item.kind` es `pr`, `item.status` vacío, `number` el del
-     * PR, `task.description` su body y `task.branch` su head. Sin esto —o si el evento no cumple—, un
-     * PR sin issue se salta, como siempre: abrirlo a cualquier evento (un CI rojo, un comentario)
-     * dispararía las pipelines de una task sobre un PR que nadie le pidió a este runner.
-     */
-    pullRequestsWithoutIssue: ConditionRows.optional(),
-    /**
-     * Las columnas del board que cuentan como "ya tiene PRD" (`[Refined, Build, Review, Done]`). Con
-     * esto el evento de la task trae `item.blockersRefined`: cada prerrequisito abierto está en una
-     * de ellas. Así un hijo de épica puede esperar a que se REFINEN sus prerrequisitos, no a que se
-     * mergeen (eso traba la épica). Sin esto, el campo no viaja y no se lee nada de más.
-     */
-    refinedStatuses: z.array(z.string().min(1)).min(1).optional(),
-    /** En vez del evento de la task: `issue.blockers_refined` a las tasks que bloquea un issue que
-     *  acaba de llegar a una columna de `refinedStatuses`, si ya no esperan a ningún otro. */
-    notifyBlockersRefined: z.boolean().optional(),
-    /** En vez del evento de la task: `issue.related_merged` a cada task del repo del PR mergeado
-     *  que está en una de estas columnas, sin PR propio, y cuyo PRD nombra en su zona de impacto
-     *  un archivo que el PR cambió (con `mergedPr` y los `files` en común). */
-    notifyRelatedMerged: z.array(z.string().min(1)).min(1).optional(),
-  })
-  .refine((input) => !input.notifyBlockersRefined || input.refinedStatuses, {
-    message: '`notifyBlockersRefined` necesita `refinedStatuses`',
-  })
+const Input = z.strictObject({
+  /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
+   *  sin prerrequisitos abiertos (`mark_blocked_by`). */
+  unblockDependents: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.child_closed` sobre el issue PADRE (la épica) del issue
+   *  que un `issues.closed` acaba de cerrar —por el merge de su PR o a mano—, con el hijo en
+   *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
+   *  antes de que sigan los demás hijos. */
+  notifyParent: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.child_status_changed` sobre el issue PADRE cuando un
+   *  sub-issue cambia de columna, con el hijo en `child` y la columna en `from`/`to`. Cae sobre la
+   *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
+   *  quedó refinado sin que ningún evento del hijo la interrumpa. */
+  notifyParentOfStatus: z.boolean().optional(),
+  /** Con `notifyParentOfStatus`: cuando el hijo llega a una de estas columnas (`[Refined]`), el
+   *  evento de la épica trae `childTitle` y `childPrd` (el body del hijo). Así la revisión de ESE
+   *  hijo contra la épica arranca con su PRD en el prompt, no lo busca. */
+  childPrdOn: z.array(z.string().min(1)).min(1).optional(),
+  /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
+   *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
+   *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
+  notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
+  /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
+   *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
+   *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
+  notifySiblingConflicts: z.boolean().optional(),
+  /**
+   * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
+   * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
+   * `task.*` y los campos del evento—. Una task que no cumple no publica nada: ni las pipelines,
+   * ni los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de
+   * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
+   */
+  when: ConditionRows.optional(),
+  /**
+   * Qué eventos de un PR que NO cierra ningún issue publican igual, con el PR como task: filas
+   * como `when`, contra el evento ya armado (`eventType`, `action`, `label`, `item.labels` —los del
+   * PR—…). La task no tiene card ni PRD: `item.kind` es `pr`, `item.status` vacío, `number` el del
+   * PR, `task.description` su body y `task.branch` su head. Sin esto —o si el evento no cumple—, un
+   * PR sin issue se salta, como siempre: abrirlo a cualquier evento (un CI rojo, un comentario)
+   * dispararía las pipelines de una task sobre un PR que nadie le pidió a este runner.
+   */
+  pullRequestsWithoutIssue: ConditionRows.optional(),
+  /**
+   * Las columnas del board que cuentan como "ya tiene PRD" (`[Refined, Build, Review, Done]`). Con
+   * esto el evento de la task trae `item.blockersRefined`: cada prerrequisito abierto está en una
+   * de ellas. Así un hijo de épica puede esperar a que se REFINEN sus prerrequisitos, no a que se
+   * mergeen (eso traba la épica). Sin esto, el campo no viaja y no se lee nada de más.
+   */
+  refinedStatuses: z.array(z.string().min(1)).min(1).optional(),
+  /** En vez del evento de la task: `issue.blockers_refined` a las tasks que bloquea un issue que
+   *  acaba de llegar a una columna de `refinedStatuses`, si ya no esperan a ningún otro. */
+  notifyBlockersRefined: z.boolean().optional(),
+  /** En vez del evento de la task: `issue.related_merged` a cada task del repo del PR mergeado
+   *  que está en una de estas columnas, sin PR propio, y cuyo PRD nombra en su zona de impacto
+   *  un archivo que el PR cambió (con `mergedPr` y los `files` en común). */
+  notifyRelatedMerged: z.array(z.string().min(1)).min(1).optional(),
+})
 
 export type { Resolved }
 
@@ -207,6 +203,11 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
   }
 
   async execute(input: z.infer<typeof Input>, ctx: PipelineExecutionContext): Promise<Resolved> {
+    // Acá y no con `.refine` en el schema: `Action.bind` (el `with` de la config) hace `.pick()`,
+    // que no acepta un schema con refinamientos.
+    if (input.notifyBlockersRefined && !input.refinedStatuses) {
+      throw new Error('resolve_task: `notifyBlockersRefined` necesita `refinedStatuses`')
+    }
     const projects = this.projects()
     if (projects.length === 0) return { skipped: 'no hay proyectos montados' }
     // Slack se lee una vez, aunque haya varios proyectos: dice de qué repo y PR es el hilo.
