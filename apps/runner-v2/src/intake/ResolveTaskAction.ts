@@ -725,9 +725,29 @@ class ProjectResolver {
   ): Promise<Resolved> {
     const closed = closedIssue(raw)
     if ('skip' in closed) return { skipped: closed.skip }
-    return notifyParent(this.parentPort(when), ctx, closed, CHILD_CLOSED, {
+    return notifyParent(this.parentPort(when), ctx, closed, CHILD_CLOSED, async () => ({
       stateReason: closed.stateReason,
-    })
+      builtDependents: await this.builtDependents(closed),
+    }))
+  }
+
+  /**
+   * Los issues que `child` bloquea y que ya tienen PR abierto (`o/r#n`): lo construido sobre lo que
+   * acaba de cerrar. Sin ninguno, y con el hijo completado, el checkpoint de la épica no tiene nada
+   * que juzgar —liberar a los siguientes y publicar el orden de merge son acciones—: la config puede
+   * saltear al custodio (`builtDependents` vacío).
+   */
+  private async builtDependents(child: TaskRef): Promise<string[]> {
+    const dependents = issueRefs(
+      await this.reader.dependents(child.owner, child.repo, child.number),
+      this.project.repos,
+    )
+    const built: string[] = []
+    for (const dependent of dependents) {
+      const pr = await this.reader.openPullOf(dependent.owner, dependent.repo, dependent.number)
+      if (pr !== undefined) built.push(`${dependent.owner}/${dependent.repo}#${dependent.number}`)
+    }
+    return built
   }
 
   /** `issue.pr_conflict` sobre los hermanos que el merge de este PR dejó en conflicto. */

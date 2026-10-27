@@ -30,13 +30,14 @@ export interface ParentPort {
 }
 
 /** Publica `emit` sobre el padre de `child` si el padre es de este proyecto (su catálogo, su board
- *  y el `when` del intake, que aplica `publish`). El hijo puede ser de otro repo. */
+ *  y el `when` del intake, que aplica `publish`). El hijo puede ser de otro repo. `extra` puede ser
+ *  una función: lo que cuesta leer se lee sólo si el hijo tiene un padre de este proyecto. */
 export async function notifyParent(
   port: ParentPort,
   ctx: PipelineExecutionContext,
   child: IssueRef,
   emit: string,
-  extra: Record<string, unknown>,
+  extra: Record<string, unknown> | (() => Promise<Record<string, unknown>>),
 ): Promise<Resolved> {
   const ref = `${child.owner}/${child.repo}#${child.number}`
   const parent = await port.parentOf(child.owner, child.repo, child.number)
@@ -45,9 +46,10 @@ export async function notifyParent(
     return { skipped: `el padre de ${ref} no es del catálogo de ${port.projectId}` }
   }
   const childUrl = `https://github.com/${child.owner}/${child.repo}/issues/${child.number}`
+  const fields = typeof extra === 'function' ? await extra() : extra
   const published = await port.publish(ctx, parent, {
     emit,
-    extra: { ...extra, child: ref, childUrl },
+    extra: { ...fields, child: ref, childUrl },
   })
   return 'skip' in published
     ? { skipped: published.skip }
