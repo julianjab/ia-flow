@@ -303,3 +303,42 @@ describe('GithubTaskReader.openPullRequest — PR apilado', () => {
     expect(await reader.openPullRequest({ owner: 'o', repo: 'r', number: 5 })).toBeUndefined()
   })
 })
+
+/** Un GitHub REST que contesta según la URL. */
+function restReader(route: (url: string) => unknown) {
+  const urls: string[] = []
+  const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    urls.push(url)
+    return new Response(JSON.stringify(route(url)), { status: 200 })
+  })
+  const client = new GithubClient({
+    auth: new GithubTokenAuth('t'),
+    fetchImpl: fetchImpl as unknown as typeof fetch,
+  })
+  return { reader: new GithubTaskReader(client), urls }
+}
+
+describe('GithubTaskReader.pullFiles', () => {
+  it('pagina de a 100 y para en la primera página incompleta', async () => {
+    const page = (n: number, size: number) =>
+      Array.from({ length: size }, (_, i) => ({ filename: `p${n}/f${i}.ts` }))
+    const { reader, urls } = restReader((url) =>
+      new URL(url).searchParams.get('page') === '1' ? page(1, 100) : page(2, 3),
+    )
+    const files = await reader.pullFiles('o', 'r', 7)
+    expect(files).toHaveLength(103)
+    expect(files[100]).toBe('p2/f0.ts')
+    expect(urls.map((u) => new URL(u).search)).toEqual([
+      '?per_page=100&page=1',
+      '?per_page=100&page=2',
+    ])
+  })
+})
+
+describe('GithubTaskReader.issueBody', () => {
+  it('trae el body, y vacío si GitHub manda null', async () => {
+    expect(await restReader(() => ({ body: 'prd' })).reader.issueBody('o', 'r', 7)).toBe('prd')
+    expect(await restReader(() => ({ body: null })).reader.issueBody('o', 'r', 7)).toBe('')
+  })
+})
