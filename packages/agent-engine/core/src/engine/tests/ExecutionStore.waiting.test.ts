@@ -7,7 +7,7 @@ const event = (issue: number) => createEvent('issue.status_changed', { to: 'Refi
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('ExecutionStore — una corrida que espera lugar', () => {
-  it('queda anotada con su evento mientras espera, y se borra al arrancar', async () => {
+  it('queda anotada con su evento mientras espera, y hasta que la ejecución guarda por dónde seguir', async () => {
     const repository = new InMemoryExecutionRepository()
     const store = new ExecutionStore({ repository, maxConcurrent: 1 })
     const first = await store.start({ key: 'a', pipelineId: 'refine', event: event(1) })
@@ -15,13 +15,53 @@ describe('ExecutionStore — una corrida que espera lugar', () => {
     const second = store.start({ key: 'b', pipelineId: 'refine', event: queued })
     await tick()
 
+    const keys = () => repository.waiting().map((run) => run.key)
     expect(repository.waiting().map((run) => [run.key, run.pipelineId, run.event])).toEqual([
+      ['a', 'refine', expect.anything()],
       ['b', 'refine', queued],
     ])
 
     first.close('done')
     const started = await second
     expect(started.key).toBe('b')
+    // Arrancó, pero todavía no guardó nada: si el proceso muere acá, su evento se re-despacha.
+    expect(keys()).toEqual(['b'])
+    started.progress({
+      pipelineId: 'refine',
+      pauseId: 'refiner',
+      resumeAt: 0,
+      steps: {},
+      shape: 'refiner',
+      state: ['c'],
+    })
+    expect(keys()).toEqual([])
+    started.close('done')
+  })
+
+  it('una que arrancó y cierra (o se pausa) sin guardar progreso también se borra', async () => {
+    const repository = new InMemoryExecutionRepository()
+    const store = new ExecutionStore({ repository })
+    const execution = await store.start({ key: 'a', pipelineId: 'refine', event: event(1) })
+    expect(repository.waiting()).toHaveLength(1)
+    execution.close('done')
+    expect(repository.waiting()).toEqual([])
+  })
+
+  it('la que arrancó y murió con el proceso antes de guardar progreso re-despacha su evento (subscriptions#2041)', async () => {
+    const repository = new InMemoryExecutionRepository()
+    const trigger = event(1)
+    await new ExecutionStore({ repository }).start({
+      key: 'a',
+      pipelineId: 'refine',
+      event: trigger,
+    })
+
+    // Reinicio: la ejecución se cierra `interrupted` y su evento vuelve a pasar por las reglas.
+    const restarted = new ExecutionStore({ repository })
+    expect(repository.live()).toEqual([])
+    expect(restarted.takeOrphaned()).toEqual([
+      { executionId: expect.any(String), events: [trigger] },
+    ])
     expect(repository.waiting()).toEqual([])
   })
 
@@ -42,7 +82,8 @@ describe('ExecutionStore — una corrida que espera lugar', () => {
       event: event(3),
     })
     await tick()
-    expect(repository.waiting()).toHaveLength(2)
+    // La que corre (`a`, sin progreso guardado) y las dos que esperan.
+    expect(repository.waiting()).toHaveLength(3)
 
     first.close('done')
     expect(await older).toBeUndefined()
