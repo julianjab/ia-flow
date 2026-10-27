@@ -46,5 +46,6 @@ export default defineAction({
         },
       },
       ctx.services.userComments,
+      ctx.services.localClaims,
     ),
 })

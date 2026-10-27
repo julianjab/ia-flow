@@ -12,6 +12,12 @@ export const InboxSection = z.strictObject({
       blocked: z.string().min(1).default('blocked'),
       /** La que pone el reviewer al aprobar: el PR espera merge humano. */
       reviewed: z.string().min(1).default('reviewed'),
+      /** La que pone una sesión local de Claude Code al tomar la task (`board.py claim` del plugin
+       *  ai-development-flow; p. ej. `aiflow-local`). El `when` del intake la excluye; con esto,
+       *  además, al ponerla el runner suelta lo que tenía vivo en la task (ejecución, pausa,
+       *  corridas en cola), no la relanza desde la bandeja y la muestra como `local`. Sin esto, el
+       *  runner no conoce el concepto. */
+      local: z.string().min(1).optional(),
     })
     .prefault({}),
   /** Los nombres de las columnas del board que la bandeja entiende. */

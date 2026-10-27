@@ -38,6 +38,7 @@ import { AssistantDesk } from './assistant/AssistantDesk.js'
 import type { Boards } from './board/Boards.js'
 import { createBoards } from './board/createBoards.js'
 import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
+import { LocalClaims } from './engine/LocalClaims.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { revalidateTask } from './engine/revalidateTask.js'
 import { withScope } from './engine/withScope.js'
@@ -185,6 +186,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     assistant: new AssistantDesk(),
     tasks: new TaskDesk(),
     userComments: new UserCommentLedger(),
+    localClaims: new LocalClaims(cfg.inbox.labels.local),
     log: opts.log,
   }
   const actions = await loadActions(cfg.actions, cfg.projects, services, BUILTIN_ACTIONS)
@@ -226,6 +228,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     // Una pipeline que esperó detrás de otra ejecución vuelve a mirar la card antes de correr.
     revalidate: revalidateTask(boards),
   })
+  services.localClaims.connect(mounted.executions)
   // `Working = Yes` en la card mientras su ejecución corre (ver `project.yaml` → workingMarker).
   const stopWorking = mounted.executions
     ? trackWorking(mounted.executions, cfg.projects, github, boards, opts.log)

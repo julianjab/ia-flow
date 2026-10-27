@@ -103,6 +103,15 @@ const Input = z.strictObject({
 
 export type { Resolved }
 
+/** Las tasks que toma una sesión local con un label (ver `LocalClaims` del runner): el intake suelta
+ *  lo vivo al llegar ese label, y no re-entrega lo retenido al sacarlo. */
+export interface LocalClaimPort {
+  /** El label; sin él, apagado. */
+  readonly label: string | undefined
+  /** Corta lo vivo de la task de `scope`. */
+  release(scope: Record<string, unknown>, reason: string): unknown
+}
+
 /** La task de un webhook: un issue, y el PR del evento si trae uno. */
 interface TaskRef {
   owner: string
@@ -161,6 +170,8 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
     private readonly slack?: SlackLocateDeps,
     /** Los comentarios que el runner publicó a nombre de alguien: no se re-publican al destrabar. */
     private readonly userComments?: { has(commentId: number): boolean },
+    /** Las tasks tomadas en local: sin esto, el intake no conoce el concepto. */
+    private readonly localClaims?: LocalClaimPort,
   ) {
     super({ id: 'resolve_task' })
   }
@@ -187,6 +198,7 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
           project.stacking ? reader.withStacking() : reader,
           this.userComments,
           this.announced,
+          this.localClaims,
         ).resolve(input, ctx, slackLocation),
       ),
     )
@@ -209,6 +221,7 @@ class ProjectResolver {
     private readonly reader: GithubTaskReader,
     private readonly userComments?: { has(commentId: number): boolean },
     private readonly announced: SiblingPort['announced'] = new Announced(),
+    private readonly localClaims?: LocalClaimPort,
   ) {
     this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
   }
@@ -345,6 +358,7 @@ class ProjectResolver {
     if (failed) {
       const skip = `${ref} no cumple el when del intake: ${failed}`
       await this.hold(ctx, fields, draft.scope, skip)
+      this.releaseClaimed(draft.type, fields, draft.scope)
       return { skip }
     }
     // Recién acá, con la task ya confirmada de este runner: proponer un nombre puede costar un modelo.
@@ -367,6 +381,22 @@ class ProjectResolver {
       await this.replayHeld(ctx, task, fields, options.when ?? [], built.payload)
     }
     return event
+  }
+
+  /**
+   * La task acaba de recibir el label de "tomada en local" y por eso el `when` del intake la deja
+   * afuera: lo que el runner tenía vivo en ella (la ejecución que corre, una pausa que vencería
+   * por su `timeout` y movería la card, las corridas en cola) se corta, sin aplicar salidas. Lo
+   * que llega después ya no pasa el intake; al sacar el label, la task vuelve como cualquier otra.
+   */
+  private releaseClaimed(
+    type: string,
+    fields: EventFields,
+    scope: Record<string, unknown> | undefined,
+  ): void {
+    const label = this.localClaims?.label
+    if (!label || !scope || type !== 'issue.labeled' || fields.extra.label !== label) return
+    this.localClaims?.release(scope, `la tomó una sesión local (label ${label})`)
   }
 
   /**
@@ -414,6 +444,8 @@ class ProjectResolver {
   ): Promise<void> {
     const label = fields.extra.label
     if (typeof label !== 'string' || !excludedBy(when, payload, label)) return
+    // La sesión local que la tuvo tomada ya leyó y atendió lo que se comentó mientras tanto.
+    if (label === this.localClaims?.label) return
     const since = await this.reader.labeledAt(task.owner, task.repo, task.number, label)
     if (!since) return
     const context = await this.reader.context(task)

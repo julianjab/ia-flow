@@ -22,6 +22,7 @@ import type { WorkspaceManager, WorkspaceSession } from '@ia-flow/workspace'
 import type { AssistantDesk } from '../assistant/AssistantDesk.js'
 import type { Boards } from '../board/Boards.js'
 import type { ProjectConfig } from '../config/RunnerConfig.js'
+import type { LocalClaims } from '../engine/LocalClaims.js'
 import type { TaskDesk } from '../inbox/TaskDesk.js'
 import type { UserCommentLedger } from '../intake/heldComments.js'
 
@@ -67,6 +68,9 @@ export interface RunnerServices {
   /** Los comentarios que el runner publicó a nombre de una persona (`post_user_comment`): el intake
    *  no los vuelve a publicar al destrabar la task. */
   userComments: UserCommentLedger
+  /** Las tasks tomadas por una sesión local (`inbox.labels.local`): el intake suelta lo que el
+   *  runner tenía vivo en ellas al llegar el label. */
+  localClaims: LocalClaims
   log: (line: string) => void
 }
 
