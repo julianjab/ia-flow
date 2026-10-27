@@ -108,6 +108,8 @@ export class Execution {
   private progressed: Checkpoint | undefined
   private closedAt?: string
   private closeReason?: string
+  /** El proceso se apaga (`stop`): lo que pase desde acá no se anota, ver `stop`. */
+  private stopped = false
   /** Devuelve su lugar y su task al store — lo pone el store cada vez que se los da. */
   private releaser: (() => void) | undefined
   private settle!: () => void
@@ -133,7 +135,7 @@ export class Execution {
     this.startedMs = Date.now()
     this.startedAt = new Date(this.startedMs).toISOString()
     this.waitedMs = Math.max(0, this.startedMs - (props.queuedAt ?? this.startedMs))
-    this.journal?.save(this.toRecord())
+    this.save()
   }
 
   /** Abre una ejecución nueva, `running`. */
@@ -167,6 +169,22 @@ export class Execution {
   /** Si la interrumpieron (ver `interrupt`). */
   get interruption(): Interruption | undefined {
     return this.interrupted
+  }
+
+  /** Si el proceso se está apagando (ver `stop`): un paso que falla ya no corre su `onError`. */
+  get stopping(): boolean {
+    return this.stopped
+  }
+
+  /**
+   * El proceso se apaga con ella corriendo: desde acá no anota nada más en el journal, así queda
+   * guardada como estaba —corriendo, con su último checkpoint— y el store la retoma al reiniciar.
+   * Lo que falle mientras tanto (el agente que pierde su base o su sesión) es del apagado, no de
+   * la task: la pipeline no corre su `onError` (subscriptions#1940: el `+blocked` de un "Cannot
+   * use a closed database" quedó en una card cuya ejecución, retomada, terminó `done`).
+   */
+  stop(): void {
+    if (this.status === 'running') this.stopped = true
   }
 
   /** La pausa en la que está, si está pausada. */
@@ -209,7 +227,7 @@ export class Execution {
       return false
     }
     this.inbox.deliver(message, event, accepting)
-    this.journal?.delivered(this.id, event)
+    if (!this.stopped) this.journal?.delivered(this.id, event)
     return true
   }
 
@@ -284,7 +302,7 @@ export class Execution {
     if (this.status !== 'running') return
     if (checkpoint === undefined && this.progressed === undefined) return
     this.progressed = checkpoint
-    this.journal?.save(this.toRecord())
+    this.save()
   }
 
   /** Su pipeline se cortó en una pausa: queda `paused` hasta que la despierte un evento o venza.
@@ -297,7 +315,7 @@ export class Execution {
     this.steps.clear()
     this.progressed = undefined
     this.paused = { pause, checkpoint }
-    this.journal?.save(this.toRecord())
+    this.save()
     this.log.info(`${this.id} se pausa en "${pause.pauseId}" (${pause.describe()})`, {
       'ia.execution.id': this.id,
       'ia.pause.id': pause.pauseId,
@@ -357,7 +375,7 @@ export class Execution {
     this.inbox.takeMissed()
     this.closedAt = new Date().toISOString()
     this.closeReason = reason
-    this.journal?.save(this.toRecord())
+    this.save()
     this.log[status === 'done' ? 'info' : 'warn'](`${this.id} cierra: ${status}`, {
       'ia.execution.id': this.id,
       'ia.execution.duration_ms': Date.now() - this.startedMs,
@@ -398,7 +416,7 @@ export class Execution {
     // el store la retoma por la misma rama en vez de cerrarla `failed`.
     this.progressed = { ...checkpoint, branch }
     this.inbox.takeMissed()
-    this.journal?.save(this.toRecord())
+    this.save()
     this.log.info(`${this.id} se reanuda por "${branch}"`, {
       'ia.execution.id': this.id,
       'ia.pause.branch': branch,
@@ -406,8 +424,12 @@ export class Execution {
     return { branch, checkpoint }
   }
 
+  private save(): void {
+    if (!this.stopped) this.journal?.save(this.toRecord())
+  }
+
   private markRead<T>(taken: T[]): T[] {
-    if (taken.length > 0) this.journal?.read(this.id)
+    if (taken.length > 0 && !this.stopped) this.journal?.read(this.id)
     return taken
   }
 

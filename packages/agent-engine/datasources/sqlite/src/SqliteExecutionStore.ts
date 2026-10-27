@@ -33,7 +33,10 @@ export class SqliteExecutionStore extends ExecutionStore {
     this.database = repository
   }
 
-  close(): void {
+  /** Primero las que corren dejan de anotarse (`ExecutionStore.close`): si no, la próxima vuelta de
+   *  su agente tira "Cannot use a closed database" y su `onError` marca la task. */
+  override close(): void {
+    super.close()
     this.database.close()
   }
 }

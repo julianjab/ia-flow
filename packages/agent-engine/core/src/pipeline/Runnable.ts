@@ -123,6 +123,9 @@ export interface ExecutionHandle {
   readonly waitedMs?: number
   /** Si la interrumpieron: la pipeline corta después del paso activo y corre su `onInterrupt`. */
   readonly interruption?: Interruption
+  /** El proceso se apaga con ella corriendo: un paso que falla no corre su `onError` (el error es
+   *  del apagado) y la ejecución se retoma al reiniciar. */
+  readonly stopping?: boolean
   enter(step: Runnable): void
   /** Sale `step` de su loop; sin paso, salen todos. */
   leave(step?: Runnable): void

@@ -86,6 +86,8 @@ export class StepRunner {
       if (this.interruptedIn(step, ctx)) {
         return { output: undefined, interrupted: await this.interrupt(step, error.message, ctx) }
       }
+      // El proceso se apaga: el error es del apagado y la ejecución se retoma al reiniciar.
+      if (ctx.execution?.stopping) throw err
       const handling = handleErrors ? this.errorHandling(step, ctx) : null
       if (!handling && !step.continueOnError) throw err
       if (!handling) return { error, handledBy: 'continueOnError' }

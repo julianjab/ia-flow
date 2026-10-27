@@ -184,7 +184,7 @@ export function mountEngine(config: EngineSection, opts: MountEngineOptions): Mo
     stop() {
       unsubscribe()
       if (ticker) clearInterval(ticker)
-      ;(executions as { close?: () => void } | undefined)?.close?.()
+      executions?.close()
     },
   }
 }

@@ -305,6 +305,12 @@ export class ExecutionStore {
     return { ...(execution ? { execution } : {}), waiting }
   }
 
+  /** El proceso se apaga: las que corren dejan de anotarse y no corren su `onError` si fallan
+   *  (`Execution.stop`) — quedan guardadas como estaban y se retoman al reiniciar. */
+  close(): void {
+    for (const execution of this.byKey.values()) execution.stop()
+  }
+
   /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
    *  y lugar bajo el tope, igual que `start`. La parte que ocupa la task corre en el mismo tick. */
   async resume(execution: Execution): Promise<void> {

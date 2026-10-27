@@ -400,7 +400,9 @@ export class ExecutionCoordinator {
     try {
       return await execution.run(work)
     } finally {
-      this.redispatch(execution.takeUnread(), execution.id)
+      // Con el proceso apagándose, lo que no leyó queda sin leer en el journal: se lo lleva la
+      // ejecución cuando se retome.
+      if (!execution.stopping) this.redispatch(execution.takeUnread(), execution.id)
       this.wakeLate(execution)
     }
   }
