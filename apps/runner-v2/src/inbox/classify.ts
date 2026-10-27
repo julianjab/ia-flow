@@ -189,8 +189,7 @@ function stuck(
       actions: ['answer_and_unblock'],
     }
   }
-  const asked = lastClosed?.exit !== undefined && QUESTION_EXITS.has(lastClosed.exit)
-  if (blockedLabel && (asked || failure?.by === 'agent')) {
+  if (blockedLabel && askedSomething(lastClosed)) {
     return {
       group: 'need',
       kind: 'doubt',
@@ -220,6 +219,13 @@ function stuck(
     since,
     actions: ['retry'],
   }
+}
+
+/** Si la corrida cerró dejándole una pregunta a una persona: por una salida de pregunta, o
+ *  declarando que falló (`fail_turn`) — una duda para los agentes que no declaran esas salidas. */
+function askedSomething(lastClosed: ExecutionSummary | undefined): boolean {
+  if (lastClosed?.failure?.by === 'agent') return true
+  return lastClosed?.exit !== undefined && QUESTION_EXITS.has(lastClosed.exit)
 }
 
 /** Refine o Build sin nada que la mueva hace más de `staleHours`. */
