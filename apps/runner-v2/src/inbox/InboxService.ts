@@ -101,6 +101,9 @@ export class InboxService {
   /** Lo ya armado, por vista y proyecto (`inbox:*`, `tasks:p`). La promesa: dos pedidos juntos
    *  comparten el mismo armado. */
   private readonly built = new Map<string, { at: number; value: Promise<unknown> }>()
+  /** `blockersWait` por card, mientras no cambien ni la card ni su último evento: `explain` puede
+   *  consultar al clasificador (`whenText`), y la bandeja se arma en cada refresco. */
+  private readonly blockersSeen = new Map<string, { key: string; waits: Promise<boolean> }>()
 
   constructor(private readonly options: InboxServiceOptions) {}
 
@@ -297,8 +300,14 @@ export class InboxService {
   private async activityFor(card: BoardCard, context: ActivityContext): Promise<TaskActivity> {
     const activity = this.activityOf(card.ref, context)
     if (card.blockedBy.length === 0) return activity
-    const waits = await blockersWait(card, this.options.activity, this.options.explain)
-    return { ...activity, blockersWait: waits }
+    const last = this.options.activity.lastDispatchedEvent(card.ref)
+    const key = [card.updatedAt, card.status, card.blockedBy.join(','), last?.id].join('|')
+    let seen = this.blockersSeen.get(card.ref)
+    if (seen?.key !== key) {
+      seen = { key, waits: blockersWait(card, this.options.activity, this.options.explain) }
+      this.blockersSeen.set(card.ref, seen)
+    }
+    return { ...activity, blockersWait: await seen.waits }
   }
 
   private liveByTask(): Map<string, ExecutionSummary> {
