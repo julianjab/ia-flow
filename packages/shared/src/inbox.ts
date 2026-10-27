@@ -351,6 +351,14 @@ export const TaskDetailSchema = z.object({
   events: z.array(EventLogEntrySchema),
   /** La traza de la última ejecución (o de `?execution=`), en orden. */
   trace: z.array(TraceEntrySchema),
+  /** Lo que el runner sabe de la task ahora, sin deducirlo del caso (`item.group`/`kind`).
+   *  Opcional: un runner viejo no lo trae. */
+  activity: z
+    .object({
+      /** Hay una corrida esperando turno (encolada detrás de otra, o de un lugar libre). */
+      waiting: z.boolean(),
+    })
+    .optional(),
 })
 export type TaskDetail = z.infer<typeof TaskDetailSchema>
 

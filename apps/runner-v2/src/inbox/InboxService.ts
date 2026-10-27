@@ -495,6 +495,7 @@ export class InboxService {
       executions,
       events: activity.eventsForTask(ref, EVENTS_LIMIT),
       trace: traced ? activity.trace(traced, TRACE_LIMIT) : [],
+      activity: { waiting: this.activityOf(ref, this.context([ref])).waiting },
     }
   }
 
