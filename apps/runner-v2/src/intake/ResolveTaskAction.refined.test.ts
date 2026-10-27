@@ -119,9 +119,17 @@ describe('resolve_task refinedStatuses', () => {
     expect(published[0]?.payload).toMatchObject({ item: { blocked: true } })
   })
 
-  it('notifyBlockersRefined sin refinedStatuses no valida', () => {
+  it('notifyBlockersRefined sin refinedStatuses falla al correr', async () => {
+    await expect(run({ notifyBlockersRefined: true }, reader('Refine'))).rejects.toThrow(
+      'necesita `refinedStatuses`',
+    )
+  })
+
+  it('la config puede fijar cualquier campo con `with` (Action.bind)', () => {
     const action = new ResolveTaskAction(() => [project], reader('Refine'))
-    expect(() => action.input.parse({ notifyBlockersRefined: true })).toThrow()
+    expect(() =>
+      action.bind({ refinedStatuses: REFINED, notifyBlockersRefined: true, when: [] }),
+    ).not.toThrow()
   })
 })
 
