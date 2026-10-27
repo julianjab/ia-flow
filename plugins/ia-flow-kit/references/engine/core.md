@@ -543,6 +543,13 @@ Reglas que no son obvias al leer el código:
   - **`RunCounter` es un puerto síncrono** (`InMemoryRunCounter` por default;
     `SqliteRunCounter` en el datasource, que sobrevive al reinicio). `resetRuns(key)` lo expone el
     store para una app (la acción `reset_runs` del runner, al destrabar una task).
+- **`ExecutionStore.cancel(key, reason)` corta todo lo de una task desde afuera** (la tomó otro
+  engine, una sesión local; o una persona la paró): la pausada cierra `superseded` con `reason` (no
+  vence ni despierta), la que corre queda interrumpida como en `ifRunning: interrupt` —también entre
+  pasos o en una acción: termina lo que hacía y no sigue `do[]`— y cierra `superseded` con `reason`,
+  y las corridas que esperaban turno ceden sin arrancar (`start` devuelve `undefined`). Lo que
+  llega después corre como siempre. Lo pide la app: el engine no sabe cuándo una task deja de ser
+  suya.
 - **Suites de contrato.** Un store o una fuente nueva prueba que sustituye a la de memoria con
   `executionStoreContract` / `pipelineSourceContract` (`@ia-flow/agent-engine/testing`).
 - **El formato del mensaje inyectado es de la app** (`formatMessage`): el engine no sabe qué es un

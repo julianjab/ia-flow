@@ -299,6 +299,21 @@ inbox:
   mergeMethod: squash
 ```
 
+**Una task tomada por una sesión local** (`inbox.labels.local`, p. ej. `aiflow-local`; sin default:
+apagado). La pone `board.py claim` del plugin ai-development-flow y el `when` del intake la excluye
+(`{ field: item.labels, op: notContains, value: aiflow-local }`, como `blocked`). Con el setting,
+además: al llegar el `issues.labeled` con ese label el runner corta lo que tenía vivo en la task
+(la ejecución que corre cede sin aplicar salidas, una pausada —`wait-ci`— cierra `superseded` y no
+vence, las corridas en cola no arrancan); la bandeja la muestra como `run/local` sin acciones y no
+la relanza (`relaunch`, `retry`, `rerun_*`); y al sacar el label no re-entrega los comentarios
+retenidos (`replayHeld`): los atendió la sesión local. Lo que corta depende del webhook: si se
+perdió, el intake igual descarta los eventos nuevos.
+
+```yaml
+inbox:
+  labels: { local: aiflow-local }
+```
+
 **Cada ejecución trae su costo estimado** (`cost` en `GET /api/tasks/…`, y el total de la tarea en
 `assistant_get_task` como `cost_usd`): los tokens de cada span `chat <modelo>` de su traza
 (entrada, salida, lectura y escritura de caché) por el precio de ese modelo. Es una **estimación**
