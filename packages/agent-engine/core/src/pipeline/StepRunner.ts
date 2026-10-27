@@ -88,7 +88,7 @@ export class StepRunner {
       }
       // El proceso se apaga: el error es del apagado y la ejecución se retoma al reiniciar.
       if (ctx.execution?.stopping) throw err
-      const handling = handleErrors ? this.errorHandling(step, ctx) : null
+      const handling = handleErrors ? this.errorHandling(step, ctx, error) : null
       if (!handling && !step.continueOnError) throw err
       if (!handling) return { error, handledBy: 'continueOnError' }
       if (step.id) ctx.steps[step.id] = { error: error.message }
@@ -158,7 +158,7 @@ export class StepRunner {
       }),
     ).finally(() => tracker.finish())
     const interrupted = ctx.execution?.interruption !== undefined
-    const { members, progress, failures, advisoryFailures } = collectMembers(
+    const { members, progress, failures, failed, advisoryFailures } = collectMembers(
       group,
       settled,
       interrupted,
@@ -167,7 +167,7 @@ export class StepRunner {
       this.log.warn(`${this.pipelineId}: el grupo "${group.id}" sigue sin un consultivo — ${why}`)
     }
     if (interrupted) return { members, ...(progress ? { progress } : {}) }
-    if (failures.length > 0) throw new Error(`grupo "${group.id}": ${failures.join('; ')}`)
+    if (failures.length > 0) throw new GroupFailure(group, failures, failed)
     const passed = group.verdict(members)
     if (passed === undefined) {
       this.log.warn(`${this.pipelineId}: el grupo "${group.id}" no corrió ningún miembro`)
@@ -263,20 +263,38 @@ export class StepRunner {
 
   /** El `onError` que aplica a un paso, y el `report` con el que se anuncia. Un paso que elige
    *  salidas usa su cascada completa; cualquier otro: el suyo > el de la pipeline > el del
-   *  proyecto. */
+   *  proyecto. Un grupo sin `report` en esos niveles se anuncia con el del miembro que falló. */
   private errorHandling(
     step: Runnable,
     ctx: PipelineExecutionContext,
+    error: Error,
   ): { route: ErrorRoute; report: Runnable | null } | null {
     if (step.exitRoutes !== undefined) {
       const resolved = this.graph.resolve(step, ctx.defaults)
       return resolved.onError
-        ? { route: resolved.onError.route, report: resolved.report?.target ?? null }
+        ? {
+            route: resolved.onError.route,
+            report: resolved.report?.target ?? this.failedMemberReport(error, ctx),
+          }
         : null
     }
     const route = firstSet(step.onError, this.defaults.onError, ctx.defaults?.onError)
     if (!route) return null
-    return { route, report: firstSet(this.defaults.report, ctx.defaults?.report) ?? null }
+    const report = firstSet(this.defaults.report, ctx.defaults?.report)
+    return { route, report: report ?? this.failedMemberReport(error, ctx) }
+  }
+
+  /** El `report` del primer miembro que hizo fallar al grupo y tiene uno (el comentario de un
+   *  agente). Sin esto, un grupo cuyo reporte vive en cada agente fallaba sin decir por qué: la
+   *  card quedaba `blocked` y el motivo sólo en la traza (subscriptions#1892). */
+  private failedMemberReport(error: Error, ctx: PipelineExecutionContext): Runnable | null {
+    if (!(error instanceof GroupFailure)) return null
+    for (const member of error.failed) {
+      if (member.exitRoutes === undefined) continue
+      const report = this.graph.resolve(member, ctx.defaults).report?.target
+      if (report) return report
+    }
+    return null
   }
 
   private async runErrorRoute(
@@ -319,15 +337,23 @@ function collectMembers(
   members: Record<string, MemberVerdict>
   progress?: Record<string, string>
   failures: string[]
+  /** Los miembros que votan y fallaron, en orden. */
+  failed: Runnable[]
   advisoryFailures: string[]
 } {
   const members: Record<string, MemberVerdict> = {}
   const progress: Record<string, string> = {}
   const failures: string[] = []
+  const failed: Runnable[] = []
   const advisoryFailures: string[] = []
   settled.forEach((result, index) => {
-    const id = group.members[index]?.id ?? `#${index}`
-    const fail = (why: string) => (group.isAdvisory(id) ? advisoryFailures : failures).push(why)
+    const member = group.members[index]
+    const id = member?.id ?? `#${index}`
+    const fail = (why: string) => {
+      if (group.isAdvisory(id)) return void advisoryFailures.push(why)
+      failures.push(why)
+      if (member) failed.push(member)
+    }
     if (result.status === 'rejected') {
       fail(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
       return
@@ -342,7 +368,21 @@ function collectMembers(
     members,
     ...(Object.keys(progress).length > 0 ? { progress } : {}),
     failures,
+    failed,
     advisoryFailures,
+  }
+}
+
+/** Un grupo que falló porque falló alguno de los miembros que votan: el mensaje dice cuál y por
+ *  qué, y `failed` deja que su `onError` se anuncie con el reporte de ese miembro. */
+export class GroupFailure extends Error {
+  constructor(
+    group: ParallelGroup,
+    failures: string[],
+    readonly failed: Runnable[],
+  ) {
+    super(`grupo "${group.id}": ${failures.join('; ')}`)
+    this.name = 'GroupFailure'
   }
 }
 
