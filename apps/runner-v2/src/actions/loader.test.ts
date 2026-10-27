@@ -9,6 +9,7 @@ import { NodeShellRunner, WorkspaceManager, WorkspaceSession } from '@ia-flow/wo
 import { AssistantDesk } from '../assistant/AssistantDesk.js'
 import { Boards } from '../board/Boards.js'
 import { loadRunnerConfig } from '../config/RunnerConfig.js'
+import { LocalClaims } from '../engine/LocalClaims.js'
 import { TaskDesk } from '../inbox/TaskDesk.js'
 import { UserCommentLedger } from '../intake/heldComments.js'
 import { workspaceTargetFor } from '../workspace/workspaceTarget.js'
@@ -55,6 +56,7 @@ const services: RunnerServices = {
   assistant: new AssistantDesk(),
   tasks: new TaskDesk(),
   userComments: new UserCommentLedger(),
+  localClaims: new LocalClaims(undefined),
   log: () => {},
 }
 
