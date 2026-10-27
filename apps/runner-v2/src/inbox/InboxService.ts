@@ -22,6 +22,7 @@ import type {
 } from '@ia-flow/shared'
 import { type ActivityPort, type ExplainPort, taskOfKey } from './ActivityPort.js'
 import { type BoardMeta, type BoardSpec, inProject, projectUrl } from './BoardReader.js'
+import { blockersWait } from './blockersWait.js'
 import { type ClosedCard, newestClosed } from './ClosedCards.js'
 import {
   anytimeActions,
@@ -292,6 +293,14 @@ export class InboxService {
     }
   }
 
+  /** `activityOf`, más si la columna de una card con blockers los espera (`blockersWait`). */
+  private async activityFor(card: BoardCard, context: ActivityContext): Promise<TaskActivity> {
+    const activity = this.activityOf(card.ref, context)
+    if (card.blockedBy.length === 0) return activity
+    const waits = await blockersWait(card, this.options.activity, this.options.explain)
+    return { ...activity, blockersWait: waits }
+  }
+
   private liveByTask(): Map<string, ExecutionSummary> {
     const live = new Map<string, ExecutionSummary>()
     const running = this.options.activity.executions({ statuses: ['running', 'paused'] })
@@ -389,8 +398,9 @@ export class InboxService {
     const { live, waiting } = context
     const unlocks = unlocksOf(cards)
     const items: InboxItem[] = []
-    for (const card of cards) {
-      const activity = this.activityOf(card.ref, context)
+    const activities = await Promise.all(cards.map((card) => this.activityFor(card, context)))
+    for (const [index, card] of cards.entries()) {
+      const activity = activities[index] as TaskActivity
       const found = classify(card, activity, this.classifyOptions())
       if (!found) continue
       const item = this.toItem(card, activity, found, unlocks.get(card.ref) ?? 0)
@@ -422,8 +432,9 @@ export class InboxService {
     const cards = await this.cards(projectId)
     const context = this.context(cards.map((card) => card.ref))
     const unlocks = unlocksOf(cards)
-    const tasks: TaskFact[] = cards.map((card) => {
-      const activity = this.activityOf(card.ref, context)
+    const activities = await Promise.all(cards.map((card) => this.activityFor(card, context)))
+    const tasks: TaskFact[] = cards.map((card, index) => {
+      const activity = activities[index] as TaskActivity
       const facts = this.factsOf(card, activity, unlocks.get(card.ref) ?? 0)
       const defs = this.options.taskActions?.(card.projectId) ?? {}
       const ids = availableTaskActions(defs, facts)
@@ -470,7 +481,7 @@ export class InboxService {
     const cards = await this.cards()
     const card = cards.find((candidate) => candidate.ref === ref)
     if (!card) return undefined
-    const activity = this.activityOf(ref, this.context([ref]))
+    const activity = await this.activityFor(card, this.context([ref]))
     const found = classify(card, activity, this.classifyOptions()) ?? {
       group: 'idle',
       kind: 'idle',

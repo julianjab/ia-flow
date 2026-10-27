@@ -23,6 +23,9 @@ export interface TaskActivity {
   waiting: boolean
   /** El último evento que llegó para la task (ISO). */
   lastEventAt?: string
+  /** Si su columna espera a sus blockers (`blockersWait`: lo que diría el engine). `false`: una
+   *  card con blockers no está en cola por ellos. Ausente: se asume que sí. */
+  blockersWait?: boolean
 }
 
 /** Las salidas en las que el agente deja una pregunta para una persona: la del custodio de una
@@ -196,7 +199,7 @@ function stuck(
       actions: ['answer_and_unblock'],
     }
   }
-  if (card.blockedBy.length > 0) {
+  if (card.blockedBy.length > 0 && activity.blockersWait !== false) {
     return {
       group: 'queue',
       kind: 'dep',
