@@ -153,6 +153,47 @@ describe('classify', () => {
     )
   })
 
+  it('blockers its column does not wait for are not a queue: an idle card is stale (subscriptions#2041)', () => {
+    const child = card({
+      status: 'Refine',
+      labels: ['epic-hold'],
+      blockedBy: ['la-haus/subscriptions#2038'],
+      updatedAt: '2026-09-24T12:00:00Z',
+    })
+    expect(classify(child, { ...idle, blockersWait: false }, options)).toMatchObject({
+      group: 'need',
+      kind: 'stale',
+      actions: ['relaunch', 'rerun_stage', 'comment'],
+    })
+    expect(classify(child, { ...idle, blockersWait: true }, options)).toMatchObject({
+      group: 'queue',
+      kind: 'dep',
+    })
+  })
+
+  it("an epic steward's escalation is a question to answer, not a crash (subscriptions#2028)", () => {
+    const escalated = classify(
+      card({ labels: ['blocked'], blockedBy: ['la-haus/subscriptions#2030'] }),
+      {
+        waiting: false,
+        lastClosed: run({
+          pipeline_id: 'epic-checkpoint',
+          agent_id: 'epic-steward',
+          status: 'done',
+          exit: 'escalate',
+          summary: '¿Rehacemos #2030 o lo aceptamos sin el contrato nuevo?',
+        }),
+      },
+      options,
+    )
+    expect(escalated).toMatchObject({
+      group: 'need',
+      kind: 'doubt',
+      actions: ['answer_and_unblock', 'comment'],
+    })
+    expect(escalated?.why).toContain('¿Rehacemos #2030')
+  })
+
   it('blocked by the agent failing its turn is a doubt; by the runtime, a crash', () => {
     const blocked = card({ labels: ['blocked'] })
     const doubt = classify(
