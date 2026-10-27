@@ -1,9 +1,23 @@
 import { createLogger } from '@ia-flow/telemetry'
+import { YIELD_TOOL_NAME } from '../agent/YieldTool.js'
 import type { DomainEvent } from '../events/DomainEvent.js'
 import { Pause, type PauseJSON, TIMEOUT_BRANCH } from '../pipeline/actions/Pause.js'
 import type { Checkpoint } from '../pipeline/Pipeline.js'
 import type { Interruption, Runnable } from '../pipeline/Runnable.js'
 import { Inbox } from './Inbox.js'
+
+/** Quien la corta con `cancel` (no una pipeline que viene). */
+const CANCEL_BY = 'cancel'
+
+/** El aviso que lee el agente de una ejecución cortada con `cancel`. */
+function cancelNotice(reason: string): string {
+  return `⚠️ Esta ejecución se cancela: ${reason}. Cerrá tu turno YA con \`${YIELD_TOOL_NAME}\` contando en qué quedaste; no elijas ninguna salida (submit_*) ni sigas con el trabajo.`
+}
+
+/** Por qué cierra `superseded` una ejecución interrumpida. */
+function closeReasonOf(interruption: Interruption): string {
+  return interruption.by === CANCEL_BY ? interruption.reason : `interrupted by ${interruption.by}`
+}
 
 /**
  * Una ejecución: UNA corrida de una pipeline con agentes sobre UNA task (la `key`, que el `Engine`
@@ -221,6 +235,29 @@ export class Execution {
     return true
   }
 
+  /**
+   * La corta desde afuera (la task ya no es de este engine, o una persona la paró), sin seguir sus
+   * salidas: pausada, cierra `superseded` con `reason` —su pausa ya no vence ni despierta—;
+   * corriendo, queda interrumpida como en `interrupt` —sus agentes activos ceden el turno sin
+   * elegir salida y la pipeline no sigue `do[]` después del paso en curso—, también entre pasos o
+   * en una acción, que terminan lo que hacían. Devuelve si había algo que cortar.
+   */
+  cancel(reason: string): boolean {
+    if (this.status === 'paused') {
+      this.close('superseded', reason)
+      return true
+    }
+    if (this.status !== 'running') return false
+    if (this.interrupted) return true
+    this.interrupted = { by: CANCEL_BY, event: 'execution.cancelled', reason }
+    const message = cancelNotice(reason)
+    this.interruptMessage = message
+    const agents = this.activeSteps.filter((step) => step.kind === 'agent')
+    if (agents.length > 0) this.inbox.notify(message, agents)
+    this.log.info(`${this.id} se cancela: ${reason}`, { 'ia.execution.id': this.id })
+    return true
+  }
+
   /** Si se pausó, el primer evento que llegó mientras corría (sin que ningún paso lo aceptara) y
    *  despierta su pausa. Vacía lo recordado: se toma una sola vez. */
   takeMissedWake(): DomainEvent<any> | undefined {
@@ -300,7 +337,7 @@ export class Execution {
     try {
       const result = await work()
       if (this.status === 'paused') this.release()
-      else if (this.interrupted) this.close('superseded', `interrupted by ${this.interrupted.by}`)
+      else if (this.interrupted) this.close('superseded', closeReasonOf(this.interrupted))
       else this.close('done')
       return result
     } catch (err) {

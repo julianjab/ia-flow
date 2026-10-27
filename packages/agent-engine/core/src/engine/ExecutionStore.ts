@@ -92,6 +92,9 @@ export class ExecutionStore {
   private readonly byKey = new Map<string, Execution>()
   /** La última corrida `replace` esperando turno, por task y pipeline. */
   private readonly queued = new Map<string, QueuedTicket>()
+  /** Cuántas veces se canceló cada task (`cancel`): una corrida que empezó a esperar antes de la
+   *  última, cede el turno sin arrancar. */
+  private readonly cancellations = new Map<string, number>()
   private orphaned: OrphanedEvents[] = []
   private readonly resumeLimits: ResumeLimits
   private readonly newId: () => string
@@ -168,6 +171,8 @@ export class ExecutionStore {
    * Con `ifQueued: 'replace'`, una corrida de la misma pipeline que todavía esperaba turno en la
    * task queda reemplazada por ésta: cuando le toca, cede el turno sin arrancar y su `start`
    * devuelve `undefined`. Ésta toma el lugar del final de la cola — corre con el evento más nuevo.
+   * También devuelve `undefined` si `cancel` cortó la task mientras esperaba: quien cancela tareas
+   * pasa `ifQueued` (como el engine) y maneja ese caso.
    */
   start(props: StartExecution & { ifQueued: IfQueued }): Promise<Execution | undefined>
   start(props: Omit<StartExecution, 'ifQueued'>): Promise<Execution>
@@ -179,10 +184,11 @@ export class ExecutionStore {
     event,
   }: StartExecution): Promise<Execution | undefined> {
     const queuedAt = Date.now()
+    const cancelled = this.cancellations.get(key) ?? 0
     const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
     const waiting = this.noteQueued(key, pipelineId, queuedAt, event)
     try {
-      return await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket)
+      return await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket, cancelled)
     } finally {
       if (waiting) this.repository.unqueued?.(waiting)
     }
@@ -215,13 +221,17 @@ export class ExecutionStore {
     queuedAt: number,
     ifPaused: IfPaused,
     ticket: QueuedTicket | undefined,
+    /** Las cancelaciones de la task cuando empezó a esperar (`cancel`). */
+    cancelled: number,
   ): Promise<Execution | undefined> {
     for (;;) {
       const { ready, release } = this.scheduler.enter(key)
       await ready
-      if (ticket?.replaced) {
+      const ceded = this.cedes(key, ticket, cancelled)
+      if (ceded) {
         release()
-        this.log.info(`${pipelineId} en cola para ${key} quedó reemplazada por una más nueva`, {
+        if (ticket) this.dequeue(key, pipelineId, ticket)
+        this.log.info(`${pipelineId} en cola para ${key} ${ceded}`, {
           'ia.pipeline.id': pipelineId,
         })
         return undefined
@@ -254,6 +264,18 @@ export class ExecutionStore {
     }
   }
 
+  /** Por qué una corrida que esperaba turno ya no arranca —la reemplazó otra de su pipeline, o
+   *  cancelaron la task—, o `undefined` si arranca. */
+  private cedes(
+    key: string,
+    ticket: QueuedTicket | undefined,
+    cancelled: number,
+  ): string | undefined {
+    if (ticket?.replaced) return 'quedó reemplazada por una más nueva'
+    if ((this.cancellations.get(key) ?? 0) !== cancelled) return 'quedó cancelada'
+    return undefined
+  }
+
   /** Marca reemplazada la corrida de `pipelineId` que esperaba turno en `key`, y deja ésta. */
   private enqueueReplacing(key: string, pipelineId: string): QueuedTicket {
     const slot = queueSlot(key, pipelineId)
@@ -267,6 +289,20 @@ export class ExecutionStore {
   private dequeue(key: string, pipelineId: string, ticket: QueuedTicket): void {
     const slot = queueSlot(key, pipelineId)
     if (this.queued.get(slot) === ticket) this.queued.delete(slot)
+  }
+
+  /**
+   * Corta todo lo de la task (ver `Execution.cancel`): la ejecución pausada cierra `superseded`, la
+   * que corre queda interrumpida sin seguir sus salidas, y las corridas que esperaban turno ceden
+   * sin arrancar. Para una task que deja de ser de este engine (la tomó otro) o que una persona
+   * para. Lo que llegue después corre como siempre. Devuelve qué cortó.
+   */
+  cancel(key: string, reason: string): { execution?: string; waiting: boolean } {
+    const waiting = this.scheduler.waitingKeys().includes(key)
+    if (waiting) this.cancellations.set(key, (this.cancellations.get(key) ?? 0) + 1)
+    const current = this.byKey.get(key)
+    const execution = current?.cancel(reason) ? current.id : undefined
+    return { ...(execution ? { execution } : {}), waiting }
   }
 
   /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
