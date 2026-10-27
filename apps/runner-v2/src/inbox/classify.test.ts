@@ -306,3 +306,46 @@ describe('anytimeActions', () => {
     expect(anytimeActions(withPr, idle, options.settings)).toEqual(['comment', 'close_pr'])
   })
 })
+
+describe('classify — una task tomada en local (labels.local)', () => {
+  const local = { settings: InboxSection.parse({ labels: { local: 'aiflow-local' } }), now }
+
+  it('cae en su propio caso, sin acciones, aunque el board diga Review o algo corra', () => {
+    const result = classify(
+      card({ status: 'Review', labels: ['aiflow-local', 'reviewed'], pr: { number: 3, url: '' } }),
+      { waiting: true, live: run() },
+      local,
+    )
+    expect(result).toMatchObject({ group: 'run', kind: 'local', actions: [] })
+    expect(result?.why).toBe('Tomada por una sesión local (aiflow-local)')
+  })
+
+  it('una tomada con blocked y un fallo tampoco ofrece retry ni relaunch', () => {
+    const result = classify(
+      card({ labels: ['aiflow-local', 'blocked'], updatedAt: '2026-09-20T00:00:00Z' }),
+      { waiting: false, lastClosed: run({ status: 'failed', closed_at: '2026-09-20T00:00:00Z' }) },
+      local,
+    )
+    expect(result).toMatchObject({ kind: 'local', actions: [] })
+  })
+
+  it('anytimeActions: ninguna sobre una tomada en local', () => {
+    expect(anytimeActions(card({ labels: ['aiflow-local'] }), idle, local.settings)).toEqual([])
+  })
+
+  it('sin labels.local, el label no significa nada', () => {
+    const result = classify(card({ labels: ['aiflow-local'] }), { waiting: true }, options)
+    expect(result).toMatchObject({ kind: 'turn' })
+  })
+})
+
+describe('classify — stop sobre una ejecución pausada', () => {
+  it('se ofrece: parar una pausada la cancela', () => {
+    const result = classify(
+      card(),
+      { waiting: false, live: run({ status: 'paused', pause: { pause_id: 'wait-ci' } }) },
+      options,
+    )
+    expect(result).toMatchObject({ kind: 'ci', actions: ['stop', 'comment'] })
+  })
+})
