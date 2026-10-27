@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.30.0](https://github.com/julianjab/ia-flow/compare/v2.29.0...v2.30.0) (2026-10-27)
+
+
+### Features
+
+* **github-tools:** GithubTaskReader lee los archivos de un PR y el body de un issue ([b1c8220](https://github.com/julianjab/ia-flow/commit/b1c82207f87864c87892399f03671717ae2e8b38)), closes [#344](https://github.com/julianjab/ia-flow/issues/344)
+* **github-tools:** issueText trae el título y el body de un issue ([6d53def](https://github.com/julianjab/ia-flow/commit/6d53defeacc9aa5b548087e5cae2dc4295606814)), closes [#345](https://github.com/julianjab/ia-flow/issues/345)
+* **github-tools:** taskNews, el timeline de una task desde una fecha ([95c6980](https://github.com/julianjab/ia-flow/commit/95c6980a3d2170bbf7b0cac8d280de5736f37518)), closes [#346](https://github.com/julianjab/ia-flow/issues/346)
+* **runner-v2:** childPrdOn: el aviso de un hijo refinado trae su título y su PRD ([0ff2a4b](https://github.com/julianjab/ia-flow/commit/0ff2a4bf099ace2ab2bdc85654e9a78f68cd5dc7)), closes [#345](https://github.com/julianjab/ia-flow/issues/345)
+* **runner-v2:** issue.child_closed trae builtDependents, lo construido sobre el hijo ([ed678da](https://github.com/julianjab/ia-flow/commit/ed678dabe9d78256a6097eb9eb27a679790bceb2)), closes [#346](https://github.com/julianjab/ia-flow/issues/346)
+* **runner-v2:** issue.related_merged a los PRDs cuya zona de impacto toca un PR mergeado ([91c8978](https://github.com/julianjab/ia-flow/commit/91c89786ae51b57fca1602609fb044cadc39b481)), closes [#344](https://github.com/julianjab/ia-flow/issues/344)
+* **runner-v2:** item.blockersRefined y issue.blockers_refined para refinar sobre prerrequisitos refinados ([912df08](https://github.com/julianjab/ia-flow/commit/912df089ac3dfc3236f725778dd35ce7c3945f14)), closes [#349](https://github.com/julianjab/ia-flow/issues/349)
+* **runner-v2:** task.news y task.lastRunAt: las novedades desde la última corrida ([35df4a9](https://github.com/julianjab/ia-flow/commit/35df4a9e1ff8f06e155c3ad402240c08076e67d8)), closes [#346](https://github.com/julianjab/ia-flow/issues/346)
+
+
+### Bug Fixes
+
+* **runner-v2:** resolve_task sin .refine en el input, que rompía Action.bind ([5968d41](https://github.com/julianjab/ia-flow/commit/5968d41fc395f63a2d6b37f781b2c115aa7bed9d)), closes [#349](https://github.com/julianjab/ia-flow/issues/349)
+
 ## [2.29.0](https://github.com/julianjab/ia-flow/compare/v2.28.0...v2.29.0) (2026-10-27)
 
 
