@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatComments, latestCheckRuns, rollupCi, taskTimeline } from '../timeline.js'
+import { formatComments, latestCheckRuns, rollupCi, taskNews, taskTimeline } from '../timeline.js'
 
 describe('formatComments', () => {
   it('orders by date and heads each block with date · origin · author, like ia-flow', () => {
@@ -173,5 +173,36 @@ describe('taskTimeline', () => {
     })
     expect(text).toContain('hola')
     expect(text).not.toContain('del PR')
+  })
+})
+
+describe('taskNews', () => {
+  const comment = (at: string, body: string) => ({
+    created_at: at,
+    body,
+    user: { login: 'julian' },
+  })
+  const input = {
+    issueComments: [
+      comment('2026-10-27T10:00:00Z', 'viejo'),
+      comment('2026-10-27T12:00:00Z', 'nuevo del issue'),
+    ],
+    pr: 9,
+    prComments: [comment('2026-10-27T13:00:00Z', 'nuevo del PR')],
+  }
+
+  it('sólo trae lo posterior a la fecha, del issue y del PR', () => {
+    const news = taskNews(input, '2026-10-27T11:00:00Z')
+    expect(news).toContain('nuevo del issue')
+    expect(news).toContain('nuevo del PR')
+    expect(news).not.toContain('viejo')
+  })
+
+  it('sin nada posterior, vacío', () => {
+    expect(taskNews(input, '2026-10-28T00:00:00Z')).toBe(taskTimeline({}))
+  })
+
+  it('una fecha que no se entiende trae todo, como taskTimeline', () => {
+    expect(taskNews(input, 'nunca')).toBe(taskTimeline(input))
   })
 })

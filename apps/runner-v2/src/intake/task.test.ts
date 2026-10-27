@@ -66,3 +66,27 @@ describe('taskPayload — blockersRefined', () => {
     expect(item(payload).blocked).toBe(true)
   })
 })
+
+describe('taskPayload — news', () => {
+  const at = (iso: string, body: string) => ({ created_at: iso, body, user: { login: 'julian' } })
+  const taskOf = (payload: Record<string, unknown>) =>
+    payload.task as { news?: string; lastRunAt?: string; comments: string }
+
+  it('sin corrida previa, no trae task.news ni task.lastRunAt', () => {
+    const { payload } = taskPayload(base)
+    expect(taskOf(payload).news).toBeUndefined()
+    expect(taskOf(payload).lastRunAt).toBeUndefined()
+  })
+
+  it('con lastRunAt, task.news trae sólo lo posterior y task.comments sigue completo', () => {
+    const { payload } = taskPayload({
+      ...base,
+      lastRunAt: '2026-10-27T11:00:00Z',
+      issueComments: [at('2026-10-27T10:00:00Z', 'antes'), at('2026-10-27T12:00:00Z', 'después')],
+    })
+    expect(taskOf(payload).lastRunAt).toBe('2026-10-27T11:00:00Z')
+    expect(taskOf(payload).news).toContain('después')
+    expect(taskOf(payload).news).not.toContain('antes')
+    expect(taskOf(payload).comments).toContain('antes')
+  })
+})
