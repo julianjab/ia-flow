@@ -80,6 +80,10 @@ const Input = z
      *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
      *  quedó refinado sin que ningún evento del hijo la interrumpa. */
     notifyParentOfStatus: z.boolean().optional(),
+    /** Con `notifyParentOfStatus`: cuando el hijo llega a una de estas columnas (`[Refined]`), el
+     *  evento de la épica trae `childTitle` y `childPrd` (el body del hijo). Así la revisión de ESE
+     *  hijo contra la épica arranca con su PRD en el prompt, no lo busca. */
+    childPrdOn: z.array(z.string().min(1)).min(1).optional(),
     /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
      *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
      *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
@@ -322,7 +326,9 @@ class ProjectResolver {
     const child = (at: ChildLocation) =>
       'item' in at ? this.itemTask(at.item) : this.issueTask(at)
     const port = this.parentPort(when)
-    if (input.notifyParentOfStatus) return statusToParent(port, ctx, location, child)
+    if (input.notifyParentOfStatus) {
+      return statusToParent(port, ctx, location, child, input.childPrdOn)
+    }
     if (input.notifyParentOfLabels) {
       return labelToParent(port, ctx, location, child, input.notifyParentOfLabels)
     }
@@ -764,6 +770,7 @@ class ProjectResolver {
       projectId: this.project.id,
       parentOf: (owner, repo, number) => this.reader.parentOf(owner, repo, number),
       inCatalog: (owner, repo) => this.inCatalog(owner, repo),
+      childText: (child) => this.reader.issueText(child.owner, child.repo, child.number),
       publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),
     }
   }

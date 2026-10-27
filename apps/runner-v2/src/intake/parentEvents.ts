@@ -20,6 +20,8 @@ export interface ParentPort {
   projectId: string
   parentOf(owner: string, repo: string, number: number): Promise<IssueRef | undefined>
   inCatalog(owner: string, repo: string): boolean
+  /** El título y el PRD del hijo, para que el evento los traiga (`childPrdOn`). */
+  childText?(child: IssueRef): Promise<{ title: string; body: string }>
   publish(
     ctx: PipelineExecutionContext,
     task: IssueRef,
@@ -61,12 +63,23 @@ export type ChildLocation = Exclude<Location, { skip: string }>
 /** De la ubicación de un webhook, el hijo: el issue de un item o el de un repo (`resolve_task`). */
 type ChildOf = (at: ChildLocation) => Promise<IssueRef | { skipped: string }>
 
-/** `issue.child_status_changed` sobre el padre del issue que cambió de columna. */
+/** Si el hijo llegó a una de las columnas de `prdOn`: el evento trae su título y su PRD. */
+function wantsPrd(to: unknown, prdOn: readonly string[] | undefined): boolean {
+  if (!prdOn || typeof to !== 'string') return false
+  return prdOn.some((status) => status.toLowerCase() === to.toLowerCase())
+}
+
+/**
+ * `issue.child_status_changed` sobre el padre del issue que cambió de columna. Con `prdOn`, cuando el
+ * hijo llega a una de esas columnas (`Refined`), el evento trae `childTitle` y `childPrd`: quien lo
+ * revisa contra la épica lo tiene en el prompt, sin salir a buscarlo.
+ */
 export async function statusToParent(
   port: ParentPort,
   ctx: PipelineExecutionContext,
   location: Location,
   childOf: ChildOf,
+  prdOn?: readonly string[],
 ): Promise<Resolved> {
   if ('skip' in location) return { skipped: location.skip }
   if (location.emit !== 'issue.status_changed') {
@@ -74,7 +87,12 @@ export async function statusToParent(
   }
   const child = await childOf(location)
   if ('skipped' in child) return child
-  return notifyParent(port, ctx, child, CHILD_STATUS_CHANGED, location.extra)
+  const text =
+    port.childText && wantsPrd(location.extra.to, prdOn) ? await port.childText(child) : undefined
+  const extra = text
+    ? { ...location.extra, childTitle: text.title, childPrd: text.body }
+    : location.extra
+  return notifyParent(port, ctx, child, CHILD_STATUS_CHANGED, extra)
 }
 
 /** `issue.child_labeled` sobre el padre del issue que recibió uno de `labels`. */
