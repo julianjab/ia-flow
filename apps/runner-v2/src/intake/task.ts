@@ -71,6 +71,9 @@ export interface TaskInput {
   /** Con `stacking` en el proyecto y su label en la task: qué blockers la siguen frenando y sobre
    *  qué rama se apila (`stackOf`). Sin esto, frena cualquier blocker abierto. */
   stack?: Stack
+  /** Con `refinedStatuses` en el intake: si cada prerrequisito abierto ya está refinado
+   *  (`item.blockersRefined`, ver `refinedBlockers.ts`). Sin él, el campo no viaja. */
+  blockersRefined?: boolean
   /** La rama de la task (`task.branch`). */
   branch: string
   /** `{{project.repos}}` de los prompts. */
@@ -124,7 +127,12 @@ export function taskPayload(input: TaskInput) {
     },
     // Lo que filtra el gate de las pipelines (`item.blocked`): hay prerrequisitos abiertos.
     // `item.kind`: `pr` para una task que es sólo un PR (sin card ni PRD), `issue` para el resto.
-    itemExtra: { blocked: blockers.length > 0, kind: input.pullRequestOnly ? 'pr' : 'issue' },
+    // `item.blockersRefined`: los prerrequisitos abiertos ya tienen PRD (sólo con `refinedStatuses`).
+    itemExtra: {
+      blocked: blockers.length > 0,
+      kind: input.pullRequestOnly ? 'pr' : 'issue',
+      ...(input.blockersRefined !== undefined ? { blockersRefined: input.blockersRefined } : {}),
+    },
   }
   const issue = {
     title: input.issue.title,

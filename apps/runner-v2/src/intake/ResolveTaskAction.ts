@@ -32,6 +32,7 @@ import {
   type Resolved,
   statusToParent,
 } from './parentEvents.js'
+import { blockersRefined, notifyBlockersRefined } from './refinedBlockers.js'
 import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { stackedOn, taskStack } from './stack.js'
@@ -60,46 +61,60 @@ export interface ResolveTaskProject {
   locate?: (type: string, raw: Record<string, unknown>) => Location
 }
 
-const Input = z.strictObject({
-  /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
-   *  sin prerrequisitos abiertos (`mark_blocked_by`). */
-  unblockDependents: z.boolean().optional(),
-  /** En vez del evento de la task: `issue.child_closed` sobre el issue PADRE (la épica) del issue
-   *  que un `issues.closed` acaba de cerrar —por el merge de su PR o a mano—, con el hijo en
-   *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
-   *  antes de que sigan los demás hijos. */
-  notifyParent: z.boolean().optional(),
-  /** En vez del evento de la task: `issue.child_status_changed` sobre el issue PADRE cuando un
-   *  sub-issue cambia de columna, con el hijo en `child` y la columna en `from`/`to`. Cae sobre la
-   *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
-   *  quedó refinado sin que ningún evento del hijo la interrumpa. */
-  notifyParentOfStatus: z.boolean().optional(),
-  /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
-   *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
-   *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
-  notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
-  /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
-   *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
-   *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
-  notifySiblingConflicts: z.boolean().optional(),
-  /**
-   * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
-   * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
-   * `task.*` y los campos del evento—. Una task que no cumple no publica nada: ni las pipelines,
-   * ni los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de
-   * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
-   */
-  when: ConditionRows.optional(),
-  /**
-   * Qué eventos de un PR que NO cierra ningún issue publican igual, con el PR como task: filas
-   * como `when`, contra el evento ya armado (`eventType`, `action`, `label`, `item.labels` —los del
-   * PR—…). La task no tiene card ni PRD: `item.kind` es `pr`, `item.status` vacío, `number` el del
-   * PR, `task.description` su body y `task.branch` su head. Sin esto —o si el evento no cumple—, un
-   * PR sin issue se salta, como siempre: abrirlo a cualquier evento (un CI rojo, un comentario)
-   * dispararía las pipelines de una task sobre un PR que nadie le pidió a este runner.
-   */
-  pullRequestsWithoutIssue: ConditionRows.optional(),
-})
+const Input = z
+  .strictObject({
+    /** En vez del evento de la task: `issue.unblocked` para cada task que el merge de este PR dejó
+     *  sin prerrequisitos abiertos (`mark_blocked_by`). */
+    unblockDependents: z.boolean().optional(),
+    /** En vez del evento de la task: `issue.child_closed` sobre el issue PADRE (la épica) del issue
+     *  que un `issues.closed` acaba de cerrar —por el merge de su PR o a mano—, con el hijo en
+     *  `child` y el motivo en `stateReason`. Es el checkpoint de la épica: quien la planeó revisa
+     *  antes de que sigan los demás hijos. */
+    notifyParent: z.boolean().optional(),
+    /** En vez del evento de la task: `issue.child_status_changed` sobre el issue PADRE cuando un
+     *  sub-issue cambia de columna, con el hijo en `child` y la columna en `from`/`to`. Cae sobre la
+     *  épica —en su cola, detrás de lo que tenga corriendo—: así la épica se entera de que un hijo
+     *  quedó refinado sin que ningún evento del hijo la interrumpa. */
+    notifyParentOfStatus: z.boolean().optional(),
+    /** En vez del evento de la task: `issue.child_labeled` sobre el issue PADRE cuando un sub-issue
+     *  recibe uno de estos labels (el `blocked` de un hijo trabado), con el hijo en `child` y el label
+     *  en `label`. Así la épica se entera de un hijo que no avanza sin esperar a que alguien lo mire. */
+    notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
+    /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
+     *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
+     *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
+    notifySiblingConflicts: z.boolean().optional(),
+    /**
+     * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
+     * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
+     * `task.*` y los campos del evento—. Una task que no cumple no publica nada: ni las pipelines,
+     * ni los `injects` de un agente que ya corre, ni una interrupción la ven. Se evalúa antes de
+     * proponer la rama (que puede costar un modelo): `task.branch` es la ya conocida, o vacía.
+     */
+    when: ConditionRows.optional(),
+    /**
+     * Qué eventos de un PR que NO cierra ningún issue publican igual, con el PR como task: filas
+     * como `when`, contra el evento ya armado (`eventType`, `action`, `label`, `item.labels` —los del
+     * PR—…). La task no tiene card ni PRD: `item.kind` es `pr`, `item.status` vacío, `number` el del
+     * PR, `task.description` su body y `task.branch` su head. Sin esto —o si el evento no cumple—, un
+     * PR sin issue se salta, como siempre: abrirlo a cualquier evento (un CI rojo, un comentario)
+     * dispararía las pipelines de una task sobre un PR que nadie le pidió a este runner.
+     */
+    pullRequestsWithoutIssue: ConditionRows.optional(),
+    /**
+     * Las columnas del board que cuentan como "ya tiene PRD" (`[Refined, Build, Review, Done]`). Con
+     * esto el evento de la task trae `item.blockersRefined`: cada prerrequisito abierto está en una
+     * de ellas. Así un hijo de épica puede esperar a que se REFINEN sus prerrequisitos, no a que se
+     * mergeen (eso traba la épica). Sin esto, el campo no viaja y no se lee nada de más.
+     */
+    refinedStatuses: z.array(z.string().min(1)).min(1).optional(),
+    /** En vez del evento de la task: `issue.blockers_refined` a las tasks que bloquea un issue que
+     *  acaba de llegar a una columna de `refinedStatuses`, si ya no esperan a ningún otro. */
+    notifyBlockersRefined: z.boolean().optional(),
+  })
+  .refine((input) => !input.notifyBlockersRefined || input.refinedStatuses, {
+    message: '`notifyBlockersRefined` necesita `refinedStatuses`',
+  })
 
 export type { Resolved }
 
@@ -199,6 +214,7 @@ export class ResolveTaskAction extends Action<typeof Input, Resolved> {
           this.userComments,
           this.announced,
           this.localClaims,
+          input.refinedStatuses,
         ).resolve(input, ctx, slackLocation),
       ),
     )
@@ -222,6 +238,8 @@ class ProjectResolver {
     private readonly userComments?: { has(commentId: number): boolean },
     private readonly announced: SiblingPort['announced'] = new Announced(),
     private readonly localClaims?: LocalClaimPort,
+    /** `refinedStatuses` del intake: sin esto, el evento no trae `item.blockersRefined`. */
+    private readonly refinedStatuses?: string[],
   ) {
     this.intake = project.intake ?? new ProjectsV2Intake(reader, project.board)
   }
@@ -239,6 +257,9 @@ class ProjectResolver {
     if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
+    if (input.notifyBlockersRefined && this.refinedStatuses) {
+      return this.refinedDependents(location, ctx, when, this.refinedStatuses)
+    }
     const toParent = this.toParent(input, location, ctx, when)
     if (toParent) return toParent
     if ('skip' in location) return { skipped: location.skip }
@@ -325,7 +346,15 @@ class ProjectResolver {
     ctx: PipelineExecutionContext,
     task: TaskRef,
     fields: EventFields,
-    options: { closedBlocker?: string; onlyIfUnblocked?: boolean; when?: Condition[] } = {},
+    options: {
+      closedBlocker?: string
+      onlyIfUnblocked?: boolean
+      /** El prerrequisito que acaba de llegar a una columna refinada (`issue.blockers_refined`). */
+      refinedBlocker?: TaskRef
+      /** No publica si algún prerrequisito abierto sigue sin refinar. */
+      onlyIfBlockersRefined?: boolean
+      when?: Condition[]
+    } = {},
   ): Promise<DomainEvent<unknown> | { skip: string }> {
     const ref = `${task.owner}/${task.repo}#${task.number}`
     if (task.pullRequestOnly) return this.publishPullRequest(ctx, task, fields, options.when ?? [])
@@ -341,12 +370,17 @@ class ProjectResolver {
       context,
       options.closedBlocker,
     )
+    const refined = await this.blockersRefinedOf(task, context.blockers, options)
+    if (options.onlyIfBlockersRefined && refined && !refined.refined) {
+      return { skip: `${ref} todavía espera que se refinen ${refined.waiting.join(', ')}` }
+    }
     const build = (branch: string) =>
       taskPayload({
         ...task,
         ...fields,
         ...context,
         ...(stack ? { stack } : {}),
+        ...(refined ? { blockersRefined: refined.refined } : {}),
         card,
         ...(options.closedBlocker ? { closedBlocker: options.closedBlocker } : {}),
         projectId: this.project.id,
@@ -507,6 +541,53 @@ class ProjectResolver {
     })
     await ctx.bus.publish(event)
     return event
+  }
+
+  /** `item.blockersRefined` de la task: sólo con `refinedStatuses` (si no, ni una lectura de más). */
+  private async blockersRefinedOf(
+    task: TaskRef,
+    blockers: Array<{ state: string; html_url: string }>,
+    options: { closedBlocker?: string; refinedBlocker?: TaskRef },
+  ) {
+    if (!this.refinedStatuses) return undefined
+    const open = blockers
+      .filter((b) => b.state === 'open' && b.html_url !== options.closedBlocker)
+      .map((b) => b.html_url)
+    return blockersRefined(
+      {
+        statusOf: async (blocker) => (await this.intake.cardOf(blocker))?.status,
+        dependents: async (of) =>
+          issueRefs(await this.reader.dependents(of.owner, of.repo, of.number), this.project.repos),
+      },
+      task,
+      open,
+      this.refinedStatuses,
+      options.refinedBlocker,
+    )
+  }
+
+  /** `issue.blockers_refined` a las tasks que bloquea el issue que llegó a una columna refinada. */
+  private refinedDependents(
+    location: Location,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+    refined: string[],
+  ): Promise<Resolved> {
+    return notifyBlockersRefined(
+      {
+        dependents: async (blocker) =>
+          issueRefs(
+            await this.reader.dependents(blocker.owner, blocker.repo, blocker.number),
+            this.project.repos,
+          ),
+        publish: (ctx, task, fields, options) =>
+          this.publish(ctx, task, fields, { ...options, when }),
+      },
+      ctx,
+      location,
+      (at) => ('item' in at ? this.itemTask(at.item) : this.issueTask(at)),
+      refined,
+    )
   }
 
   /** `issue.unblocked` / `issue.base_merged` a las tasks que el issue del PR mergeado bloqueaba. */
