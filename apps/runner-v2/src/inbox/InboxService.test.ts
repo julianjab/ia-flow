@@ -83,6 +83,34 @@ function service(
 }
 
 describe('InboxService', () => {
+  it('a card whose column would still run despite its blockers is not a dep, and explain is asked once per card change', async () => {
+    const last: StoredEvent = { id: 'ev1', type: 'issue.status_changed', payload: { to: 'Refine' } }
+    const asked: StoredEvent[] = []
+    const child = card('o/r#2', {
+      status: 'Refine',
+      blockedBy: ['o/r#1'],
+      updatedAt: '2026-09-20T12:00:00Z',
+    })
+    const inbox = new InboxService({
+      projects: [{ projectId: 'p', board: { owner: 'la-haus', number: 1 } }],
+      board: { cards: async () => [child] },
+      activity: fakeActivity([], {}, last),
+      waitingKeys: () => [],
+      explain: async (event) => {
+        asked.push(event)
+        return [{ pipeline_id: 'refine', source_id: 'p', verdict: 'ran' }]
+      },
+      settings: InboxSection.parse({}),
+      now: () => now,
+    })
+
+    const first = await inbox.inbox()
+    await inbox.inbox()
+
+    expect(first.items.map((item) => `${item.ref}:${item.kind}`)).toEqual(['o/r#2:stale'])
+    expect(asked).toHaveLength(1)
+  })
+
   it('classifies the board against the executions, in urgency order, counting what each unblocks', async () => {
     const running: Row = {
       id: 'e1',

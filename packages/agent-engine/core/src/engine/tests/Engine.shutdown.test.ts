@@ -101,4 +101,27 @@ describe('an execution running when the process shuts down (subscriptions#1940)'
 
     expect(blocked).toEqual(['+blocked'])
   })
+
+  it('once closed, what was waiting for its turn never starts nor touches the repository', async () => {
+    const repository = new InMemoryExecutionRepository()
+    const store = new ExecutionStore({ repository })
+    const running = await store.start({ key: 'k', pipelineId: 'build', event: event('build') })
+    let started = false
+    void store.start({ key: 'k', pipelineId: 'review', event: event('review') }).then(() => {
+      started = true
+    })
+    await flush()
+
+    store.close()
+    repository.save = () => {
+      throw new Error('Cannot use a closed database')
+    }
+    running.close('done')
+    void store.start({ key: 'other', pipelineId: 'build' }).then(() => {
+      started = true
+    })
+    await flush()
+
+    expect(started).toBe(false)
+  })
 })
