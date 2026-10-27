@@ -9,9 +9,15 @@ import { ResolveTaskAction } from '../../intake/ResolveTaskAction.js'
 import { defineAction } from '../defineAction.js'
 import { repoRefs, reposText } from './project.js'
 
-/** Lo que el board del proyecto aporta al intake: cómo lee la card y cómo traduce sus webhooks. */
+/** Lo que el board del proyecto aporta al intake: cómo lee la card, cómo traduce sus webhooks y sus
+ *  cards abiertas. */
 function boardEvents(board: Board) {
-  return { ...(board.intake ? { intake: board.intake } : {}), locate: board.locate }
+  return {
+    ...(board.intake ? { intake: board.intake } : {}),
+    locate: board.locate,
+    // `notifyRelatedMerged` busca entre las cards abiertas los PRDs que el merge deja viejos.
+    cards: () => board.cards(),
+  }
 }
 
 export default defineAction({

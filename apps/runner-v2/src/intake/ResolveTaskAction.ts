@@ -7,6 +7,7 @@ import {
 } from '@ia-flow/agent-engine'
 import { ConditionRows } from '@ia-flow/agent-engine-definitions'
 import {
+  type BoardCard,
   type BoardRef,
   type GithubTaskReader,
   type IntakeBoard,
@@ -33,6 +34,7 @@ import {
   statusToParent,
 } from './parentEvents.js'
 import { blockersRefined, notifyBlockersRefined } from './refinedBlockers.js'
+import { notifyRelatedMerged } from './relatedMerged.js'
 import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { stackedOn, taskStack } from './stack.js'
@@ -56,6 +58,8 @@ export interface ResolveTaskProject {
   /** Cómo lee el intake la card de un issue de este proyecto. Sin esto, la de un Project v2 sobre
    *  `board` (que comparte el cache por webhook del `GithubTaskReader`). */
   intake?: IntakeBoard
+  /** Las cards abiertas del board (`notifyRelatedMerged`). Sin esto, ese aviso no publica nada. */
+  cards?: () => Promise<BoardCard[]>
   /** Cómo se traduce un webhook crudo a la task y al evento de este proyecto. Sin esto, el `locate`
    *  de `@ia-flow/github-webhook`. */
   locate?: (type: string, raw: Record<string, unknown>) => Location
@@ -111,6 +115,10 @@ const Input = z
     /** En vez del evento de la task: `issue.blockers_refined` a las tasks que bloquea un issue que
      *  acaba de llegar a una columna de `refinedStatuses`, si ya no esperan a ningún otro. */
     notifyBlockersRefined: z.boolean().optional(),
+    /** En vez del evento de la task: `issue.related_merged` a cada task del repo del PR mergeado
+     *  que está en una de estas columnas, sin PR propio, y cuyo PRD nombra en su zona de impacto
+     *  un archivo que el PR cambió (con `mergedPr` y los `files` en común). */
+    notifyRelatedMerged: z.array(z.string().min(1)).min(1).optional(),
   })
   .refine((input) => !input.notifyBlockersRefined || input.refinedStatuses, {
     message: '`notifyBlockersRefined` necesita `refinedStatuses`',
@@ -252,9 +260,8 @@ class ProjectResolver {
     const raw = (ctx.event.payload ?? {}) as Record<string, unknown>
     const type = ctx.event.type.replace(/^github\./, '')
     const when = (input.when ?? []).map((row) => new Condition(row))
-    if (input.unblockDependents) return this.unblocked(raw, ctx, when)
-    if (input.notifyParent) return this.childClosed(raw, ctx, when)
-    if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
+    const fromRaw = this.fromRawWebhook(input, raw, ctx, when)
+    if (fromRaw) return fromRaw
 
     const location = located ?? (this.project.locate ?? locate)(type, raw)
     const notified = this.notifyInstead(input, location, ctx, when)
@@ -271,6 +278,23 @@ class ProjectResolver {
     return 'skip' in published
       ? { skipped: published.skip }
       : { emitted: [String(published.scope?.issue)] }
+  }
+
+  /** Los avisos que salen del webhook crudo (un merge, un cierre) y no de la task que ubica: a quién
+   *  destraba, a la épica, a los hermanos en conflicto, a los PRDs que deja viejos. */
+  private fromRawWebhook(
+    input: z.infer<typeof Input>,
+    raw: Record<string, unknown>,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+  ): Promise<Resolved> | undefined {
+    if (input.unblockDependents) return this.unblocked(raw, ctx, when)
+    if (input.notifyParent) return this.childClosed(raw, ctx, when)
+    if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
+    if (input.notifyRelatedMerged) {
+      return this.relatedMerged(raw, ctx, when, input.notifyRelatedMerged)
+    }
+    return undefined
   }
 
   /** Lo que el intake publica en vez del evento de la task: el aviso a los dependientes de un
@@ -643,6 +667,35 @@ class ProjectResolver {
       },
       ctx,
       merged,
+    )
+  }
+
+  /** `issue.related_merged` a las tasks cuyo PRD toca lo que cambió el PR mergeado. */
+  private async relatedMerged(
+    raw: Record<string, unknown>,
+    ctx: PipelineExecutionContext,
+    when: Condition[],
+    statuses: string[],
+  ): Promise<Resolved> {
+    const merged = mergedPullRequest(raw)
+    if ('skip' in merged) return { skipped: merged.skip }
+    const { cards } = this.project
+    if (!cards) return { skipped: `el board de ${this.project.id} no lista sus cards` }
+    if (!this.inCatalog(merged.owner, merged.repo)) {
+      return { skipped: `${merged.owner}/${merged.repo} no es del catálogo de ${this.project.id}` }
+    }
+    const { reader } = this
+    return notifyRelatedMerged(
+      {
+        cards,
+        pullFiles: (pr) => reader.pullFiles(pr.owner, pr.repo, pr.pr),
+        closingIssues: (pr) => reader.closingIssues(pr.owner, pr.repo, pr.pr),
+        issueBody: (task) => reader.issueBody(task.owner, task.repo, task.number),
+        publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),
+      },
+      ctx,
+      merged,
+      statuses,
     )
   }
 
