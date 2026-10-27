@@ -99,6 +99,8 @@ export class ExecutionStore {
    *  guardó por dónde seguir: si el proceso muere antes, su evento se re-despacha al reiniciar. */
   private readonly trigger = new Map<string, string>()
   private orphaned: OrphanedEvents[] = []
+  /** El proceso se apaga (`close`): no arranca ni retoma nada más. */
+  private closed = false
   private readonly resumeLimits: ResumeLimits
   private readonly newId: () => string
   private readonly listeners = new Set<ExecutionListener>()
@@ -186,6 +188,7 @@ export class ExecutionStore {
     ifQueued = 'keep',
     event,
   }: StartExecution): Promise<Execution | undefined> {
+    if (this.closed) return never()
     const queuedAt = Date.now()
     const cancelled = this.cancellations.get(key) ?? 0
     const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
@@ -247,6 +250,9 @@ export class ExecutionStore {
     for (;;) {
       const { ready, release } = this.scheduler.enter(key)
       await ready
+      // Le tocó con el proceso apagándose: no arranca (su espera queda anotada y se re-despacha al
+      // reiniciar). No devuelve el lugar: nada más tiene que arrancar.
+      if (this.closed) return never()
       const ceded = this.cedes(key, ticket, cancelled)
       if (ceded) {
         release()
@@ -326,16 +332,21 @@ export class ExecutionStore {
   }
 
   /** El proceso se apaga: las que corren dejan de anotarse y no corren su `onError` si fallan
-   *  (`Execution.stop`) — quedan guardadas como estaban y se retoman al reiniciar. */
+   *  (`Execution.stop`) — quedan guardadas como estaban y se retoman al reiniciar —, y nada más
+   *  arranca ni se retoma: lo que esperaba turno se queda esperando (su espera anotada se
+   *  re-despacha al reiniciar). */
   close(): void {
+    this.closed = true
     for (const execution of this.byKey.values()) execution.stop()
   }
 
   /** Vuelve a admitir una ejecución que despertó (`Execution.wake`): espera su turno en la task
    *  y lugar bajo el tope, igual que `start`. La parte que ocupa la task corre en el mismo tick. */
   async resume(execution: Execution): Promise<void> {
+    if (this.closed) return never()
     const { ready, release } = this.scheduler.enter(execution.key)
     await ready
+    if (this.closed) return never()
     this.admit(execution, release)
   }
 
@@ -521,6 +532,11 @@ export class ExecutionStore {
       if (this.byKey.get(execution.key) === execution) this.byKey.delete(execution.key)
     })
   }
+}
+
+/** Lo que espera con el proceso apagándose: no termina nunca — ni arranca, ni toca la base. */
+function never(): Promise<never> {
+  return new Promise<never>(() => {})
 }
 
 function queueSlot(key: string, pipelineId: string): string {
