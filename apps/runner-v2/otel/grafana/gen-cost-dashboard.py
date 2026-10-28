@@ -19,6 +19,9 @@ TOKENS = f"ia_flow_llm_tokens_total{{{F}}}"
 REQUESTS = f"ia_flow_llm_requests_total{{{F}}}"
 RUNS = f"ia_flow_pipeline_runs_total{{{P}}}"
 DURATION = f"ia_flow_pipeline_duration_seconds_bucket{{{P}}}"
+# Fuera del f-string que lo usa: anidar comillas iguales en un f-string pide Python 3.12.
+CACHE_READ = f'ia_flow_llm_tokens_total{{{F}, type="cache_read"}}'
+API_COST = f'ia_flow_llm_cost_usd_total{{{F}, billing="api"}}'
 AGENTS = f'ia_flow_agent_runs_total{{project=~"$project", agent=~"$agent", pipeline=~"$pipeline"}}'
 
 
@@ -152,7 +155,7 @@ panels = [
     ),
     stat(
         "Costo pagado por token",
-        inc(f'ia_flow_llm_cost_usd_total{{{F}, billing="api"}}'),
+        inc(API_COST),
         grid(4, 0, 4, 4),
         unit="currencyUSD",
         decimals=2,
@@ -162,7 +165,7 @@ panels = [
     stat("Tokens", inc(TOKENS), grid(12, 0, 4, 4), unit="short", decimals=1),
     stat(
         "Lectura de caché",
-        f"{inc(f'ia_flow_llm_tokens_total{{{F}, type="cache_read"}}')} / {inc(TOKENS)}",
+        f"{inc(CACHE_READ)} / {inc(TOKENS)}",
         grid(16, 0, 4, 4),
         unit="percentunit",
         decimals=1,
