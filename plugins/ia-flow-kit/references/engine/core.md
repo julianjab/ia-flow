@@ -528,6 +528,18 @@ Reglas que no son obvias al leer el código:
     reglas, y con `replace` dos comentarios re-despachados a la misma pipeline se colapsan.
   - **El default del store es `keep`**: `ExecutionStore.start` sin `ifQueued` encola como
     siempre; el que pide `replace` es el coordinador, con el de la pipeline.
+- **`supersedes: [ids]`: una pipeline deja sin efecto a OTRAS que piden lo mismo en la task.**
+  Mientras una corrida suya espera turno, una corrida de esas pipelines que también espera no
+  arranca (`start` devuelve `undefined`), haya llegado antes o después. Es para dos eventos que
+  piden el mismo trabajo: el review devolvió la card a Build (`build-reentry`) y el merge de un
+  hermano dejó el PR en conflicto (`pr-conflict`), con la task ocupada por el review —
+  subscriptions#2042 corrió dos implementers. Reglas no obvias:
+  - **Sólo entre corridas que esperan.** La que ya corre no se toca (ni la que deja sin efecto ni
+    la dejada): lo que llega después espera y corre, y el `when` revalidado decide.
+  - **Dos que se dejan sin efecto entre sí: gana la que ya esperaba.** Una que ya cede (reemplazada
+    por `ifQueued` o dejada sin efecto) no deja sin efecto a nadie.
+  - **No depende del board.** La revalidación también podría descartar la otra por su `when`, pero
+    lee el board, que puede no reflejar todavía lo que la corrida anterior movió hace un segundo.
 - **`maxRuns`: el tope de corridas de una pipeline por task** (`MaxRuns`). Lo cuenta el engine en
   el `ExecutionStore` (`admitRun`), por clave de ejecución y contador (`counter`, default el id de la
   pipeline; dos pipelines con el mismo nombre comparten la cuenta). Pasado `max`, corre

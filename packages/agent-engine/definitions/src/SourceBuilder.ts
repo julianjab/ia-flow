@@ -224,6 +224,7 @@ export class SourceBuilder {
             : {}),
           ifPaused: doc.ifPaused,
           ifQueued: doc.ifQueued,
+          ...(doc.supersedes ? { supersedes: doc.supersedes } : {}),
           ...(doc.maxRuns ? { maxRuns: this.maxRuns(doc.maxRuns, context, path) } : {}),
           when: Condition.fromRows(doc.when),
           ...located(`${path}: whenText`, () => this.whenText(doc.whenText)),

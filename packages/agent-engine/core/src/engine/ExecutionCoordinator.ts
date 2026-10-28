@@ -239,9 +239,11 @@ export class ExecutionCoordinator {
         pipelineId: pipeline.id,
         ifPaused: pipeline.ifPaused,
         ifQueued: pipeline.ifQueued,
+        supersedes: pipeline.supersedes,
         event,
       })
-      // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó.
+      // Otra corrida de la misma pipeline llegó mientras ésta esperaba y la reemplazó, o la dejó
+      // sin efecto una de las que la nombran en `supersedes`.
       if (!execution) return undefined
       this.noteOpened(event, execution.id)
       // Esperó detrás de otra ejecución: lo que ésa hizo (mover la card, sacarle un label) puede

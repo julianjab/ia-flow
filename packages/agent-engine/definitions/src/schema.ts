@@ -240,6 +240,8 @@ export const PipelineDoc = z.strictObject({
   interruptOn: z.array(EventFilterNode).optional(),
   ifPaused: z.enum(['supersede', 'wait']).optional(),
   ifQueued: z.enum(['replace', 'keep']).optional(),
+  /** Las pipelines cuyo trabajo hace también ésta en la task: ver `Pipeline.supersedes`. */
+  supersedes: z.array(z.string().min(1)).min(1).optional(),
   /** Tope de corridas por task: pasado `max`, corre `onExhausted` en vez de la pipeline. */
   maxRuns: MaxRunsNode.optional(),
   when: ConditionRows.optional(),

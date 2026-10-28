@@ -24,6 +24,10 @@ export interface StartExecution {
    *  (`keep`, el default del store; el de una `Pipeline` es `replace`). La que ya corre nunca se
    *  reemplaza. */
   ifQueued?: IfQueued
+  /** Las pipelines que esta corrida deja sin efecto en la task (`Pipeline.supersedes`): mientras
+   *  ésta espera turno, una corrida de ésas que también espera no arranca — haya llegado antes o
+   *  después. La que ya corre nunca se toca. */
+  supersedes?: readonly string[]
   /** El evento que la disparó: mientras espera, queda anotado en el repositorio
    *  (`ExecutionRepository.queued`) y, si el proceso muere antes de que arranque, se re-despacha al
    *  reiniciar (`takeOrphaned`). */
@@ -33,6 +37,15 @@ export interface StartExecution {
 /** Una corrida esperando turno que se puede reemplazar: la marca la corrida que llega después. */
 interface QueuedTicket {
   replaced: boolean
+  /** La pipeline (`supersedes`) que la dejó sin efecto mientras esperaba. */
+  supersededBy?: string
+}
+
+/** Una corrida esperando turno en su task, con lo que deja sin efecto. */
+interface WaitingRun {
+  pipelineId: string
+  supersedes: readonly string[]
+  ticket: QueuedTicket
 }
 
 export interface ExecutionStoreOptions {
@@ -92,6 +105,8 @@ export class ExecutionStore {
   private readonly byKey = new Map<string, Execution>()
   /** La última corrida `replace` esperando turno, por task y pipeline. */
   private readonly queued = new Map<string, QueuedTicket>()
+  /** Las corridas esperando turno, por task: lo que mira `supersedes`. */
+  private readonly waitingRuns = new Map<string, Set<WaitingRun>>()
   /** Cuántas veces se canceló cada task (`cancel`): una corrida que empezó a esperar antes de la
    *  última, cede el turno sin arrancar. */
   private readonly cancellations = new Map<string, number>()
@@ -186,18 +201,22 @@ export class ExecutionStore {
     pipelineId,
     ifPaused = 'supersede',
     ifQueued = 'keep',
+    supersedes = [],
     event,
   }: StartExecution): Promise<Execution | undefined> {
     if (this.closed) return never()
     const queuedAt = Date.now()
     const cancelled = this.cancellations.get(key) ?? 0
-    const ticket = ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : undefined
+    const ticket =
+      ifQueued === 'replace' ? this.enqueueReplacing(key, pipelineId) : { replaced: false }
+    const run = this.enterWaiting(key, { pipelineId, supersedes, ticket })
     const waiting = this.noteQueued(key, pipelineId, queuedAt, event)
     let execution: Execution | undefined
     try {
       execution = await this.takeTurn(key, pipelineId, queuedAt, ifPaused, ticket, cancelled)
       return execution
     } finally {
+      this.leaveWaiting(key, run)
       // Ya arrancó: su espera queda anotada hasta que la ejecución guarde por dónde seguir (ver
       // `settleTrigger`). Arrancar no alcanza: si el proceso muere antes de que su agente guarde
       // la conversación, la ejecución se cierra `interrupted` y sin esto su evento se perdía
@@ -298,6 +317,7 @@ export class ExecutionStore {
     cancelled: number,
   ): string | undefined {
     if (ticket?.replaced) return 'quedó reemplazada por una más nueva'
+    if (ticket?.supersededBy) return `quedó sin efecto: también espera ${ticket.supersededBy}`
     if ((this.cancellations.get(key) ?? 0) !== cancelled) return 'quedó cancelada'
     return undefined
   }
@@ -310,6 +330,32 @@ export class ExecutionStore {
     const ticket: QueuedTicket = { replaced: false }
     this.queued.set(slot, ticket)
     return ticket
+  }
+
+  /**
+   * Anota la corrida entre las que esperan turno en `key` y aplica `supersedes` con las demás: si
+   * una que espera la deja sin efecto, ésta cede; si no, cede cada una que ésta deja sin efecto.
+   * Con dos que se dejan sin efecto entre sí, gana la que ya esperaba. Una que ya cede no cuenta.
+   */
+  private enterWaiting(key: string, run: WaitingRun): WaitingRun {
+    const others = this.waitingRuns.get(key) ?? new Set<WaitingRun>()
+    const live = [...others].filter((other) => !other.ticket.replaced && !other.ticket.supersededBy)
+    const by = live.find((other) => other.supersedes.includes(run.pipelineId))
+    if (by) run.ticket.supersededBy = by.pipelineId
+    else {
+      for (const other of live) {
+        if (run.supersedes.includes(other.pipelineId)) other.ticket.supersededBy = run.pipelineId
+      }
+    }
+    others.add(run)
+    this.waitingRuns.set(key, others)
+    return run
+  }
+
+  private leaveWaiting(key: string, run: WaitingRun): void {
+    const others = this.waitingRuns.get(key)
+    others?.delete(run)
+    if (others?.size === 0) this.waitingRuns.delete(key)
   }
 
   private dequeue(key: string, pipelineId: string, ticket: QueuedTicket): void {

@@ -152,6 +152,14 @@ export interface PipelineProps extends ConditionalProps, ExitDefaults {
    *   agente no inyecta): reemplazar perdería el anterior.
    */
   ifQueued?: IfQueued
+  /**
+   * Las pipelines (por id) cuyo trabajo hace también ésta en la misma task. Mientras una corrida
+   * de ésta espera turno, una corrida de ésas que también espera no arranca — haya llegado antes o
+   * después —: dos eventos que piden lo mismo (el review devolvió la card a Build y además el PR
+   * quedó en conflicto) corren un agente, no dos. La que ya corre nunca se toca. Igual que
+   * `ifQueued`, sólo con agentes y un `Engine` con `executions`.
+   */
+  supersedes?: string[]
   do: Runnable[]
   /**
    * Overrides de rutas por agente (clave: el `id` del agente) — el nivel "paso" de la cascada.
@@ -191,6 +199,7 @@ export class Pipeline {
   private readonly interruptFilters?: EventFilter[]
   readonly ifPaused: IfPaused
   readonly ifQueued: IfQueued
+  readonly supersedes: readonly string[]
   readonly do: Runnable[]
   readonly defaults: ExitDefaults
   readonly maxRuns?: MaxRuns
@@ -214,6 +223,7 @@ export class Pipeline {
     this.interruptFilters = props.interruptOn?.map((filter) => new EventFilter(filter))
     this.ifPaused = props.ifPaused ?? 'supersede'
     this.ifQueued = props.ifQueued ?? 'replace'
+    this.supersedes = props.supersedes ?? []
     this.do = props.do
     this.defaults = {
       onError: props.onError,
