@@ -115,6 +115,60 @@ describe('Agent with several provider candidates', () => {
     expect((await implementer.run(ctx(undefined, { repo: 'front' }))).provider).toBe('claude-tmux')
   })
 
+  describe('the same provider named twice, each with its when and config', () => {
+    const small = Condition.fromRows([
+      { field: 'item.labels', op: 'contains', value: 'small-change' },
+    ])
+    const tiers = (registry: ProviderRegistry) =>
+      agent(registry, [
+        { id: 'anthropic-api', when: small, config: { model: 'sonnet' } },
+        { id: 'anthropic-api', config: { model: 'opus' } },
+      ])
+
+    it('runs with the config of the first one whose when matches', async () => {
+      const api = provider('anthropic-api')
+      const implementer = tiers(new ProviderRegistry().register(api.provider))
+
+      await implementer.run(ctx(undefined, { item: { labels: ['small-change'] } }))
+      await implementer.run(ctx(undefined, { item: { labels: [] } }))
+
+      expect(api.runs.map((run) => run.providerConfig)).toEqual([
+        { model: 'sonnet' },
+        { model: 'opus' },
+      ])
+    })
+
+    it('with a wildcard, the host keeps its tier and the API is still the fallback', async () => {
+      const host = provider('remote:a')
+      const api = provider('anthropic-api')
+      const registry = new ProviderRegistry().register(host.provider).register(api.provider)
+      const implementer = agent(registry, [
+        { id: 'remote:*', when: small, config: { model: 'sonnet' } },
+        { id: 'anthropic-api', when: small, config: { model: 'sonnet' } },
+        { id: 'remote:*', config: { model: 'opus' } },
+        { id: 'anthropic-api', config: { model: 'opus' } },
+      ])
+
+      const result = await implementer.run(ctx(undefined, { item: { labels: [] } }))
+
+      expect(result.provider).toBe('remote:a')
+      expect(host.runs[0]?.providerConfig).toEqual({ model: 'opus' })
+    })
+
+    it('a resumed conversation stays in its provider, with the config of the tier that matches', async () => {
+      const api = provider('anthropic-api')
+      const implementer = tiers(new ProviderRegistry().register(api.provider))
+
+      await implementer.run({
+        ...ctx(undefined, { item: { labels: [] } }),
+        resume: resumeIn('anthropic-api'),
+      })
+
+      expect(api.runs[0]?.providerConfig).toEqual({ model: 'opus' })
+      expect(api.runs[0]?.resume?.conversation).toEqual({ sessionId: 's' })
+    })
+  })
+
   it('when every candidate is full, waits for the first slot that frees', async () => {
     let freeA!: () => void
     const a = provider('a', { maxConcurrent: 1 }, new Promise((r) => (freeA = r)))
