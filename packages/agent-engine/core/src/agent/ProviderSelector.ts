@@ -71,7 +71,7 @@ export class ProviderSelector {
       const preferred = prefer ? concrete.filter((c) => c.id === prefer) : []
       const { eligible, skipped } =
         preferred.length > 0
-          ? { eligible: preferred, skipped: [] }
+          ? { eligible: [await this.firstEligible(ctx, preferred)], skipped: [] }
           : await this.eligible(ctx, concrete)
       if (!dynamic && eligible.length === 1) {
         return { ...(await this.queueOn(eligible[0] as ProviderCandidate, ctx)), skipped }
@@ -92,11 +92,11 @@ export class ProviderSelector {
   }
 
   /** Los candidatos, con cada comodín resuelto contra lo registrado ahora: un id que otro
-   *  candidato nombra explícito no se repite, y uno que ya salió no vuelve a salir. Uno con
-   *  nombre de los que van y vienen, sin registrar ahora, no sale. */
+   *  candidato nombra explícito no sale del comodín. Uno con nombre de los que van y vienen, sin
+   *  registrar ahora, no sale. Un mismo id puede salir de varios candidatos (cada uno con su
+   *  `when` y su config): de esos corre el primero elegible (ver `eligible`). */
   private concrete(): ProviderCandidate[] {
     const named = new Set(this.candidates.filter((c) => !c.wildcard).map((c) => c.id))
-    const seen = new Set<string>()
     const out: ProviderCandidate[] = []
     for (const candidate of this.candidates) {
       const ids = candidate.wildcard
@@ -107,11 +107,7 @@ export class ProviderSelector {
         : this.registry.isDynamic(candidate.id) && !this.registry.resolve(candidate.id)
           ? []
           : [candidate.id]
-      for (const id of ids) {
-        if (seen.has(id)) continue
-        seen.add(id)
-        out.push(id === candidate.id ? candidate : candidate.withId(id))
-      }
+      for (const id of ids) out.push(id === candidate.id ? candidate : candidate.withId(id))
     }
     return out
   }
@@ -230,17 +226,25 @@ export class ProviderSelector {
     return retryAfterMs === undefined ? { busy } : { busy, retryAfterMs }
   }
 
-  /** Los candidatos elegibles para el evento, en orden. Ninguno es un error de definición. */
+  /** Los candidatos elegibles para el evento, en orden y uno por provider: el primero elegible
+   *  de los que lo nombran (`anthropic-api` con `when` para las tareas chicas y un modelo
+   *  barato, y después `anthropic-api` para el resto). Ninguno es un error de definición. */
   private async eligible(
     ctx: PipelineExecutionContext,
     candidates: ProviderCandidate[],
   ): Promise<{ eligible: ProviderCandidate[]; skipped: string[] }> {
     const eligible: ProviderCandidate[] = []
     const skipped: string[] = []
+    const taken = new Set<string>()
     for (const candidate of candidates) {
+      if (taken.has(candidate.id)) continue
       const reason = await candidate.ineligible(ctx)
-      if (reason) skipped.push(`${candidate.id}: ${reason}`)
-      else eligible.push(candidate)
+      if (reason) {
+        skipped.push(`${candidate.id}: ${reason}`)
+        continue
+      }
+      taken.add(candidate.id)
+      eligible.push(candidate)
     }
     if (eligible.length === 0) {
       throw new Error(
@@ -248,6 +252,19 @@ export class ProviderSelector {
       )
     }
     return { eligible, skipped }
+  }
+
+  /** La conversación que se retoma sigue en su provider aunque su `when` ya no pase; si varios
+   *  candidatos lo nombran, con la config del primero elegible. */
+  private async firstEligible(
+    ctx: PipelineExecutionContext,
+    preferred: ProviderCandidate[],
+  ): Promise<ProviderCandidate> {
+    if (preferred.length === 1) return preferred[0] as ProviderCandidate
+    for (const candidate of preferred) {
+      if (!(await candidate.ineligible(ctx))) return candidate
+    }
+    return preferred[0] as ProviderCandidate
   }
 
   /** Un solo candidato: hace cola en su lugar y, si no lo acepta, lo suelta y reintenta. */
