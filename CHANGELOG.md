@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.31.0](https://github.com/julianjab/ia-flow/compare/v2.30.1...v2.31.0) (2026-10-28)
+
+
+### Features
+
+* **agent-engine:** supersedes — una pipeline deja sin efecto a otras que piden lo mismo ([#354](https://github.com/julianjab/ia-flow/issues/354)) ([4de713a](https://github.com/julianjab/ia-flow/commit/4de713a7996b153f1339a66b519e49d86ffcfc56))
+* **runner-v2:** GET /metrics en Prometheus y el dashboard «costo y actividad» ([#353](https://github.com/julianjab/ia-flow/issues/353)) ([bf727ee](https://github.com/julianjab/ia-flow/commit/bf727ee3c38502b91a072ede4323179c7a0bc141))
+
 ## [2.30.1](https://github.com/julianjab/ia-flow/compare/v2.30.0...v2.30.1) (2026-10-28)
 
 
