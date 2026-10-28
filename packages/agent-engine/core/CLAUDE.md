@@ -458,7 +458,10 @@ Reglas que no son obvias al leer el código:
   paso) con su propia config. `ProviderSelector` usa el primero elegible con lugar bajo los topes
   del agente y del provider (`ConcurrencyLimits.tryAcquire`, sin esperar) y que acepte
   (`canAccept`); si todos están llenos espera a que se libere un lugar (`released`) o pase el
-  `retryAfterMs`. Con un solo candidato hace cola en él. `provider` + `providerConfig` es el atajo
+  `retryAfterMs`. Con un solo candidato hace cola en él. Un mismo provider puede ir en varios
+  candidatos (un modelo por complejidad: `anthropic-api` con `when` y un modelo barato, después
+  `anthropic-api` para el resto): se deduplica DESPUÉS del `when`, corre el primero elegible de
+  los que lo nombran. `provider` + `providerConfig` es el atajo
   de un candidato. La conversación guardada va marcada con su provider (`AgentConversation`):
   retomarla sigue en ése — la de un provider no la entiende otro. `AgentRunResult.provider` y
   `ia.agent.provider` dicen en cuál corrió.
