@@ -121,3 +121,72 @@ describe('Engine — ifQueued', () => {
     expect(worker.runs).toEqual(['status:Build', 'status:Review'])
   })
 })
+
+describe('Engine — supersedes', () => {
+  /** El caso de subscriptions#2042: con la task ocupada por el review, el merge de un hermano deja
+   *  el PR en conflicto (`pr-conflict`) y el gate devuelve la card a Build (`build-reentry`). */
+  const pipelines = (worker: ReturnType<typeof recordingAgent>) => [
+    rule('review', 'review', worker.agent),
+    rule('pr-conflict', 'pr_conflict', worker.agent),
+    new Pipeline({
+      id: 'build-reentry',
+      on: ['status_changed'],
+      supersedes: ['pr-conflict'],
+      do: [worker.agent],
+    }),
+  ]
+
+  it('a waiting run of a superseded pipeline does not start when the superseding one arrives', async () => {
+    const worker = recordingAgent()
+    const engine = engineWith(pipelines(worker))
+
+    const review = engine.dispatch(event('review'))
+    await worker.running
+    const conflict = engine.dispatch(event('pr_conflict'))
+    const reentry = engine.dispatch(event('status_changed', { status: 'Build' }))
+    worker.release()
+    await Promise.all([review, conflict, reentry])
+
+    expect(worker.runs).toEqual(['review:-', 'build-reentry:Build'])
+  })
+
+  it('nor does one that arrives while the superseding one waits', async () => {
+    const worker = recordingAgent()
+    const engine = engineWith(pipelines(worker))
+
+    const review = engine.dispatch(event('review'))
+    await worker.running
+    const reentry = engine.dispatch(event('status_changed', { status: 'Build' }))
+    const conflict = engine.dispatch(event('pr_conflict'))
+    worker.release()
+    await Promise.all([review, reentry, conflict])
+
+    expect(worker.runs).toEqual(['review:-', 'build-reentry:Build'])
+  })
+
+  it('the superseding run already going does not stop a later one: it waits and runs after', async () => {
+    const worker = recordingAgent()
+    const engine = engineWith(pipelines(worker))
+
+    const reentry = engine.dispatch(event('status_changed', { status: 'Build' }))
+    await worker.running
+    const conflict = engine.dispatch(event('pr_conflict'))
+    worker.release()
+    await Promise.all([reentry, conflict])
+
+    expect(worker.runs).toEqual(['build-reentry:Build', 'pr-conflict:-'])
+  })
+
+  it('a superseded run already going is not touched: the superseding one waits for it', async () => {
+    const worker = recordingAgent()
+    const engine = engineWith(pipelines(worker))
+
+    const conflict = engine.dispatch(event('pr_conflict'))
+    await worker.running
+    const reentry = engine.dispatch(event('status_changed', { status: 'Build' }))
+    worker.release()
+    await Promise.all([conflict, reentry])
+
+    expect(worker.runs).toEqual(['pr-conflict:-', 'build-reentry:Build'])
+  })
+})
