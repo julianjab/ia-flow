@@ -9,6 +9,8 @@
  *   GET  /api/webhooks/status   qué escucha el runner — sólo lectura, sin datos sensibles.
  *   GET  /health                el proceso contesta: la probe de k8s y el healthcheck del
  *                               balanceador. No mira GitHub ni la base — un 200 es "sigo vivo".
+ *   GET  /metrics               las métricas en formato Prometheus (`telemetry/metrics.ts`), si
+ *                               el que arma el servidor las pasa.
  *
  * Responde ANTES de traducir y despachar: GitHub corta el delivery a los 10 s y una corrida de un
  * agente dura minutos. La contracara es que un error de traducción no le llega a GitHub como
@@ -24,6 +26,7 @@ export type { Delivery }
 export const GITHUB_WEBHOOK_PATH = '/api/webhooks/github'
 const STATUS_PATH = '/api/webhooks/status'
 export const HEALTH_PATH = '/health'
+export const METRICS_PATH = '/metrics'
 /** El tope de GitHub para un payload de webhook. */
 const MAX_BODY_BYTES = 25 * 1024 * 1024
 /** Cuántos delivery ids recordar para descartar reintentos de GitHub. */
@@ -36,6 +39,9 @@ export interface WebhookServerOptions {
   onDelivery: (delivery: Delivery) => Promise<void>
   /** Lo que `GET /api/webhooks/status` agrega a la respuesta. */
   status?: () => Record<string, unknown>
+  /** El texto de `GET /metrics` (Prometheus). Sin esto, la ruta no existe. Es pública como
+   *  `/health`: el ingress a internet sólo publica el webhook, y no lleva secretos. */
+  metrics?: () => string
   /** La API de la web (`http/ApiRouter.ts`): si atiende la ruta, el webhook no la ve. */
   api?: { handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> }
   log: (line: string) => void
@@ -135,11 +141,24 @@ export function createWebhookServer(opts: WebhookServerOptions): Server {
     })
   }
 
+  /** Lo que mira la plataforma (la probe, Prometheus): sin token ni secreto. */
+  function probe(path: string | undefined, res: ServerResponse): boolean {
+    if (path === HEALTH_PATH) {
+      send(res, 200, { ok: true })
+      return true
+    }
+    if (path === METRICS_PATH && opts.metrics) {
+      res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' }).end(opts.metrics())
+      return true
+    }
+    return false
+  }
+
   return createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0]
     const handle = async () => {
       if (req.method === 'POST' && path === GITHUB_WEBHOOK_PATH) return github(req, res)
-      if (req.method === 'GET' && path === HEALTH_PATH) return send(res, 200, { ok: true })
+      if (req.method === 'GET' && probe(path, res)) return
       if (await opts.api?.handle(req, res)) return
       if (req.method === 'GET' && path === STATUS_PATH) {
         return send(res, 200, {

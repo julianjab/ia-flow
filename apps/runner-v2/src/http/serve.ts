@@ -29,6 +29,8 @@ export interface ServeOptions {
   log: (line: string) => void
   /** Slack por Socket Mode (los mensajes llegan como `slack.message`). Sin esto, no se levanta. */
   slack?: SlackIngressOptions
+  /** `GET /metrics` (Prometheus), en el mismo puerto. */
+  metrics?: () => string
   /** La API de la web, en el mismo puerto que los webhooks. */
   api?: { handle: NonNullable<Parameters<typeof createWebhookServer>[0]['api']>['handle'] }
   /** Cada delivery verificado, antes de despacharlo (la bandeja relee el board). */
@@ -83,6 +85,7 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
       executions: mounted.executions?.stats,
     }),
     ...(opts.api ? { api: opts.api } : {}),
+    ...(opts.metrics ? { metrics: opts.metrics } : {}),
     log,
   })
   await new Promise<void>((resolve, reject) => {

@@ -86,6 +86,20 @@ function usdOf(price: ModelPrice, usage: ModelUsage): number {
   )
 }
 
+/** El precio de lista de unos tokens, sean o no de suscripción: las métricas los separan por
+ *  `billing` en vez de descartarlos. Un modelo sin precio, `undefined`. */
+export function listPriceUsd(
+  table: Pricing,
+  usage: ModelUsage,
+): { usd: number; billing: 'api' | 'subscription' } | undefined {
+  const price = priceOf(table, usage.model)
+  if (!price) return undefined
+  return {
+    usd: usdOf(price, usage),
+    billing: usage.scope === SUBSCRIPTION_SCOPE ? 'subscription' : 'api',
+  }
+}
+
 const tokensOf = (usage: ModelUsage) =>
   usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
 
