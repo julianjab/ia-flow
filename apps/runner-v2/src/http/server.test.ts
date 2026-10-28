@@ -89,6 +89,26 @@ describe('webhook server', () => {
     expect(await res.json()).toEqual({ ok: true })
   })
 
+  it('serves /metrics as Prometheus text when given, and 404s it when not', async () => {
+    const { base } = await start(undefined)
+    expect((await fetch(`${base}/metrics`)).status).toBe(404)
+    server?.closeAllConnections()
+    await new Promise<void>((resolve) => server?.close(() => resolve()))
+
+    server = createWebhookServer({
+      secret: undefined,
+      onDelivery: async () => {},
+      metrics: () => 'ia_flow_executions{state="running"} 1\n',
+      log: () => {},
+    })
+    await new Promise<void>((resolve) => server?.listen(0, resolve))
+    const { port } = server.address() as AddressInfo
+    const res = await fetch(`http://127.0.0.1:${port}/metrics`)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/plain; version=0.0.4')
+    expect(await res.text()).toBe('ia_flow_executions{state="running"} 1\n')
+  })
+
   it('answers ping without handing it over', async () => {
     const { base, onDelivery } = await start(SECRET)
     const body = JSON.stringify({ zen: 'hi' })

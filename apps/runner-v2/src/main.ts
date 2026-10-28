@@ -29,6 +29,7 @@ import { applyRunnerEnv, loadRunnerConfig, type RunnerConfig } from './config/Ru
 import { defaultWorkspaceRoot, runnerHome } from './config/runnerHome.js'
 import { serve } from './http/serve.js'
 import { mountInbox } from './inbox/mountInbox.js'
+import { listPriceUsd, pricingTable } from './inbox/pricing.js'
 import { dispatchRaw, replayPullRequest, simulateIssue } from './intake/dispatch.js'
 import { type McpHost, startMcpHost } from './mcp/mcpHost.js'
 import { hostTelemetryIngest } from './providers/hostTelemetry.js'
@@ -47,6 +48,7 @@ import {
 } from './providers/remoteHosts.js'
 import { type ActivityStore, openActivityStore } from './storage/activityStore.js'
 import { startHeartbeat } from './telemetry/heartbeat.js'
+import { RunnerMetrics } from './telemetry/metrics.js'
 import { machineResources } from './telemetry/resources.js'
 import { startTelemetry, type Telemetry, TraceRoute } from './telemetry/telemetry.js'
 import {
@@ -121,9 +123,22 @@ async function startServing(
   log: (line: string) => void,
 ): Promise<void> {
   registerProviders(cfg.providers, { cwd: (ctx) => mounted.services.session.dirFor(ctx), log })
+  // `GET /metrics`: de lo mismo que se anota en la base, lo del runner y lo de sus hosts.
+  const prices = pricingTable(cfg.pricing)
+  const metrics = new RunnerMetrics(
+    (usage) => listPriceUsd(prices, usage),
+    () => mounted.engine.executions?.stats ?? { running: 0, waiting: 0, paused: 0 },
+  )
+  const journal: TraceJournal = {
+    write: (record) => {
+      store.writeTrace(record)
+      metrics.observe(record)
+    },
+  }
+  route.to(journal)
   // Los hosts que se suscriben (`remote:<name>`), en el mismo puerto que los webhooks — y su
   // telemetría, que se anota y reexporta como la del runner.
-  const hosts = mountRemoteHosts(hostIngest({ write: (record) => store.writeTrace(record) }))
+  const hosts = mountRemoteHosts(hostIngest(journal))
   const inbox = mountInbox(mounted, cfg, store, {
     version: VERSION,
     log,
@@ -162,6 +177,7 @@ async function startServing(
         (await hostsApi.handle(req, res)) ||
         inbox.api.handle(req, res),
     },
+    metrics: () => metrics.render(),
     // Un webhook no frena a nadie: la bandeja se relee en segundo plano y avisa si cambió.
     onDelivery: (delivery) => inbox.delivered(delivery),
     onIgnored: (event, reason) => store.ignored(event, reason),

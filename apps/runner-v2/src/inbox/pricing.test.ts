@@ -6,6 +6,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   DEFAULT_PRICING,
   estimateCost,
+  listPriceUsd,
   type ModelUsage,
   PricingSection,
   priceOf,
@@ -70,6 +71,20 @@ describe('pricing', () => {
         usage({ inputTokens: 1_000_000 }),
       ]),
     ).toEqual({ usd: 4, subscription: true })
+  })
+
+  it('the list price for the metrics keeps subscription usage, marked by billing', () => {
+    expect(listPriceUsd(table, usage({ inputTokens: 1_000_000 }))).toEqual({
+      usd: 4,
+      billing: 'api',
+    })
+    expect(
+      listPriceUsd(table, usage({ scope: SUBSCRIPTION_SCOPE, inputTokens: 1_000_000 })),
+    ).toEqual({
+      usd: 4,
+      billing: 'subscription',
+    })
+    expect(listPriceUsd(table, usage({ model: 'sin-precio', inputTokens: 1 }))).toBeUndefined()
   })
 
   it('a model without a price leaves no usd: half a total misleads', () => {

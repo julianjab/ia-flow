@@ -83,6 +83,22 @@ curl -u admin:admin -X POST http://localhost:3000/api/admin/provisioning/dashboa
 El runner exporta OTLP a lo que diga `settings.telemetry.endpoint` de runner.yaml (o
 `OTEL_EXPORTER_OTLP_ENDPOINT`): con `http://localhost:4318`, aparece acá.
 
+## Dashboard «costo y actividad» (sólo Prometheus)
+
+`dashboards/ia-flow-cost.json` (lo genera `gen-cost-dashboard.py`) no usa Tempo ni Loki: lee las
+métricas `ia_flow_*` que el runner expone en `GET /metrics` (`src/telemetry/metrics.ts`), así que
+sirve en un Grafana que sólo tiene Prometheus. Costo estimado por agente, modelo, pipeline, repo,
+facturación (`api` | `subscription`) y origen (el runner o un host), tokens por tipo, costo por
+request, corridas y duración de las pipelines, pasos por provider y ejecuciones en curso.
+
+- **Scrape**: un `ServiceMonitor` (o un `scrape_config`) contra el puerto del runner, path
+  `/metrics`. Es público como `/health` — no lleva secretos —; que no lo publique el ingress a
+  internet.
+- **Importar**: Grafana → Dashboards → New → Import → el JSON, y elegir el Prometheus en la
+  variable `datasource`.
+- Los contadores viven en memoria: un reinicio los pone en cero (`increase()` lo absorbe), y lo
+  anterior al primer scrape no está.
+
 ## Qué hay en una traza
 
 Una traza por evento. Todo lo que el evento causa cuelga de ella:
