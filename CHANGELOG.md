@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.30.1](https://github.com/julianjab/ia-flow/compare/v2.30.0...v2.30.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **agent-engine:** un mismo provider en varios candidatos, cada uno con su when ([#351](https://github.com/julianjab/ia-flow/issues/351)) ([d829345](https://github.com/julianjab/ia-flow/commit/d8293450b194e81a7fbc4be1a6c030ea55357dca))
+
 ## [2.30.0](https://github.com/julianjab/ia-flow/compare/v2.29.0...v2.30.0) (2026-10-27)
 
 
