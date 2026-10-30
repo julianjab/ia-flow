@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.32.0](https://github.com/julianjab/ia-flow/compare/v2.31.0...v2.32.0) (2026-10-30)
+
+
+### Features
+
+* **menubar:** pedir otro código de GitHub mientras se espera la confirmación ([ab20345](https://github.com/julianjab/ia-flow/commit/ab2034541e7c0ea42c17157eddd247c70db614f4))
+
+
+### Bug Fixes
+
+* **menubar:** el login de GitHub marca el código vencido en vez de esperar para siempre ([66216d8](https://github.com/julianjab/ia-flow/commit/66216d899009f9517ce27962b76173b93e663802))
+
 ## [2.31.0](https://github.com/julianjab/ia-flow/compare/v2.30.1...v2.31.0) (2026-10-28)
 
 
