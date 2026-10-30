@@ -1006,7 +1006,10 @@ final class RunnerModel: ObservableObject {
             guard let result = try? await RunnerClient(server: server).devicePoll(code.device_code) else { continue }
             switch result.status {
             case "ok":
-                guard let token = result.access_token, let user = result.login else { return }
+                guard let token = result.access_token, let user = result.login else {
+                    login?.error = "El runner confirmó el login sin token."
+                    return
+                }
                 sessions[server.baseUrl] = GithubSession(token: token, login: user,
                                                          expiresAt: result.expires_in.map { Date().timeIntervalSince1970 + $0 },
                                                          refreshToken: result.refresh_token)
@@ -1021,6 +1024,8 @@ final class RunnerModel: ObservableObject {
                 return
             }
         }
+        // Vencido por reloj (o el runner no contestó a tiempo): sin esto la card queda esperando para siempre.
+        if login?.code.device_code == code.device_code { login?.error = "El código venció." }
     }
 
     func logout() {
