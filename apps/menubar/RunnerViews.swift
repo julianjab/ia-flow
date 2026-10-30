@@ -396,6 +396,8 @@ struct DeviceLoginCard: View {
                     Button("Reintentar") { runner.beginLogin() }.buttonStyle(PillButtonStyle(prominent: true))
                 } else {
                     ProgressView().controlSize(.small).scaleEffect(0.6)
+                    Button { runner.beginLogin() } label: { Image(systemName: "arrow.clockwise") }
+                        .buttonStyle(PillButtonStyle(tint: .secondary)).help("Pedir otro código")
                 }
                 Button("Cancelar") { runner.login = nil }.buttonStyle(PillButtonStyle(tint: .secondary))
             }
