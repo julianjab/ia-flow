@@ -107,6 +107,14 @@ final class AppModel: ObservableObject {
         runner.goHome(tab)
     }
 
+    /// La lupa (y ⌘K): abre el buscador sobre la bandeja, cerrando el asistente y lo que estaba encima; si ya
+    /// estaba abierto, lo cierra.
+    func toggleSearch() {
+        assistantOpen = false
+        if runner.screen != .inbox { runner.goHome() }
+        runner.toggleSearch()
+    }
+
     /// La caja del pie: el chat como panel encima de lo que se ve.
     func openAssistant(listening: Bool = false) {
         assistantOpen = true

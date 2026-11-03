@@ -139,7 +139,7 @@ struct WideLayout: View {
                 }
             }
             Divider().opacity(0.4).padding(.vertical, 8).padding(.horizontal, 12)
-            item("Buscar ⌘K", on: runner.searchOpen) { runner.toggleSearch() }
+            item("Buscar ⌘K", on: runner.searchOpen) { model.toggleSearch() }
             item("Estado del runner", on: runner.screen == .health) { model.assistantOpen = false; runner.showHealth() }
             item("Mejoras", count: runner.improvements.count, on: runner.screen == .improvements) { model.assistantOpen = false; runner.showImprovements() }
             item("Logs del server", on: runner.screen == .logs) { model.assistantOpen = false; runner.showLogs() }
@@ -207,12 +207,10 @@ struct MainHeader: View {
             .help("Runners, estado, logs y servicios de este Mac")
             Spacer(minLength: 4)
             if runner.loading { ProgressView().controlSize(.small).scaleEffect(0.6) }
+            // ⌘K lo escucha EditShortcuts: `.keyboardShortcut` no llega al popover de una app `.accessory`.
             IconButton(symbol: "magnifyingglass", help: "Buscar (⌘K)", tint: runner.searchOpen ? Palette.link : .secondary) {
-                model.assistantOpen = false
-                if runner.screen != .inbox { runner.goHome() }
-                runner.toggleSearch()
+                model.toggleSearch()
             }
-            .keyboardShortcut("k", modifiers: .command)
             if windowed {
                 IconButton(symbol: model.floating ? "pin.fill" : "pin", help: model.floating ? "Dejar de mostrar siempre encima" : "Siempre encima de las otras ventanas",
                            tint: model.floating ? Palette.link : .secondary) { model.floating.toggle() }
