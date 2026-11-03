@@ -107,11 +107,13 @@ final class AppModel: ObservableObject {
         runner.goHome(tab)
     }
 
-    /// La lupa (y ⌘K): abre el buscador sobre la bandeja, cerrando el asistente y lo que estaba encima; si ya
-    /// estaba abierto, lo cierra.
+    /// La lupa (y ⌘K): abre el buscador sobre la bandeja, cerrando el asistente y lo que estaba encima; sólo lo
+    /// cierra si ya se estaba viendo. Desde un detalle con una búsqueda a medias la muestra de nuevo, sin borrarla.
     func toggleSearch() {
+        let covered = assistantOpen || runner.screen != .inbox
         assistantOpen = false
         if runner.screen != .inbox { runner.goHome() }
+        if covered, runner.searchOpen { return }
         runner.toggleSearch()
     }
 
