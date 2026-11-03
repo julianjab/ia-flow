@@ -173,6 +173,7 @@ struct SearchField: View {
                 repoMenu
                 TextField("Número, link o texto", text: $runner.query)
                     .focused($focused)
+                    .onAppear { focused = true }  // con ⌘K se escribe de una
                     .onExitCommand { runner.clearSearch() }
                 if runner.searching { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 14, height: 14) }
                 if runner.filtering {
