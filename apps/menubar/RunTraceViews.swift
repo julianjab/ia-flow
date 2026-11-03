@@ -141,42 +141,57 @@ struct RunTraceScreen: View {
 
     // MARK: pie: la acción de la tarea, «Más», preguntar, opciones
 
-    /// Una sola fila, como la barra del detalle de la web: la acción del caso a la vista y el resto en «Más».
+    /// Como la barra del detalle de la web: la acción del caso a la vista y el resto en «Más».
     private var footer: some View {
         let actions = actionsOf(watch.item)
         let main = mainAction(actions)
         let rest = actions.filter { $0.id != main?.id }
         let busy = runner.busy.contains(watch.item.ref)
-        return HStack(spacing: 8) {
-            if let main {
-                Button(main.confirms ? "\(main.label)…" : main.label) { runner.trigger(main, on: watch.item) }
-                    .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? Palette.red : Palette.blue, compact: true))
-                    .fixedSize().disabled(busy)
+        // Una fila si entra; si no (la columna derecha de la ventana, una acción de nombre largo), dos: las acciones
+        // arriba y las herramientas de la traza abajo. Con todo en `fixedSize`, una sola fila se salía por los costados.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) { footerActions(main: main, rest: rest, busy: busy); Spacer(minLength: 4); footerTools }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) { footerActions(main: main, rest: rest, busy: busy); Spacer(minLength: 0) }
+                HStack(spacing: 8) { Spacer(minLength: 0); footerTools }
             }
-            if !rest.isEmpty {
-                Menu {
-                    ForEach(rest) { action in
-                        Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
-                            runner.trigger(action, on: watch.item)
-                        }
-                    }
-                } label: { Text("Más · \(rest.count)").font(.lh(11.5, .semibold)) }
-                    .menuStyle(.button).buttonStyle(PillButtonStyle(compact: true)).menuIndicator(.hidden).fixedSize()
-                    .disabled(busy)
-            }
-            Button { runner.onAsk?(watch.item) } label: { Text("✦ Preguntar").foregroundStyle(Palette.ai) }
-                .buttonStyle(PillButtonStyle(compact: true)).fixedSize().help("Preguntarle al asistente sobre esta tarea")
-            Spacer(minLength: 4)
-            Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
-            Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Palette.link : .secondary)
-                .help("Seguir el final")
-            Toggle(isOn: $watch.showModel) { Image(systemName: "cpu") }
-                .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Palette.link : .secondary)
-                .help("Mostrar las llamadas al modelo")
-            IconButton(symbol: "doc.on.doc", help: "Copiar la traza") { watch.copy(); runner.toast?("Traza copiada") }
-            IconButton(symbol: "arrow.clockwise", help: "Releer") { watch.reload() }
         }
+    }
+
+    @ViewBuilder
+    private func footerActions(main: ActionView?, rest: [ActionView], busy: Bool) -> some View {
+        if let main {
+            Button(main.confirms ? "\(main.label)…" : main.label) { runner.trigger(main, on: watch.item) }
+                .buttonStyle(PillButtonStyle(prominent: main.id != "stop", tint: main.id == "stop" ? Palette.red : Palette.blue, compact: true))
+                .fixedSize().disabled(busy)
+        }
+        if !rest.isEmpty {
+            Menu {
+                ForEach(rest) { action in
+                    Button(action.confirms ? "\(action.label)…" : action.label, role: action.id == "stop" ? .destructive : nil) {
+                        runner.trigger(action, on: watch.item)
+                    }
+                }
+            } label: { Text("Más · \(rest.count)").font(.lh(11.5, .semibold)) }
+                .menuStyle(.button).buttonStyle(PillButtonStyle(compact: true)).menuIndicator(.hidden).fixedSize()
+                .disabled(busy)
+        }
+        Button { runner.onAsk?(watch.item) } label: { Text("✦ Preguntar").foregroundStyle(Palette.ai) }
+            .buttonStyle(PillButtonStyle(compact: true)).fixedSize().help("Preguntarle al asistente sobre esta tarea")
+    }
+
+    /// Seguir el final, las llamadas al modelo, copiar y releer.
+    @ViewBuilder
+    private var footerTools: some View {
+        Text(watch.running ? "cada 3 s" : "terminó").font(.lh(11)).foregroundStyle(.tertiary)
+        Toggle(isOn: $watch.follow) { Image(systemName: "arrow.down.to.line") }
+            .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.follow ? Palette.link : .secondary)
+            .help("Seguir el final")
+        Toggle(isOn: $watch.showModel) { Image(systemName: "cpu") }
+            .toggleStyle(.button).buttonStyle(.plain).foregroundStyle(watch.showModel ? Palette.link : .secondary)
+            .help("Mostrar las llamadas al modelo")
+        IconButton(symbol: "doc.on.doc", help: "Copiar la traza") { watch.copy(); runner.toast?("Traza copiada") }
+        IconButton(symbol: "arrow.clockwise", help: "Releer") { watch.reload() }
     }
 
     private func statusLabel(_ status: String) -> String {
