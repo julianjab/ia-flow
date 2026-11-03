@@ -22,7 +22,11 @@ struct RootContent: View {
         if windowed {
             // la ventana ancha: menú lateral, la lista y el detalle en tres columnas (como el escritorio de la web)
             GeometryReader { g in
-                if g.size.width >= 900 { WideLayout(model: model, runner: runner) } else { stacked }
+                if g.size.width >= 900 {
+                    WideLayout(model: model, runner: runner)
+                        .onAppear { model.wideLayout = true }
+                        .onDisappear { model.wideLayout = false }
+                } else { stacked }
             }
         } else {
             stacked

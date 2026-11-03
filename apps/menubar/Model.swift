@@ -26,6 +26,8 @@ final class AppModel: ObservableObject {
     let assistant: AssistantModel
     /// El panel del asistente está abierto sobre la vista.
     @Published var assistantOpen = false
+    /// La ventana va en tres columnas (`WideLayout` en pantalla): la bandeja no queda tapada por el detalle.
+    var wideLayout = false
     @Published var confirm: ConfirmRequest?
     @Published var toast: String?
     /// «Deshacer» del aviso, si lo tiene.
@@ -110,6 +112,8 @@ final class AppModel: ObservableObject {
     /// La lupa (y ⌘K): abre el buscador sobre la bandeja, cerrando el asistente y lo que estaba encima; sólo lo
     /// cierra si ya se estaba viendo. Desde un detalle con una búsqueda a medias la muestra de nuevo, sin borrarla.
     func toggleSearch() {
+        // en tres columnas la bandeja (con su buscador) se ve junto al detalle: no hay nada que cerrar
+        if wideLayout { return runner.toggleSearch() }
         let covered = assistantOpen || runner.screen != .inbox
         assistantOpen = false
         if runner.screen != .inbox { runner.goHome() }
