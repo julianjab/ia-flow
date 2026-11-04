@@ -28,6 +28,20 @@ const res = await client.request('/repos/o/r/issues/1');
 `Link` header manipulado, un valor que vino de un modelo) no puede hacer que el cliente mande el
 `Authorization` a otro host.
 
+## Límites de tasa
+
+El cliente cuida el límite secundario de GitHub (el de ráfagas) por identidad — todos los
+`GithubClient` con el mismo `auth` comparten una compuerta:
+
+- a lo sumo `maxConcurrent` (6) requests en vuelo, y las escrituras (REST que no es GET/HEAD,
+  `mutation` de GraphQL) de a una, con `writeGapMs` (1 s) de aire entre ellas;
+- un 403/429 de límite de tasa (body "rate limit", `retry-after`, `x-ratelimit-remaining: 0`) se
+  reintenta hasta `retry.maxRetries` (3) veces, esperando lo que pide GitHub o 60 s × 2ⁿ con
+  jitter — y mientras tanto no sale ningún otro request de esa identidad;
+- un 502/503/504 se reintenta sólo en lecturas (una escritura pudo haberse aplicado);
+- lo que igual falla sale como `GithubApiError` con `transient: true` (límite, 5xx, red): el engine
+  no lo trata como un fallo de la task, reintenta el evento.
+
 ## Quién lo consume
 
 [`@ia-flow/github-tools`](../tools) — envuelve un `GithubClient` en `Tool[]` para
