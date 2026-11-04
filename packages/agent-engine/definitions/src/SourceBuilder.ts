@@ -1,7 +1,7 @@
 import {
   type Action,
   Agent,
-  type AllowedAction,
+  AllowedAction,
   Condition,
   END,
   type ErrorRoute,
@@ -155,8 +155,12 @@ export class SourceBuilder {
             ),
             variables: doc.variables,
             tools: doc.tools?.map((name) => this.tool(name)),
-            actions: doc.actions?.flatMap((entry) =>
-              this.agentActions(entry, doc.id, doc.allowWrites ?? false),
+            actions: this.stepActions(
+              doc.actions?.flatMap((entry) =>
+                this.agentActions(entry, doc.id, doc.allowWrites ?? false),
+              ),
+              variant.withoutActions,
+              doc.id,
             ),
             onStart: doc.onStart?.map((node, i) => context.step(node, where(`onStart[${i}]`))),
             injects: doc.injects?.map((filter) => ({
@@ -178,6 +182,7 @@ export class SourceBuilder {
               ExitRoute
             >,
             ...this.defaults(doc, context, path),
+            ...(variant.withoutReport ? { report: null } : {}),
           },
           this.catalogs.providers,
           this.catalogs.systemPrompts,
@@ -343,6 +348,27 @@ export class SourceBuilder {
         context.step(node, `${where}: capabilities.${name}`),
       ]),
     )
+  }
+
+  /** Las actions del agente sin las que el paso le saca (`withoutActions`). Nombrar una que no
+   *  tiene es un error de la config, no algo que se ignora callado. */
+  private stepActions(
+    actions: Array<Action | AllowedAction> | undefined,
+    without: string[] | undefined,
+    agentId: string,
+  ): Array<Action | AllowedAction> | undefined {
+    if (!without?.length) return actions
+    // Una con `allowWrite` viene envuelta: su id es el de la action de adentro.
+    const idOf = (entry: Action | AllowedAction) =>
+      entry instanceof AllowedAction ? entry.action.id : entry.id
+    const ids = new Set((actions ?? []).map(idOf))
+    const unknown = without.filter((id) => !ids.has(id))
+    if (unknown.length) {
+      throw new Error(
+        `withoutActions nombra ${unknown.join(', ')}, que no son actions del agente ${agentId}`,
+      )
+    }
+    return actions?.filter((entry) => !without.includes(idOf(entry)))
   }
 
   private defaults(node: DefaultsNode, context: StepBuildContext, where: string): ExitDefaults {

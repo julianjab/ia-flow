@@ -64,7 +64,7 @@ pipeline con agentes arranca por él.
 
 | Paso | Forma |
 | --- | --- |
-| agente | `{ agent: <id>, brief?, when?, whenText? }` — `brief` se antepone al prompt: por qué corre en ESTE momento |
+| agente | `{ agent: <id>, brief?, when?, whenText?, report?: null, withoutActions? }` — `brief` se antepone al prompt: por qué corre en ESTE momento. `report: null` y `withoutActions: [<id>…]` lo dejan mudo en ese paso (un gate que sólo vota: sin reporte ni, p. ej., `review_pull_request`) |
 | acción | `{ action: <id>, with?, options?, when? }` — `with` con `{{...}}` se resuelve al correr |
 | pausa | `{ pause: <id>, branches: { <nombre>: { on, when?, to? } }, timeout: { after: 30m, to? } }` |
 | otros | `emit`, `http`, `function` — ver `packages/agent-engine/definitions/src/factories/` |
