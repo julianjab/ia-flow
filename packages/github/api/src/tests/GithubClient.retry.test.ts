@@ -177,12 +177,35 @@ describe('GithubClient — 5xx y red', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
-  it('no reintenta un 502 de una escritura, pero el error es transient', async () => {
+  it('un 502 de una lectura que no se recupera sale transient', async () => {
+    const { client } = clientWith(
+      [() => new Response('bad gateway', { status: 502 }), () => new Response('', { status: 502 })],
+      { maxRetries: 1 },
+    )
+
+    expect((await failure(client.requestJson('/x'))).transient).toBe(true)
+  })
+
+  it('un 502 de una escritura no se reintenta ni es transient: pudo haberse aplicado', async () => {
     const { client, fetchImpl } = clientWith([() => new Response('bad gateway', { status: 502 })])
 
     const error = await failure(client.requestJson('/x', { method: 'POST', body: '{}' }))
-    expect(error.transient).toBe(true)
+    expect(error.transient).toBe(false)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('una escritura sin respuesta (red) no es transient', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new TypeError('fetch failed')
+    })
+    const client = new GithubClient({
+      auth: auth(),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })
+
+    const error = await failure(client.graphql('mutation { x }'))
+    expect(error).toBeInstanceOf(GithubApiError)
+    expect(error.transient).toBe(false)
   })
 
   it('un fallo de red sale como GithubApiError transient', async () => {
@@ -264,6 +287,32 @@ describe('GithubClient — compuerta por identidad', () => {
 
     await Promise.all([client.graphql('mutation { a }'), client.graphql('mutation { b }')])
     expect(peak).toBe(1)
+  })
+
+  it('un límite que no se espera (más largo que maxWaitMs) igual frena a los demás, hasta maxWaitMs', async () => {
+    const clock = fakeClock()
+    const calls: string[] = []
+    let first = true
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push(`${new URL(url).pathname}@${clock.now() - 1_000_000}`)
+      if (first) {
+        first = false
+        return secondary({ 'retry-after': '2400' })
+      }
+      return new Response('{}', { status: 200 })
+    })
+    const opts = {
+      auth: auth(),
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      clock,
+      random: () => 0,
+      retry: { maxWaitMs: 60_000 },
+    }
+
+    const error = await failure(new GithubClient(opts).requestJson('/a'))
+    expect(error.transient).toBe(true)
+    await new GithubClient(opts).requestJson('/b')
+    expect(calls).toEqual(['/a@0', '/b@60000'])
   })
 
   it('las queries no esperan el aire de las escrituras', async () => {
