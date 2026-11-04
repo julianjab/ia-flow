@@ -13,6 +13,7 @@ import {
   type Runnable,
 } from './Runnable.js'
 import { stepTrace } from './tracing.js'
+import { isTransient, retriesLeft } from './transient.js'
 
 /**
  * Corre UN paso de una pipeline y lo que su resultado pide: si eligió una salida, su `report`
@@ -81,19 +82,7 @@ export class StepRunner {
         ? await this.runGroup(step as ParallelGroup, ctx)
         : await step.run(ctx, input)
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err))
-      // Interrumpido: lo que haya hecho al parar (incluso fallar) ya no decide nada.
-      if (this.interruptedIn(step, ctx)) {
-        return { output: undefined, interrupted: await this.interrupt(step, error.message, ctx) }
-      }
-      // El proceso se apaga: el error es del apagado y la ejecución se retoma al reiniciar.
-      if (ctx.execution?.stopping) throw err
-      const handling = handleErrors ? this.errorHandling(step, ctx, error) : null
-      if (!handling && !step.continueOnError) throw err
-      if (!handling) return { error, handledBy: 'continueOnError' }
-      if (step.id) ctx.steps[step.id] = { error: error.message }
-      await this.runErrorRoute(handling.report, handling.route, error, ctx)
-      return { error, handledBy: 'onError' }
+      return this.failed(step, err, ctx, handleErrors)
     }
     if (this.interruptedIn(step, ctx)) {
       if (step.id) ctx.steps[step.id] = out
@@ -125,6 +114,36 @@ export class StepRunner {
       if (paused || ctx.execution?.interruption) break
     }
     return { output: out, exit: { exit, payload }, ...(paused ? { paused } : {}) }
+  }
+
+  /** Qué pasa con un paso que tiró: su `onInterrupt` si lo interrumpieron, su `onError` (o
+   *  `continueOnError`), o el error sigue para arriba. */
+  private async failed(
+    step: Runnable,
+    err: unknown,
+    ctx: PipelineExecutionContext,
+    handleErrors: boolean,
+  ): Promise<StepRun> {
+    const error = err instanceof Error ? err : new Error(String(err))
+    // Interrumpido: lo que haya hecho al parar (incluso fallar) ya no decide nada.
+    if (this.interruptedIn(step, ctx)) {
+      return { output: undefined, interrupted: await this.interrupt(step, error.message, ctx) }
+    }
+    // El proceso se apaga: el error es del apagado y la ejecución se retoma al reiniciar.
+    if (ctx.execution?.stopping) throw err
+    // Infraestructura (un límite de tasa, un 5xx): no es de la task, el engine reintenta el
+    // evento. Sin `onError` — su `+blocked` dejaba la card trabada por un 403 de ráfaga. El
+    // último intento sí lo corre. Un paso con `continueOnError` (opcional) sigue sin él.
+    if (handleErrors && isTransient(error) && retriesLeft(ctx.event)) {
+      if (step.continueOnError) return { error, handledBy: 'continueOnError' }
+      throw err
+    }
+    const handling = handleErrors ? this.errorHandling(step, ctx, error) : null
+    if (!handling && !step.continueOnError) throw err
+    if (!handling) return { error, handledBy: 'continueOnError' }
+    if (step.id) ctx.steps[step.id] = { error: error.message }
+    await this.runErrorRoute(handling.report, handling.route, error, ctx)
+    return { error, handledBy: 'onError' }
   }
 
   /**
