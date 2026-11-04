@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.32.0](https://github.com/julianjab/ia-flow/compare/v2.31.0...v2.32.0) (2026-11-04)
+
+
+### Features
+
+* **menubar:** pedir otro código de GitHub mientras se espera la confirmación ([ab20345](https://github.com/julianjab/ia-flow/commit/ab2034541e7c0ea42c17157eddd247c70db614f4))
+
+
+### Bug Fixes
+
+* **menubar:** ⌘K abre el buscador en el popover y en la ventana ([428a875](https://github.com/julianjab/ia-flow/commit/428a8757699c5a0934c1970179636465f62ccb90))
+* **menubar:** ⌘K desde un detalle muestra la búsqueda en vez de cerrarla ([99e9687](https://github.com/julianjab/ia-flow/commit/99e9687865c6894933e6a9c135c15c7b8947ce2b))
+* **menubar:** el buscador toma el foco al abrirse ([c6b74d0](https://github.com/julianjab/ia-flow/commit/c6b74d0efe2efa0e51acbf4dbf7a2b71b7cdc161))
+* **menubar:** el login de GitHub marca el código vencido en vez de esperar para siempre ([66216d8](https://github.com/julianjab/ia-flow/commit/66216d899009f9517ce27962b76173b93e663802))
+* **menubar:** el pie de la ejecución pasa a dos filas si no entra ([f60fa29](https://github.com/julianjab/ia-flow/commit/f60fa29ae35b7254a171d6300a0bb5732db731fb))
+* **menubar:** en tres columnas ⌘K no cierra el detalle ([34496f5](https://github.com/julianjab/ia-flow/commit/34496f51ae8a529a40eb75dc0540313e50d93266))
+* que el límite secundario de GitHub no deje cards blocked ([#357](https://github.com/julianjab/ia-flow/issues/357)) ([58021ec](https://github.com/julianjab/ia-flow/commit/58021ec5ba00de72da31a47c5d3832bc811e661a))
+
 ## [2.31.0](https://github.com/julianjab/ia-flow/compare/v2.30.1...v2.31.0) (2026-10-28)
 
 
