@@ -73,6 +73,9 @@ export interface MountedSource {
   source: DefinitionPipelineSource
 }
 
+/** Sin `engine.interrupt.ownSenders`, un login de GitHub App (`<app>[bot]`) es del runner. */
+const DEFAULT_OWN_SENDERS = '\\[bot\\]$'
+
 export interface MountedRunner {
   /** Ya suscripto a `bus`: lo que publique un paso (un `emit`, `resolve_task`) se despacha. */
   engine: Engine
@@ -86,6 +89,9 @@ export interface MountedRunner {
    *  `onError`/`report`) — lo que de verdad va a correr. */
   routesOf(pipeline: Pipeline, agentId: string): ResolvedRoutes
   projects: ProjectConfig[]
+  /** Los logins del propio runner (`engine.interrupt.ownSenders`; sin eso, cualquier App): un
+   *  webhook suyo de la marca Working es un eco y se descarta en el borde. */
+  ownSenders: RegExp
   /** GitHub con la identidad del runner. */
   github: GithubClient
   /** El board de cada proyecto. */
@@ -257,6 +263,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
       return pipeline.routesOf(agentId, owner?.source.defaults)
     },
     projects: cfg.projects,
+    ownSenders: new RegExp(cfg.engine.interrupt?.ownSenders ?? DEFAULT_OWN_SENDERS),
     github,
     boards,
     githubAuthMode,
