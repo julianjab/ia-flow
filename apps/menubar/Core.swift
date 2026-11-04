@@ -46,6 +46,14 @@ func defaultServices(root: String) -> [ServiceSpec] {
             command: "launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/link.julianjab.otlp-proxy.plist 2>/dev/null; launchctl kickstart -k gui/$(id -u)/link.julianjab.otlp-proxy",
             cwd: home, port: 4319, url: nil, env: nil,
             stopCommand: "launchctl bootout gui/$(id -u)/link.julianjab.otlp-proxy"),
+        // Esta Mac como host de un runner remoto (`ia-flow-runner.js --host`): le presta su CLI `claude`
+        // y su toolchain. Su config, el bundle y el arranque (con los secretos) viven fuera del repo, en
+        // ~/.ia-flow-host/ (`start.sh`, `config/runner.yaml`). No abre puerto: se reconoce por el proceso.
+        ServiceSpec(
+            id: "host", name: "Host remoto",
+            command: "$HOME/.ia-flow-host/start.sh",
+            cwd: "\(home)/.ia-flow-host", port: nil, url: nil, env: nil, stopCommand: nil,
+            group: "Hosts", processPattern: "ia-flow-host/ia-flow-runner.js --host"),
     ]
 }
 

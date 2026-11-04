@@ -225,6 +225,11 @@ apps/menubar/build.sh --login    # --install + LaunchAgent: arranca con la sesi�
 - La web corre en modo normal (`vite build` + `vite preview`), sin watch ni HMR; gateway y runner no hacen watch.
 - Servicios: `~/.config/ia-flow-menubar/services.json` (se crea con defaults; "Editar servicios…"
   lo abre). Cada uno: `command`, `cwd`, `port`, `url`, `env` opcional. Cambios → reabrir la app.
+- **Host remoto** (grupo «Hosts»): esta Mac suscrita como host de un runner (`ia-flow-runner.js --host`, se ve
+  allá como `remote:<name>`). El servicio corre `~/.ia-flow-host/start.sh`. El bundle, el `config/runner.yaml`
+  (nombre, provider y `accepts`) y el arranque con sus secretos son de la máquina y no están en el repo. No abre
+  puerto: el menú lo reconoce por el proceso (`processPattern`). En un `services.json` que ya existe no aparece
+  solo: hay que agregarlo con «Editar servicios…».
 - Logs: `~/.local/state/ia-flow/menubar/<id>.log` (fuera del repo).
 - Cada servicio corre en su propio grupo de procesos: detener baja también a vite/bun hijos.
 - Un puerto ocupado por algo que no lanzó la app aparece amarillo "(externo)" y no se puede iniciar.
