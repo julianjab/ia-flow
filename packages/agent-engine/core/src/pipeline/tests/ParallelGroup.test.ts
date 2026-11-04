@@ -111,6 +111,43 @@ describe('ParallelGroup', () => {
     })
   })
 
+  it('un destino del grupo con `when` corre sólo si el evento lo cumple (la aprobación de una card tomada en local)', async () => {
+    const run = async (labels: string[]) => {
+      const log: string[] = []
+      const approve = new (class extends Action<z.ZodObject<{}>> {
+        readonly description = 'approve'
+        readonly input = z.strictObject({})
+        execute() {
+          log.push('approve')
+          return 'approve'
+        }
+      })({
+        id: 'approve',
+        when: [new Condition({ field: 'item.labels', op: 'contains', value: 'aiflow-local' })],
+      })
+      const registry = scriptedRegistry({
+        reviewer: { submit: 'submit_approved' },
+        e2e: { submit: 'submit_passed' },
+      })
+      const gate = new ParallelGroup({
+        id: 'gate',
+        members: [
+          new Agent(
+            { id: 'reviewer', provider: 'fake', prompt: 'p', routes: { approved: {} } },
+            registry,
+          ),
+          new Agent({ id: 'e2e', provider: 'fake', prompt: 'p', routes: { passed: {} } }, registry),
+        ],
+        until: { all: ['approved', 'passed'] },
+        routes: { passed: { to: [recorder('reviewed', log), approve, recorder('slack', log)] } },
+      })
+      await new Pipeline({ id: 'p', on: ['e'], do: [gate] }).execute(ctx({ item: { labels } }))
+      return log
+    }
+    expect(await run(['aiflow-local'])).toEqual(['reviewed', 'approve', 'slack'])
+    expect(await run([])).toEqual(['reviewed', 'slack'])
+  })
+
   it('si uno no aprueba, el grupo va por `failed`', async () => {
     const log: string[] = []
     const gate = reviewGate(
