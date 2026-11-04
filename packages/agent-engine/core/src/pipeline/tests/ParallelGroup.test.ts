@@ -148,6 +148,62 @@ describe('ParallelGroup', () => {
     expect(await run([])).toEqual(['reviewed', 'slack'])
   })
 
+  it('sin miembros que voten no hay veredicto: un paso después del grupo lo ve en `steps.<id>.passed` ausente', async () => {
+    const run = async (labels: string[]) => {
+      const log: string[] = []
+      const after = new (class extends Action<z.ZodObject<{}>> {
+        readonly description = 'after'
+        readonly input = z.strictObject({})
+        execute() {
+          log.push('after')
+          return 'after'
+        }
+      })({
+        id: 'after',
+        when: [new Condition({ field: 'steps.gate.passed', op: 'notExists' })],
+      })
+      const registry = scriptedRegistry({
+        reviewer: { submit: 'submit_approved' },
+        e2e: { submit: 'submit_passed' },
+      })
+      const local = [
+        new Condition({ field: 'item.labels', op: 'notContains', value: 'aiflow-local' }),
+      ]
+      const e2eOn = [new Condition({ field: 'item.labels', op: 'contains', value: 'e2e-test' })]
+      const gate = new ParallelGroup({
+        id: 'gate',
+        members: [
+          new Agent(
+            {
+              id: 'reviewer',
+              provider: 'fake',
+              prompt: 'p',
+              when: local,
+              routes: { approved: {} },
+            },
+            registry,
+          ),
+          new Agent(
+            { id: 'e2e', provider: 'fake', prompt: 'p', when: e2eOn, routes: { passed: {} } },
+            registry,
+          ),
+        ],
+        until: { all: ['approved', 'passed'] },
+        routes: {
+          passed: { to: recorder('passed', log) },
+          failed: { to: recorder('failed', log) },
+        },
+      })
+      await new Pipeline({ id: 'p', on: ['e'], do: [gate, after] }).execute(
+        ctx({ item: { labels } }),
+      )
+      return log
+    }
+    expect(await run(['aiflow-local'])).toEqual(['after'])
+    expect(await run(['aiflow-local', 'e2e-test'])).toEqual(['passed'])
+    expect(await run([])).toEqual(['passed'])
+  })
+
   it('si uno no aprueba, el grupo va por `failed`', async () => {
     const log: string[] = []
     const gate = reviewGate(
