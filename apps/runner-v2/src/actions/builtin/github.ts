@@ -25,6 +25,7 @@ import {
   ReactToCommentAction,
   RemoveBlockedByAction,
   ReplyPrReviewThreadAction,
+  RequestChangesPullRequestAction,
   ResolvePrReviewThreadAction,
   RetargetPullRequestAction,
   ReviewPullRequestAction,
@@ -101,6 +102,10 @@ export default [
   ),
   withClient('review_pull_request', (ctx) => new ReviewPullRequestAction(ctx.services.github)),
   withClient('approve_pull_request', (ctx) => new ApprovePullRequestAction(ctx.services.github)),
+  withClient(
+    'request_changes_pull_request',
+    (ctx) => new RequestChangesPullRequestAction(ctx.services.github),
+  ),
   withClient(
     'dismiss_pull_request_approval',
     (ctx) => new DismissPullRequestApprovalAction(ctx.services.github),
