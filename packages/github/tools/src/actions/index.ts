@@ -8,6 +8,8 @@ export {
   ApprovePullRequestInput,
   DismissPullRequestApprovalAction,
   DismissPullRequestApprovalInput,
+  RequestChangesPullRequestAction,
+  RequestChangesPullRequestInput,
 } from './ApprovePullRequestActions.js'
 export type { CheckSectionItemsActionOptions } from './CheckSectionItemsAction.js'
 export { CheckSectionItemsAction, CheckSectionItemsInput } from './CheckSectionItemsAction.js'

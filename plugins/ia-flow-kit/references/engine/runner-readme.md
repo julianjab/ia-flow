@@ -206,7 +206,7 @@ Lo que el YAML nombra (del runner, salvo las marcadas como del proyecto):
 | `update_issue`, `post_comment` | transiciones del board y el comentario de cierre (firmado por el agente) |
 | `post_notice` | un comentario sin firma de agente: el aviso del `onInterrupt` del proyecto (quién paró y en qué quedó) |
 | `react_to_comment`, `review_pull_request`, `pr_checks`, `create_github_issue`, … | las tools de GitHub del proyecto |
-| `approve_pull_request`, `dismiss_pull_request_approval` | pasos de pipeline (no tools del modelo): el review APPROVE de la App fijado al commit que vio el gate (`with.body`; un PR de la propia App se informa sin tirar) y el retiro de esas aprobaciones (marca `<!-- ia-flow:approval -->`) al empezar otra revisión |
+| `approve_pull_request`, `request_changes_pull_request`, `dismiss_pull_request_approval` | pasos de pipeline (no tools del modelo): el veredicto formal de la App fijado al commit que vio el gate —APPROVE (no aprueba si el PR avanzó) o REQUEST_CHANGES, `with.body`; un PR de la propia App se informa sin tirar— y el retiro de esos veredictos (marca `<!-- ia-flow:approval -->`) al empezar otra revisión |
 | `fs_read`, `fs_list`, `fs_grep`, `fs_write`, `fs_edit`, `bash_run` | disco sobre el worktree de la task; `bash_run` con `options` (`allow`, `deny`, `githubAuth`, `timeout`, `maxTimeout`, `maxMemoryMb`) |
 | `issue_body` | del proyecto: las tools del body del issue que el agente puede tocar (`options: { write, check }`) |
 | `blockedReport` | del proyecto: el reporte de una corrida que falló (el `onError` del proyecto) |
