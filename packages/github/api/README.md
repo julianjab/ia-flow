@@ -39,8 +39,9 @@ El cliente cuida el límite secundario de GitHub (el de ráfagas) por identidad 
   reintenta hasta `retry.maxRetries` (3) veces, esperando lo que pide GitHub o 60 s × 2ⁿ con
   jitter — y mientras tanto no sale ningún otro request de esa identidad;
 - un 502/503/504 se reintenta sólo en lecturas (una escritura pudo haberse aplicado);
-- lo que igual falla sale como `GithubApiError` con `transient: true` (límite, 5xx, red): el engine
-  no lo trata como un fallo de la task, reintenta el evento.
+- lo que igual falla sale como `GithubApiError`, con `transient: true` si rehacerlo es seguro (un
+  límite de tasa, o un 5xx o fallo de red de una lectura; una escritura sin respuesta pudo haberse
+  aplicado): el engine no lo trata como un fallo de la task, reintenta el evento.
 
 ## Quién lo consume
 

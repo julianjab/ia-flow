@@ -79,7 +79,9 @@ function kindOf(init: RequestInit): RequestKind {
  * Cuida el límite secundario de GitHub (el de ráfagas) por identidad: pocos requests a la vez, las
  * escrituras de a una y a no más de una por segundo sostenido (con ráfagas cortas), y ante un 403/429 de límite de tasa espera lo que
  * pida GitHub (o un backoff exponencial con jitter) y reintenta — y mientras tanto no sale nadie
- * más de esa identidad. Lo que igual no sale queda como `GithubApiError` con `transient`.
+ * más de esa identidad. Lo que igual no sale queda como `GithubApiError`, con `transient` si
+ * rehacerlo es seguro: un límite de tasa (GitHub lo rechazó sin aplicarlo), o un 5xx o un fallo de
+ * red de una lectura.
  */
 export class GithubClient {
   private readonly gate: RequestGate
@@ -95,7 +97,8 @@ export class GithubClient {
    *  <token>` a CUALQUIER host.
    *
    *  Un límite de tasa se reintenta acá; si se agotan los intentos, devuelve la última respuesta
-   *  (el 403/429) como siempre. Un fallo de red sale como `GithubApiError` `transient`. */
+   *  (el 403/429) como siempre. Un fallo de red sale como `GithubApiError` (`transient` si era
+   *  una lectura). */
   request(path: string, init: RequestInit = {}): Promise<Response> {
     return this.send(path, init, kindOf(init))
   }
@@ -137,8 +140,10 @@ export class GithubClient {
     if (!res.ok) {
       const body = await res.text()
       const transient = isRateLimited({ status: res.status, headers: res.headers, body })
+      // Un 5xx de una escritura pudo haberse aplicado: rehacerla (el engine re-despacha el evento)
+      // la duplicaría, así que no es transitorio. Un límite de tasa se rechazó antes de aplicarse.
       throw new GithubApiError(`GithubClient: GitHub API → ${res.status}: ${body}`, {
-        transient: transient || res.status >= 500,
+        transient: transient || (res.status >= 500 && kind === 'read'),
         status: res.status,
         ...(transient
           ? { retryAfterMs: rateLimitWaitMs(res.headers, 1, this.clock.now(), () => 0) }
@@ -156,8 +161,11 @@ export class GithubClient {
     for (let attempt = 1; ; attempt++) {
       const res = await this.gate.run(kind === 'write', () => this.fetchOnce(url, init, kind))
       const waitMs = await this.retryWait(res, kind, attempt, random)
-      if (waitMs === undefined || attempt > maxRetries || waitMs > maxWaitMs) return res
-      this.gate.pause(waitMs)
+      if (waitMs === undefined) return res
+      // Aunque este request no espere más, los demás de la identidad sí: hasta `maxWaitMs`, así
+      // un request no queda colgado detrás de una cuota que vuelve en 40 min.
+      this.gate.pause(Math.min(waitMs, maxWaitMs))
+      if (attempt > maxRetries || waitMs > maxWaitMs) return res
     }
   }
 
@@ -197,7 +205,8 @@ export class GithubClient {
     } catch (err) {
       throw new GithubApiError(
         `GithubClient: ${kind === 'write' ? 'escritura' : 'lectura'} a ${url.pathname} sin respuesta: ${(err as Error).message}`,
-        { transient: true, cause: err },
+        // Sin respuesta, una escritura pudo haber llegado: sólo una lectura es segura de rehacer.
+        { transient: kind === 'read', cause: err },
       )
     }
   }
