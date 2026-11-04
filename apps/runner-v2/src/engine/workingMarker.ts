@@ -53,10 +53,30 @@ export function taskOfKey(key: string): TaskOfExecution | undefined {
   return { projectId: scope.projectId, owner, repo, number: Number(number) }
 }
 
+/** Cuánto tiene que llevar corriendo una ejecución para que se marque: las cortas (un review de
+ *  un hijo de épica, 2–15 s) no se marcan — eran dos mutaciones y dos webhooks por corrida. */
+export const WORKING_MARK_DELAY_MS = 10_000
+
+/** Programa `run` en `ms` y devuelve cómo cancelarlo (un puerto: los tests no esperan de verdad). */
+export type ScheduleTimer = (run: () => void, ms: number) => () => void
+
+const realTimer: ScheduleTimer = (run, ms) => {
+  const timer = setTimeout(run, ms)
+  // Una marca pendiente no retiene el proceso (un `--event` que termina antes).
+  timer.unref?.()
+  return () => clearTimeout(timer)
+}
+
+export interface TrackWorkingOptions {
+  delayMs?: number
+  schedule?: ScheduleTimer
+}
+
 /**
- * Pone o saca la marca en cada cambio de estado de las ejecuciones: `running` la pone; `paused`,
- * `done`, `failed` y `superseded` la sacan. Las escrituras de una misma task van en serie (un
- * "sacar" nunca le gana a un "poner" anterior); un error se loguea y no toca la corrida.
+ * Pone o saca la marca según el estado de las ejecuciones: una que lleva `delayMs` corriendo la
+ * pone; `paused`, `done`, `failed` y `superseded` la sacan. Una que cierra antes no escribe nada;
+ * una que este proceso no vio arrancar (recuperada tras un reinicio) la saca igual. Las escrituras de una misma task van en serie (un "sacar" nunca
+ * le gana a un "poner" anterior); un error se loguea y no toca la corrida.
  */
 export function trackWorking(
   executions: ExecutionStore,
@@ -64,20 +84,57 @@ export function trackWorking(
   github: GithubClient,
   boards: Pick<Boards, 'writerFor'>,
   log: (line: string) => void,
+  options: TrackWorkingOptions = {},
 ): () => void {
+  const delayMs = options.delayMs ?? WORKING_MARK_DELAY_MS
+  const schedule = options.schedule ?? realTimer
   const queues = new Map<string, Promise<void>>()
-  return executions.observe((record: ExecutionRecord) => {
+  /** Las que esperan su `delayMs` para marcarse, con cómo cancelarlo. */
+  const pending = new Map<string, () => void>()
+  /** Las que ya marcaron la card. */
+  const marked = new Set<string>()
+  const stop = executions.observe((record: ExecutionRecord) => {
     const task = taskOfKey(record.key)
     const project = task && projects.find((candidate) => candidate.id === task.projectId)
     const marker = project?.workingMarker
     if (!task || !project || !marker) return
-    const on = record.status === 'running'
+    if (record.status === 'running') {
+      if (pending.has(record.id) || marked.has(record.id)) return
+      pending.set(
+        record.id,
+        schedule(() => {
+          pending.delete(record.id)
+          marked.add(record.id)
+          write(task, project.id, marker, true, record.status)
+        }, delayMs),
+      )
+      return
+    }
+    const cancel = pending.get(record.id)
+    if (cancel) {
+      cancel()
+      pending.delete(record.id)
+      return
+    }
+    // Una que este proceso no marcó (la recuperada tras un reinicio, que el store repite al
+    // suscribirse) también se limpia: la pudo haber marcado el proceso anterior.
+    marked.delete(record.id)
+    write(task, project.id, marker, false, record.status)
+  })
+
+  function write(
+    task: TaskOfExecution,
+    projectId: string,
+    marker: WorkingMarker,
+    on: boolean,
+    status: ExecutionRecord['status'],
+  ): void {
     const input: UpdateIssueInput = on
       ? { fields: { [marker.field]: marker.on } }
       : marker.off
         ? { fields: { [marker.field]: marker.off } }
         : { clearFields: [marker.field] }
-    const writer = boards.writerFor(project.id, github)
+    const writer = boards.writerFor(projectId, github)
     const action = new UpdateIssueAction({
       client: github,
       ...(writer ? { board: writer } : {}),
@@ -89,14 +146,20 @@ export function trackWorking(
     const next = previous
       .then(() => action.run(markerContext(), input))
       .then(
-        () => log(`[working] ${ref}: ${on ? marker.on : (marker.off ?? '∅')} (${record.status})`),
+        () => log(`[working] ${ref}: ${on ? marker.on : (marker.off ?? '∅')} (${status})`),
         (error) => log(`[working] ${ref}: no se pudo marcar — ${(error as Error).message}`),
       )
     queues.set(ref, next)
     void next.finally(() => {
       if (queues.get(ref) === next) queues.delete(ref)
     })
-  })
+  }
+
+  return () => {
+    stop()
+    for (const cancel of pending.values()) cancel()
+    pending.clear()
+  }
 }
 
 /** La acción saca el issue de `issue`, no del evento: el contexto sólo cumple la forma. */

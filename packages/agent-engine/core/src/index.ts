@@ -104,6 +104,7 @@ export type { ResumeLimits } from './engine/ResumeLimits.js'
 export { DEFAULT_RESUME_LIMITS, resumeDelayMs } from './engine/ResumeLimits.js'
 export type { RunCount, RunCounter } from './engine/RunCounter.js'
 export type { DispatchOutcome } from './engine/RunLauncher.js'
+export { TRANSIENT_RETRY_BASE_MS, TRANSIENT_RETRY_MAX_MS } from './engine/TransientRetries.js'
 export type { CreateEventOptions, DomainEvent } from './events/DomainEvent.js'
 export { createEvent, deriveEvent } from './events/DomainEvent.js'
 export type { EventHandler, Unsubscribe } from './events/EventBus.js'
@@ -158,6 +159,7 @@ export type {
   StepResume,
 } from './pipeline/Runnable.js'
 export { INTERRUPTION_STEP, Runnable, withMembers } from './pipeline/Runnable.js'
+export { isTransient, MAX_TRANSIENT_RETRIES } from './pipeline/transient.js'
 export type {
   ErrorRoute,
   ExitDefaults,

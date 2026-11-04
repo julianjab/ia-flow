@@ -18,6 +18,7 @@ import { createLogger, describeError, errorAttributes } from '@ia-flow/telemetry
 import type { MountedRunner } from '../boot.js'
 import { type Delivery, deliveryScope } from '../intake/dispatch.js'
 import { listenedTypes, RAW_PREFIX } from '../intake/listening.js'
+import { markerEcho } from '../intake/ownEchoes.js'
 import { type SlackIngressOptions, startSlackIngress } from '../intake/slackIngress.js'
 import { createWebhookServer, GITHUB_WEBHOOK_PATH } from './server.js'
 
@@ -43,12 +44,23 @@ export async function serve(mounted: MountedRunner, opts: ServeOptions): Promise
   const { log } = opts
   // Leído en cada delivery: las pipelines se recargan en caliente como el resto de `.config/`.
   const listened = () => listenedTypes(mounted)
+  const markerFields = new Set(
+    mounted.projects.flatMap((project) =>
+      project.workingMarker ? [project.workingMarker.field] : [],
+    ),
+  )
 
   const onDelivery = async (delivery: Delivery) => {
-    opts.onDelivery?.(delivery)
     const type = `${RAW_PREFIX}${delivery.event}`
     const action = typeof delivery.payload.action === 'string' ? `.${delivery.payload.action}` : ''
     const event = createEvent(type, delivery.payload, { scope: deliveryScope(delivery) })
+    // El eco de la marca Working del propio runner: ni la bandeja ni el intake leen GitHub por él.
+    const echo = markerEcho(delivery, markerFields, mounted.ownSenders)
+    if (echo) {
+      opts.onIgnored?.(event, echo)
+      return
+    }
+    opts.onDelivery?.(delivery)
     // Sin pipeline de entrada para el evento no hay nada que despachar.
     if (!listened().has(type)) {
       log(`· ${delivery.event}${action} (${delivery.id ?? 'sin id'}): ningún intake lo escucha`)

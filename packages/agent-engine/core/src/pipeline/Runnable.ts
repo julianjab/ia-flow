@@ -43,6 +43,10 @@ export interface PipelineExecutionContext {
   /** Se está retomando un paso donde quedó (ver `Checkpoint.state`). Lo pone `Pipeline.execute`
    *  mientras corre lo que retoma. */
   resume?: StepResume
+  /** Esta corrida reanuda una pausa (o lo que cortó un reinicio): toda ella, no sólo el paso que
+   *  retoma. Un fallo transitorio acá no se reintenta (no hay evento que re-despachar): corre su
+   *  `onError`. Lo pone `Pipeline.execute`. */
+  resumed?: boolean
   /** Guardar por dónde va `step` (`state`), o borrarlo (`undefined`: terminó), para retomarlo si
    *  el proceso muere. Lo pone `Pipeline.execute` para el paso de `do[]` que corre. */
   saveProgress?: (step: Runnable, state: unknown) => void

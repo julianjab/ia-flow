@@ -21,7 +21,10 @@ función, no saques el chequeo aunque parezca redundante en el caso feliz.
 
 ```
 src/
-├── GithubClient.ts   la clase
+├── GithubClient.ts   la clase: headers, host, reintentos
+├── GithubApiError.ts el error con `transient` (infraestructura vs. pedido)
+├── RequestGate.ts    la compuerta por identidad: concurrencia, escrituras en serie, pausa
+├── rateLimit.ts      puro: ¿es un límite de tasa? ¿cuánto esperar?
 ├── index.ts
 └── tests/
 ```

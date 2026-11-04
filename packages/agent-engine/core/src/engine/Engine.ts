@@ -22,6 +22,7 @@ import type { ExecutionStore } from './ExecutionStore.js'
 import type { PipelineSource } from './PipelineSource.js'
 import { Redelivery } from './Redelivery.js'
 import { type DispatchOutcome, RunLauncher } from './RunLauncher.js'
+import { TransientRetries } from './TransientRetries.js'
 import { dispatchTrace } from './tracing.js'
 
 /** Tope de la cadena de derivación de eventos (EmitAction, Agent.emitOn). Sin esto un
@@ -126,6 +127,7 @@ export class Engine {
   private readonly launcher: RunLauncher
   private readonly coordinator: ExecutionCoordinator
   private readonly redelivery: Redelivery
+  private readonly retries: TransientRetries
   private readonly dispatchJournal?: DispatchJournal
   /** Las capacidades enchufadas: la app también las pide (ej. el asistente de la web). */
   readonly capabilities: CapabilityInvoker
@@ -138,7 +140,10 @@ export class Engine {
     this.capabilities = capabilities
     const classifier = opts.textClassifier ?? new CapabilityTextClassifier(capabilities)
     this.planner = new DispatchPlanner([opts.pipelines].flat(), classifier)
-    this.launcher = new RunLauncher()
+    // Una corrida que falló por infraestructura se reintenta más tarde (ver `TransientRetries`).
+    this.launcher = new RunLauncher((event, pipelineId, error) =>
+      this.retries.record(event, pipelineId, error),
+    )
     this.coordinator = new ExecutionCoordinator({
       bus: opts.bus,
       planner: this.planner,
@@ -155,6 +160,11 @@ export class Engine {
       ...(opts.revalidate ? { revalidate: opts.revalidate } : {}),
     })
     this.redelivery = new Redelivery({
+      planner: this.planner,
+      launcher: this.launcher,
+      coordinator: this.coordinator,
+    })
+    this.retries = new TransientRetries({
       planner: this.planner,
       launcher: this.launcher,
       coordinator: this.coordinator,
@@ -277,11 +287,18 @@ export class Engine {
   }
 
   /**
-   * Las pausas vencidas se reanudan por su rama `timeout`, con un evento `execution.expired`. La
-   * app lo llama cada tanto (ej. cada minuto): el engine no tiene reloj propio.
+   * Las pausas vencidas se reanudan por su rama `timeout`, con un evento `execution.expired`, y
+   * las corridas que fallaron por infraestructura y ya esperaron su backoff se reintentan. La app
+   * lo llama cada tanto (ej. cada minuto): el engine no tiene reloj propio.
    */
   tick(now = Date.now()): void {
     this.coordinator.expireDue(now)
+    this.retries.fire(now)
+  }
+
+  /** Cuántas corridas esperan reintentarse por un fallo de infraestructura. */
+  get pendingRetries(): number {
+    return this.retries.pending
   }
 
   /**

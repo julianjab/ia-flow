@@ -78,3 +78,69 @@ describe('serve — despacho fallido', () => {
     )
   })
 })
+
+describe('serve — ecos de la marca Working', () => {
+  let server: Server | undefined
+  afterEach(async () => {
+    server?.closeAllConnections()
+    await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()))
+    server = undefined
+  })
+
+  async function deliver(sender: string) {
+    const dispatched: string[] = []
+    const delivered: string[] = []
+    const ignored: string[] = []
+    const mounted = {
+      projects: [{ id: 'p1', workingMarker: { field: 'Working', on: 'Yes' } }],
+      ownSenders: /\[bot\]$/,
+      pipelines: () => [{ on: ['github.projects_v2_item'] }],
+      engine: {
+        dispatch: async (event: { type: string }) => {
+          dispatched.push(event.type)
+          return 'skipped'
+        },
+      },
+    } as unknown as MountedRunner
+    server = await serve(mounted, {
+      port: 0,
+      secret: 's3cret',
+      log: () => {},
+      onDelivery: (delivery) => delivered.push(delivery.event),
+      onIgnored: (_event, reason) => ignored.push(reason),
+    })
+    const { port } = server.address() as AddressInfo
+    const body = JSON.stringify({
+      action: 'edited',
+      projects_v2_item: { node_id: 'ITEM', content_type: 'Issue' },
+      changes: { field_value: { field_name: 'Working', field_type: 'single_select' } },
+      sender: { login: sender },
+    })
+    const res = await fetch(`http://127.0.0.1:${port}/api/webhooks/github`, {
+      method: 'POST',
+      body,
+      headers: {
+        'x-github-event': 'projects_v2_item',
+        'x-github-delivery': 'd-10',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', 's3cret').update(body).digest('hex')}`,
+        'content-type': 'application/json',
+      },
+    })
+    expect(res.status).toBe(202)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    return { dispatched, delivered, ignored }
+  }
+
+  it('drops the runner’s own Working edit before the inbox or the intake see it', async () => {
+    const { dispatched, delivered, ignored } = await deliver('ai-lh-developer[bot]')
+    expect(dispatched).toEqual([])
+    expect(delivered).toEqual([])
+    expect(ignored).toEqual(['eco de la marca Working (ai-lh-developer[bot])'])
+  })
+
+  it('a person’s Working edit still goes through', async () => {
+    const { dispatched, delivered } = await deliver('julianjab')
+    expect(dispatched).toEqual(['github.projects_v2_item'])
+    expect(delivered).toEqual(['projects_v2_item'])
+  })
+})

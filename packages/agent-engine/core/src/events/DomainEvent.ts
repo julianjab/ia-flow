@@ -20,6 +20,9 @@ export interface DomainEvent<TPayload = Record<string, unknown>> {
   /** La ejecución adentro de la cual nació (un `EmitAction` de esa corrida), si alguna. El engine
    *  no la hace esperar a esa misma ejecución: sería esperarse a sí misma. */
   executionId?: string
+  /** Cuántas veces el engine ya lo re-despachó porque falló por infraestructura (un límite de
+   *  tasa, un 5xx): ver `pipeline/transient.ts`. Ausente = el despacho original. */
+  transientRetries?: number
 }
 
 export interface CreateEventOptions {
