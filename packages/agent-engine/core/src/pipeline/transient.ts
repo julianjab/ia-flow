@@ -37,6 +37,49 @@ export function retryAfterMsOf(err: unknown, depth = 0): number | undefined {
   return known.length > 0 ? Math.max(...known) : undefined
 }
 
+/** Los errores cuyo `onError` se saltó porque la corrida se va a reintentar (`StepRunner`). */
+const deferred = new WeakSet<object>()
+/** Los errores cuyo reintento ya se programó (`TransientRetries`). */
+const scheduled = new WeakSet<object>()
+
+/** `err` no corrió su `onError`: la corrida se reintenta. Lo marca `StepRunner`. */
+export function markDeferred(err: unknown): void {
+  if (typeof err === 'object' && err !== null) deferred.add(err)
+}
+
+/** El reintento de `err` ya se programó. */
+export function markScheduled(err: unknown): void {
+  if (typeof err === 'object' && err !== null) scheduled.add(err)
+}
+
+function causesOf(err: object): unknown[] {
+  if (err instanceof AggregateError) return err.errors
+  const cause = (err as Flagged).cause
+  return cause === undefined ? [] : [cause]
+}
+
+function anyDeferred(err: unknown, depth: number): boolean {
+  if (depth > 6 || typeof err !== 'object' || err === null) return false
+  return deferred.has(err) || causesOf(err).some((cause) => anyDeferred(cause, depth + 1))
+}
+
+function allScheduled(err: unknown, depth: number): boolean {
+  if (depth > 6 || typeof err !== 'object' || err === null) return false
+  if (scheduled.has(err)) return true
+  const causes = causesOf(err)
+  return causes.length > 0 && causes.every((cause) => allScheduled(cause, depth + 1))
+}
+
+/**
+ * Si la corrida que tiró `err` se tiene que programar para reintentarse: algún paso difirió su
+ * `onError` por esto, y no es sólo el eco de corridas ya programadas — el `emit` de un padre que
+ * falla porque falló su hijo no se reintenta: se reintenta el hijo, que es más preciso (el padre
+ * re-emitiría también a los que anduvieron).
+ */
+export function needsRetry(err: unknown): boolean {
+  return anyDeferred(err, 0) && !allScheduled(err, 0)
+}
+
 /** Si a `event` todavía le queda un re-despacho por fallo transitorio. */
 export function retriesLeft(event: DomainEvent<any>): boolean {
   return (event.transientRetries ?? 0) < MAX_TRANSIENT_RETRIES

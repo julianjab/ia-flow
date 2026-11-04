@@ -13,7 +13,7 @@ import {
   type Runnable,
 } from './Runnable.js'
 import { stepTrace } from './tracing.js'
-import { isTransient, retriesLeft } from './transient.js'
+import { isTransient, markDeferred, retriesLeft } from './transient.js'
 
 /**
  * Corre UN paso de una pipeline y lo que su resultado pide: si eligió una salida, su `report`
@@ -23,6 +23,9 @@ import { isTransient, retriesLeft } from './transient.js'
  */
 export class StepRunner {
   readonly log = createLogger('agent-engine.pipeline')
+  /** Las corridas (su `ctx`) en las que ya terminó un agente: reintentarlas lo correría de nuevo
+   *  —su costo, sus comentarios—, así que un fallo transitorio después ya no se reintenta. */
+  private readonly agentsDone = new WeakSet<PipelineExecutionContext>()
 
   constructor(
     private readonly pipelineId: string,
@@ -81,6 +84,7 @@ export class StepRunner {
       out = step.members
         ? await this.runGroup(step as ParallelGroup, ctx)
         : await step.run(ctx, input)
+      if (step.members || step.kind === 'agent') this.agentsDone.add(ctx)
     } catch (err) {
       return this.failed(step, err, ctx, handleErrors)
     }
@@ -134,8 +138,9 @@ export class StepRunner {
     // Infraestructura (un límite de tasa, un 5xx): no es de la task, el engine reintenta el
     // evento. Sin `onError` — su `+blocked` dejaba la card trabada por un 403 de ráfaga. El
     // último intento sí lo corre. Un paso con `continueOnError` (opcional) sigue sin él.
-    if (handleErrors && isTransient(error) && retriesLeft(ctx.event)) {
+    if (handleErrors && isTransient(error) && this.retryable(ctx)) {
       if (step.continueOnError) return { error, handledBy: 'continueOnError' }
+      markDeferred(err)
       throw err
     }
     const handling = handleErrors ? this.errorHandling(step, ctx, error) : null
@@ -144,6 +149,12 @@ export class StepRunner {
     if (step.id) ctx.steps[step.id] = { error: error.message }
     await this.runErrorRoute(handling.report, handling.route, error, ctx)
     return { error, handledBy: 'onError' }
+  }
+
+  /** Si un fallo transitorio de esta corrida se puede reintentar re-despachando su evento: le
+   *  quedan intentos, no es una reanudación y ningún agente terminó todavía. */
+  private retryable(ctx: PipelineExecutionContext): boolean {
+    return retriesLeft(ctx.event) && !ctx.resumed && !this.agentsDone.has(ctx)
   }
 
   /**
@@ -177,7 +188,7 @@ export class StepRunner {
       }),
     ).finally(() => tracker.finish())
     const interrupted = ctx.execution?.interruption !== undefined
-    const { members, progress, failures, failed, advisoryFailures } = collectMembers(
+    const { members, progress, failures, failed, causes, advisoryFailures } = collectMembers(
       group,
       settled,
       interrupted,
@@ -186,7 +197,9 @@ export class StepRunner {
       this.log.warn(`${this.pipelineId}: el grupo "${group.id}" sigue sin un consultivo — ${why}`)
     }
     if (interrupted) return { members, ...(progress ? { progress } : {}) }
-    if (failures.length > 0) throw new GroupFailure(group, failures, failed)
+    if (failures.length > 0) {
+      throw new GroupFailure(group, failures, failed, causes, Object.keys(members).length > 0)
+    }
     const passed = group.verdict(members)
     if (passed === undefined) {
       this.log.warn(`${this.pipelineId}: el grupo "${group.id}" no corrió ningún miembro`)
@@ -358,50 +371,63 @@ function collectMembers(
   failures: string[]
   /** Los miembros que votan y fallaron, en orden. */
   failed: Runnable[]
+  /** El error de cada falla de `failed`. */
+  causes: unknown[]
   advisoryFailures: string[]
 } {
   const members: Record<string, MemberVerdict> = {}
   const progress: Record<string, string> = {}
   const failures: string[] = []
   const failed: Runnable[] = []
+  const causes: unknown[] = []
   const advisoryFailures: string[] = []
   settled.forEach((result, index) => {
     const member = group.members[index]
     const id = member?.id ?? `#${index}`
-    const fail = (why: string) => {
+    const fail = (why: string, cause: unknown) => {
       if (group.isAdvisory(id)) return void advisoryFailures.push(why)
       failures.push(why)
+      causes.push(cause)
       if (member) failed.push(member)
     }
     if (result.status === 'rejected') {
-      fail(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`)
+      fail(`${id}: ${(result.reason as Error)?.message ?? String(result.reason)}`, result.reason)
       return
     }
     const { ran, verdict, progress: left } = result.value
     if (!ran) return
     if (verdict) members[id] = verdict
     if (left) progress[id] = left
-    if (!verdict && !interrupted) fail(`${id}: terminó sin elegir salida`)
+    if (!verdict && !interrupted) fail(`${id}: terminó sin elegir salida`, undefined)
   })
   return {
     members,
     ...(Object.keys(progress).length > 0 ? { progress } : {}),
     failures,
     failed,
+    causes,
     advisoryFailures,
   }
 }
 
 /** Un grupo que falló porque falló alguno de los miembros que votan: el mensaje dice cuál y por
- *  qué, y `failed` deja que su `onError` se anuncie con el reporte de ese miembro. */
+ *  qué, y `failed` deja que su `onError` se anuncie con el reporte de ese miembro. Es transitorio
+ *  (`pipeline/transient.ts`) si todas sus fallas lo son y ningún miembro llegó a votar: si uno
+ *  votó, reintentar el grupo lo correría de nuevo. */
 export class GroupFailure extends Error {
+  readonly transient: boolean
+
   constructor(
     group: ParallelGroup,
     failures: string[],
     readonly failed: Runnable[],
+    causes: unknown[] = [],
+    someoneVoted = false,
   ) {
     super(`grupo "${group.id}": ${failures.join('; ')}`)
     this.name = 'GroupFailure'
+    this.transient =
+      !someoneVoted && causes.length > 0 && causes.every((cause) => isTransient(cause))
   }
 }
 

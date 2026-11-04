@@ -1,6 +1,6 @@
 import { createLogger } from '@ia-flow/telemetry'
 import type { DomainEvent } from '../events/DomainEvent.js'
-import { isTransient } from '../pipeline/transient.js'
+import { markScheduled, needsRetry } from '../pipeline/transient.js'
 import type { Candidate } from './DispatchPlanner.js'
 import type { Offer, Resolution } from './ExecutionCoordinator.js'
 
@@ -15,7 +15,7 @@ export type DispatchOutcome = 'dispatched' | 'injected' | 'resumed' | 'skipped'
 export class RunLauncher {
   readonly log = createLogger('agent-engine.engine')
 
-  /** `onTransient`: una corrida de `pipelineId` falló por infraestructura (para reintentarla). */
+  /** `onTransient`: una corrida de `pipelineId` falló por infraestructura y hay que reintentarla. */
   constructor(
     private readonly onTransient?: (
       event: DomainEvent<any>,
@@ -69,7 +69,8 @@ export class RunLauncher {
     return others ? 'dispatched' : quiet
   }
 
-  /** `run`, avisando a `onTransient` si falla por infraestructura. El error sigue su camino. */
+  /** `run`, avisando a `onTransient` si falló por infraestructura y un paso difirió su `onError`
+   *  para reintentarla (`needsRetry`). El error sigue su camino. */
   private watched(
     run: () => Promise<unknown>,
     event: DomainEvent<any>,
@@ -79,7 +80,10 @@ export class RunLauncher {
     if (!onTransient) return run
     return () =>
       run().catch((err: unknown) => {
-        if (isTransient(err)) onTransient(event, pipelineId, err)
+        if (needsRetry(err)) {
+          markScheduled(err)
+          onTransient(event, pipelineId, err)
+        }
         throw err
       })
   }

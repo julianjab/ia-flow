@@ -341,7 +341,7 @@ export class Pipeline {
   ): Promise<Record<string, unknown>> {
     const runCtx: PipelineExecutionContext = {
       ...ctx,
-      ...(from ? { steps: { ...from.checkpoint.steps, ...ctx.steps } } : {}),
+      ...(from ? { steps: { ...from.checkpoint.steps, ...ctx.steps }, resumed: true } : {}),
       pipelineId: this.id,
       routesFor: (step) =>
         step.exitRoutes !== undefined ? this.graph.resolve(step, ctx.defaults) : undefined,

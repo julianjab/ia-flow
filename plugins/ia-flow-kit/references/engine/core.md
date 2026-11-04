@@ -562,13 +562,24 @@ Reglas que no son obvias al leer el código:
     store para una app (la acción `reset_runs` del runner, al destrabar una task).
 - **Un fallo de infraestructura no es un fallo de la task** (`pipeline/transient.ts`). Un error
   con `transient: true` —él, su `cause` o todas las de un `AggregateError`; lo pone
-  `GithubApiError` ante un límite de tasa, un 5xx o la red— no corre el `onError` del paso (el
-  `+blocked` del proyecto: un 403 de ráfaga dejaba la card trabada); un paso `continueOnError`
-  sigue sin él. `TransientRetries` re-despacha el evento (`transientRetries` + 1) SÓLO contra las
-  pipelines que fallaron, en el `tick` que vence su espera (`retryAfterMs` o 60 s × 2ⁿ, tope
-  15 min), pasando por las reglas como cualquier evento. Tras `MAX_TRANSIENT_RETRIES` (3) el
-  `onError` corre como siempre. Vive en memoria: un reinicio pierde los pendientes. Una
-  reanudación de una pausa que falla así no se reintenta (no hay pipeline que re-despachar).
+  `GithubApiError` cuando rehacer es seguro: un límite de tasa, un 5xx o la red en una lectura— no
+  corre el `onError` del paso (el `+blocked` del proyecto: un 403 de ráfaga dejaba la card
+  trabada); un paso `continueOnError` sigue sin él. `TransientRetries` re-despacha el evento
+  (`transientRetries` + 1) SÓLO contra las pipelines que fallaron, en el `tick` que vence su espera
+  (`retryAfterMs` o 60 s × 2ⁿ, tope 15 min), pasando por las reglas como cualquier evento. Reglas
+  no obvias:
+  - **Sólo se salta el `onError` si hay reintento** (`StepRunner.retryable`): quedan intentos
+    (`MAX_TRANSIENT_RETRIES`, 3), la corrida no es una reanudación (`ctx.resumed`: no hay evento que
+    re-despachar) y ningún agente terminó en ella (re-correrla lo repetiría: su costo, sus
+    comentarios). Si no, el `onError` corre como siempre.
+  - **Un grupo es transitorio** si todas sus fallas lo son y ningún miembro votó (`GroupFailure`).
+  - **Se reintenta la pipeline que falló, no la que la emitió.** `StepRunner` marca el error que
+    difirió (`markDeferred`) y el launcher programa sólo ésos (`needsRetry`), marcándolos
+    programados: el `emit` del padre que falla por su hijo ya programado no se programa (re-emitir
+    correría también a los hermanos que anduvieron). Sin marca diferida —una reanudación, un
+    agente que ya terminó— no hay reintento: corrió el `onError`. Lo que el padre tenía después del `emit`
+    no corre: un padre que necesite seguir pone `continueOnError` en el `emit`.
+  - Vive en memoria: un reinicio pierde los pendientes. Cada reintento cuenta para `maxRuns`.
 - **`ExecutionStore.cancel(key, reason)` corta todo lo de una task desde afuera** (la tomó otro
   engine, una sesión local; o una persona la paró): la pausada cierra `superseded` con `reason` (no
   vence ni despierta), la que corre queda interrumpida como en `ifRunning: interrupt` —también entre

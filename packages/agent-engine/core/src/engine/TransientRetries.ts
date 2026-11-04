@@ -1,6 +1,6 @@
 import { createLogger, inFreshContext } from '@ia-flow/telemetry'
 import type { DomainEvent } from '../events/DomainEvent.js'
-import { retriesLeft, retryAfterMsOf } from '../pipeline/transient.js'
+import { retryAfterMsOf } from '../pipeline/transient.js'
 import type { DispatchPlanner } from './DispatchPlanner.js'
 import type { ExecutionCoordinator } from './ExecutionCoordinator.js'
 import type { RunLauncher } from './RunLauncher.js'
@@ -39,9 +39,8 @@ export class TransientRetries {
 
   constructor(private readonly opts: TransientRetriesOptions) {}
 
-  /** `pipelineId` falló por infraestructura con `event`: lo programa, si le quedan intentos. */
+  /** `pipelineId` falló por infraestructura con `event` y difirió su `onError`: lo programa. */
   record(event: DomainEvent<any>, pipelineId: string, error: unknown, now = Date.now()): void {
-    if (!retriesLeft(event)) return
     const attempt = event.transientRetries ?? 0
     const backoff = TRANSIENT_RETRY_BASE_MS * 2 ** attempt
     const delay = Math.min(Math.max(backoff, retryAfterMsOf(error) ?? 0), TRANSIENT_RETRY_MAX_MS)
