@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.34.0](https://github.com/julianjab/ia-flow/compare/v2.33.0...v2.34.0) (2026-11-04)
+
+
+### Features
+
+* **github-tools:** request_changes_pull_request y retiro de cambios pedidos ([#360](https://github.com/julianjab/ia-flow/issues/360)) ([71c1fcc](https://github.com/julianjab/ia-flow/commit/71c1fccb9552f04e51aad3854eaf5c21953807ff))
+
 ## [2.33.0](https://github.com/julianjab/ia-flow/compare/v2.32.0...v2.33.0) (2026-11-04)
 
 
