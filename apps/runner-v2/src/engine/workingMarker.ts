@@ -74,9 +74,8 @@ export interface TrackWorkingOptions {
 
 /**
  * Pone o saca la marca según el estado de las ejecuciones: una que lleva `delayMs` corriendo la
- * pone; `paused`, `done`, `failed` y `superseded` la sacan. Una que cierra antes no escribe nada.
- * Cada ejecución la pone UNA vez: su registro se vuelve a guardar `running` cada vez que guarda su
- * progreso, y eso no es un cambio. Las escrituras de una misma task van en serie (un "sacar" nunca
+ * pone; `paused`, `done`, `failed` y `superseded` la sacan. Una que cierra antes no escribe nada;
+ * una que este proceso no vio arrancar (recuperada tras un reinicio) la saca igual. Las escrituras de una misma task van en serie (un "sacar" nunca
  * le gana a un "poner" anterior); un error se loguea y no toca la corrida.
  */
 export function trackWorking(
@@ -117,7 +116,9 @@ export function trackWorking(
       pending.delete(record.id)
       return
     }
-    if (!marked.delete(record.id)) return
+    // Una que este proceso no marcó (la recuperada tras un reinicio, que el store repite al
+    // suscribirse) también se limpia: la pudo haber marcado el proceso anterior.
+    marked.delete(record.id)
     write(task, project.id, marker, false, record.status)
   })
 
