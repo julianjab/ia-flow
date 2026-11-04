@@ -5,6 +5,7 @@ import {
   APPROVAL_MARKER,
   ApprovePullRequestAction,
   DismissPullRequestApprovalAction,
+  RequestChangesPullRequestAction,
 } from '../index.js'
 
 const ctx = (payload: Record<string, unknown>): PipelineExecutionContext => ({
@@ -93,7 +94,60 @@ describe('ApprovePullRequestAction', () => {
   })
 })
 
+describe('RequestChangesPullRequestAction', () => {
+  it('posts a REQUEST_CHANGES review on the event PR, pinned to the reviewed commit, with the marker', async () => {
+    const requestJson = vi.fn(async () => ({ html_url: 'u' }))
+    const action = new RequestChangesPullRequestAction({ requestJson } as unknown as GithubClient)
+    const out = await action.run(ctx(reviewEvent), { body: 'El e2e no pasó.' })
+    const [path, init] = requestJson.mock.calls[0] as unknown as [
+      string,
+      { method: string; body: string },
+    ]
+    expect(path).toBe('/repos/la-haus/subscriptions/pulls/12/reviews')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({
+      commit_id: 'abc1234567',
+      event: 'REQUEST_CHANGES',
+      body: `El e2e no pasó.\n\n${APPROVAL_MARKER}`,
+    })
+    expect(out).toContain('cambios pedidos sobre abc1234')
+  })
+
+  it("does not throw on the App's own PR (GitHub's 422)", async () => {
+    const own = new Error(
+      'GithubClient: GitHub API → 422: {"errors":["Review Can not request changes on your own pull request"]}',
+    )
+    const requestJson = vi.fn().mockRejectedValueOnce(own)
+    const action = new RequestChangesPullRequestAction({ requestJson } as unknown as GithubClient)
+    await expect(action.run(ctx(reviewEvent), {})).resolves.toMatch(/lo abrió la misma App/)
+  })
+
+  it('rethrows any other error, and is a write action', async () => {
+    const requestJson = vi.fn().mockRejectedValueOnce(new Error('GitHub API → 403: forbidden'))
+    const action = new RequestChangesPullRequestAction({ requestJson } as unknown as GithubClient)
+    await expect(action.run(ctx(reviewEvent), {})).rejects.toThrow(/403/)
+    expect(action.sideEffects).toBe('write')
+  })
+})
+
 describe('DismissPullRequestApprovalAction', () => {
+  it('also lifts a still-standing ia-flow change request', async () => {
+    const requestJson = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { id: 6, state: 'CHANGES_REQUESTED', body: `no pasa\n\n${APPROVAL_MARKER}` },
+        { id: 7, state: 'CHANGES_REQUESTED', body: 'cambiá esto' },
+      ])
+      .mockResolvedValue({})
+    const action = new DismissPullRequestApprovalAction({ requestJson } as unknown as GithubClient)
+    await expect(action.run(ctx(reviewEvent), {})).resolves.toContain('retiré 1 veredicto')
+    const calls = requestJson.mock.calls as unknown as Call[]
+    expect(calls.map(([path, init]) => `${init?.method ?? 'GET'} ${path}`)).toEqual([
+      'GET /repos/la-haus/subscriptions/pulls/12/reviews?per_page=100',
+      'PUT /repos/la-haus/subscriptions/pulls/12/reviews/6/dismissals',
+    ])
+  })
+
   it('dismisses only the still-approved ia-flow reviews (the marker), leaving humans alone', async () => {
     const requestJson = vi
       .fn()
@@ -113,13 +167,13 @@ describe('DismissPullRequestApprovalAction', () => {
       'PUT /repos/la-haus/subscriptions/pulls/12/reviews/1/dismissals',
     ])
     expect(JSON.parse(calls[1]?.[1]?.body ?? '{}')).toMatchObject({ event: 'DISMISS' })
-    expect(out).toContain('retiré 1 aprobación')
+    expect(out).toContain('retiré 1 veredicto')
   })
 
   it('is a no-op without ia-flow approvals', async () => {
     const requestJson = vi.fn().mockResolvedValueOnce([{ id: 2, state: 'APPROVED', body: 'LGTM' }])
     const action = new DismissPullRequestApprovalAction({ requestJson } as unknown as GithubClient)
-    await expect(action.run(ctx(reviewEvent), {})).resolves.toContain('sin aprobaciones')
+    await expect(action.run(ctx(reviewEvent), {})).resolves.toContain('sin veredictos')
     expect(requestJson).toHaveBeenCalledTimes(1)
   })
 })
