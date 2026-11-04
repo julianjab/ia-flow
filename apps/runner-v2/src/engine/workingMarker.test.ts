@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  type Checkpoint,
   createEvent,
+  ExecutionStore,
+  InMemoryExecutionRepository,
   InMemoryExecutionStore,
   scopeExecutionKey,
 } from '@ia-flow/agent-engine'
@@ -151,28 +152,20 @@ describe('workingMarker', () => {
     expect(clock.pending()).toBe(0)
   })
 
-  it('marks once per execution, although its record is saved as running again and again', async () => {
-    const store = new InMemoryExecutionStore()
+  it('clears the marker of an execution recovered after a restart, which this process never marked', async () => {
+    const repository = new InMemoryExecutionRepository()
+    const before = new ExecutionStore({ repository })
+    await before.start({ key: KEY, pipelineId: 'build' })
+    // El proceso muere con la corrida en curso (sin progreso guardado): al reiniciar cierra `failed`.
     const { client, writes } = github()
-    const clock = timers()
     const p1 = project(DEFAULT_WORKING_MARKER)
-    trackWorking(store, [p1], client, createBoards([p1], client), () => {}, {
-      schedule: clock.schedule,
-    })
-
-    const execution = await store.start({ key: KEY, pipelineId: 'build' })
-    await execution.run(async () => {
-      clock.fire()
-      await tick()
-      // Lo que hace un agente en cada vuelta: guarda su progreso, el registro sigue `running`.
-      execution.progress({ resumeAt: 0 } as unknown as Checkpoint)
-      execution.progress({ resumeAt: 1 } as unknown as Checkpoint)
-      clock.fire()
-      await tick()
+    const after = new ExecutionStore({ repository })
+    trackWorking(after, [p1], client, createBoards([p1], client), () => {}, {
+      schedule: timers().schedule,
     })
     await tick()
 
-    expect(writes).toEqual(['set O_YES', 'clear F_W'])
+    expect(writes).toEqual(['clear F_W'])
   })
 
   it('a failed write is logged, not thrown into the run', async () => {
