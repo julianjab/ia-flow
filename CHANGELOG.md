@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.33.0](https://github.com/julianjab/ia-flow/compare/v2.32.0...v2.33.0) (2026-11-04)
+
+
+### Features
+
+* aprobar el PR desde un gate y reviewer mudo por paso ([#358](https://github.com/julianjab/ia-flow/issues/358)) ([b81cbd8](https://github.com/julianjab/ia-flow/commit/b81cbd82f3c5794ee1cc935335ad8df1817f289c))
+
 ## [2.32.0](https://github.com/julianjab/ia-flow/compare/v2.31.0...v2.32.0) (2026-11-04)
 
 
