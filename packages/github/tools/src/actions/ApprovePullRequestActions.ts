@@ -39,6 +39,15 @@ export class ApprovePullRequestAction extends Action<typeof ApprovePullRequestIn
 
   async execute(input: ApprovePullRequestInput, ctx: PipelineExecutionContext): Promise<string> {
     const pr = prFrom(ctx)
+    // Un push durante el gate: lo revisado ya no es el PR. Una aprobación sobre el commit viejo
+    // seguiría contando en un repo sin "dismiss stale approvals", así que no se aprueba.
+    const current = await this.client.requestJson<{ head?: { sha?: string } }>(
+      `/repos/${pr.owner}/${pr.repo}/pulls/${pr.number}`,
+    )
+    const head = current.head?.sha
+    if (head && head !== pr.sha) {
+      return `PR #${pr.number} sin aprobar: el gate revisó ${pr.sha.slice(0, 7)} y el PR ya está en ${head.slice(0, 7)}`
+    }
     const payload = JSON.stringify({
       commit_id: pr.sha,
       event: 'APPROVE',
