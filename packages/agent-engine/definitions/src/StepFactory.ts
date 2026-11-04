@@ -11,6 +11,11 @@ export interface AgentVariant {
   when?: Condition[]
   /** El `whenText` del paso; gana sobre el del agente. */
   whenText?: WhenText
+  /** Sin su reporte (`report: null` en el paso): el agente corre, pero el engine no publica su
+   *  cierre. Para un gate que sólo vota. */
+  withoutReport?: boolean
+  /** Ids de sus actions que en ESTE paso no recibe como tools (`withoutActions` del paso). */
+  withoutActions?: string[]
 }
 
 /** Lo que una factory puede pedir mientras arma un paso. */

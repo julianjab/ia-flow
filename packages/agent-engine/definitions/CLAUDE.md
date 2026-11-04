@@ -52,8 +52,10 @@ Los pasos que corren (`HttpStep`, `EmitStep`, `ActionStep`) y las plantillas (`r
   sus comandos permitidos. Como tool de un agente puede armar varias; como paso, una sola.
 - **`allowWrites: true` en un agente** habilita todas sus acciones aunque escriban: listarlas ya
   es la decisión del operador. Sin eso, cada una que escribe lleva `allowWrite: true`.
-- **Un paso de agente con `brief` o `when`** es una instancia propia de ese paso (el `brief` se
-  antepone al prompt). Sin ellos, el agente es uno por fuente, compartido.
+- **Un paso de agente con `brief`, `when`, `whenText`, `report: null` o `withoutActions`** es una
+  instancia propia de ese paso (el `brief` se antepone al prompt; `report: null` le saca el
+  reporte; `withoutActions` le saca esas tools, y nombrar una que no tiene no carga). Sin ellos,
+  el agente es uno por fuente, compartido.
 - **`systemPrompts` de la fuente** van antes de los de cada agente: el prefijo compartido.
 - **MCP por id** salen de `catalogs.mcpServers`; un id que no está se omite con un aviso (un
   servidor que no respondió al arrancar) y el agente corre sin él.

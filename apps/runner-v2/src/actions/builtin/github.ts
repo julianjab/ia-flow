@@ -9,8 +9,10 @@ import type { Action } from '@ia-flow/agent-engine'
 import {
   AddSubIssueAction,
   AddToProjectAction,
+  ApprovePullRequestAction,
   CheckPrMergeableAction,
   CreateGithubIssueAction,
+  DismissPullRequestApprovalAction,
   EnsurePullRequestAction,
   type GithubProjectContext,
   LinkBranchAction,
@@ -98,6 +100,11 @@ export default [
     (ctx) => new ListSubIssuesBriefAction({ client: ctx.services.github }),
   ),
   withClient('review_pull_request', (ctx) => new ReviewPullRequestAction(ctx.services.github)),
+  withClient('approve_pull_request', (ctx) => new ApprovePullRequestAction(ctx.services.github)),
+  withClient(
+    'dismiss_pull_request_approval',
+    (ctx) => new DismissPullRequestApprovalAction(ctx.services.github),
+  ),
   withClient('pr_checks', (ctx) => new PrChecksAction(ctx.services.github)),
   withClient('reply_pr_review_thread', (ctx) => new ReplyPrReviewThreadAction(ctx.services.github)),
   withClient(

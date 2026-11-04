@@ -12,6 +12,7 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `add_sub_issue` | `packages/github/tools/src/actions/AddSubIssueAction.ts` |
 | `add_to_project` | `apps/runner-v2/src/actions/builtin/github.ts` |
 | `add_to_project` | `packages/github/tools/src/actions/AddToProjectAction.ts` |
+| `approve_pull_request` | `packages/github/tools/src/actions/ApprovePullRequestActions.ts` |
 | `assistant_propose_issue` | `apps/runner-v2/src/actions/builtin/assistant.ts` |
 | `assistant` | `apps/runner-v2/src/actions/builtin/assistant.ts` |
 | `check_pr_mergeable` | `packages/github/tools/src/actions/MergePullRequestActions.ts` |
@@ -19,6 +20,7 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `cleanup_workspace` | `packages/local/workspace/src/actions/CleanupWorkspaceAction.ts` |
 | `create_github_issue` | `apps/runner-v2/src/actions/builtin/github.ts` |
 | `create_github_issue` | `packages/github/tools/src/actions/CreateGithubIssueAction.ts` |
+| `dismiss_pull_request_approval` | `packages/github/tools/src/actions/ApprovePullRequestActions.ts` |
 | `mark_blocked_by` | `apps/runner-v2/src/actions/builtin/github.ts` |
 | `mark_blocked_by` | `packages/github/tools/src/actions/MarkBlockedByAction.ts` |
 | `merge_pr` | `packages/github/tools/src/actions/MergePullRequestActions.ts` |

@@ -1,6 +1,14 @@
 // Las tools de un agente sobre el board y los PRs (una por archivo).
+
 export { AddSubIssueAction } from './AddSubIssueAction.js'
 export { AddToProjectAction } from './AddToProjectAction.js'
+export {
+  APPROVAL_MARKER,
+  ApprovePullRequestAction,
+  ApprovePullRequestInput,
+  DismissPullRequestApprovalAction,
+  DismissPullRequestApprovalInput,
+} from './ApprovePullRequestActions.js'
 export type { CheckSectionItemsActionOptions } from './CheckSectionItemsAction.js'
 export { CheckSectionItemsAction, CheckSectionItemsInput } from './CheckSectionItemsAction.js'
 export { CreateGithubIssueAction } from './CreateGithubIssueAction.js'
