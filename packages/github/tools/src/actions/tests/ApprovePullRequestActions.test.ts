@@ -22,12 +22,19 @@ const reviewEvent = {
 
 type Call = [string, { method?: string; body?: string }?]
 
+/** El `GET` del PR (su head al aprobar) y después el `POST` del review. */
+const atHead = (sha = 'abc1234567') => ({ head: { sha } })
+
 describe('ApprovePullRequestAction', () => {
   it('posts an APPROVE review on the event PR, pinned to the commit the gate saw, with the marker', async () => {
-    const requestJson = vi.fn(async () => ({ html_url: 'https://github.com/x/pull/12#review' }))
+    const requestJson = vi
+      .fn()
+      .mockResolvedValueOnce(atHead())
+      .mockResolvedValueOnce({ html_url: 'https://github.com/x/pull/12#review' })
     const action = new ApprovePullRequestAction({ requestJson } as unknown as GithubClient)
     const out = await action.run(ctx(reviewEvent), {})
-    const [path, init] = requestJson.mock.calls[0] as unknown as [
+    expect(requestJson.mock.calls[0]?.[0]).toBe('/repos/la-haus/subscriptions/pulls/12')
+    const [path, init] = requestJson.mock.calls[1] as unknown as [
       string,
       { method: string; body: string },
     ]
@@ -42,10 +49,10 @@ describe('ApprovePullRequestAction', () => {
   })
 
   it('takes the body from the step (`with.body`)', async () => {
-    const requestJson = vi.fn(async () => ({}))
+    const requestJson = vi.fn().mockResolvedValueOnce(atHead()).mockResolvedValueOnce({})
     const action = new ApprovePullRequestAction({ requestJson } as unknown as GithubClient)
     await action.run(ctx(reviewEvent), { body: 'Reviewer y e2e aprobaron.' })
-    const [, init] = requestJson.mock.calls[0] as unknown as [string, { body: string }]
+    const [, init] = requestJson.mock.calls[1] as unknown as [string, { body: string }]
     expect(JSON.parse(init.body).body).toBe(`Reviewer y e2e aprobaron.\n\n${APPROVAL_MARKER}`)
   })
 
@@ -53,15 +60,27 @@ describe('ApprovePullRequestAction', () => {
     const own = new Error(
       'GithubClient: GitHub API → 422: {"message":"Unprocessable Entity","errors":["Review Can not approve your own pull request"]}',
     )
-    const requestJson = vi.fn().mockRejectedValueOnce(own)
+    const requestJson = vi.fn().mockResolvedValueOnce(atHead()).mockRejectedValueOnce(own)
     const action = new ApprovePullRequestAction({ requestJson } as unknown as GithubClient)
     await expect(action.run(ctx(reviewEvent), {})).resolves.toMatch(/lo abrió la misma App/)
   })
 
   it('rethrows any other error', async () => {
-    const requestJson = vi.fn().mockRejectedValueOnce(new Error('GitHub API → 403: forbidden'))
+    const requestJson = vi
+      .fn()
+      .mockResolvedValueOnce(atHead())
+      .mockRejectedValueOnce(new Error('GitHub API → 403: forbidden'))
     const action = new ApprovePullRequestAction({ requestJson } as unknown as GithubClient)
     await expect(action.run(ctx(reviewEvent), {})).rejects.toThrow(/403/)
+  })
+
+  it('does not approve when the PR moved past the commit the gate reviewed (a push during the gate)', async () => {
+    const requestJson = vi.fn().mockResolvedValueOnce(atHead('fff9999999'))
+    const action = new ApprovePullRequestAction({ requestJson } as unknown as GithubClient)
+    await expect(action.run(ctx(reviewEvent), {})).resolves.toMatch(
+      /revisó abc1234 y el PR ya está en fff9999/,
+    )
+    expect(requestJson).toHaveBeenCalledTimes(1)
   })
 
   it('refuses to run without a PR in the event', async () => {
