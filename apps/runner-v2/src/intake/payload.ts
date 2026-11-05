@@ -40,6 +40,8 @@ export function assemblePayload(
     repos: string
     /** La rama de la task. */
     branch: string
+    /** `{{task.repo_prompts}}`: las notas de los repos de la task (`repoPromptsText`). */
+    repoPrompts?: string
   },
 ): Record<string, unknown> {
   const labels = args.labels.length > 0 ? args.labels : issue.labels
@@ -62,6 +64,8 @@ export function assemblePayload(
       repos: args.repo,
       repo: { name: args.repo },
       branch: project.branch,
+      // Siempre presente (vacío si ningún repo trae notas): el runner la suma a todo prompt.
+      repo_prompts: project.repoPrompts ?? '',
       comments: '',
       ...(args.pr
         ? {

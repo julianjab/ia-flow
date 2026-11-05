@@ -7,7 +7,7 @@ import { GithubTaskReader } from '@ia-flow/github-tools'
 import type { Board } from '../../board/Board.js'
 import { ResolveTaskAction } from '../../intake/ResolveTaskAction.js'
 import { defineAction } from '../defineAction.js'
-import { repoRefs, reposText } from './project.js'
+import { repoPrompts, repoRefs, reposText } from './project.js'
 
 /** Lo que el board del proyecto aporta al intake: cómo lee la card, cómo traduce sus webhooks y sus
  *  cards abiertas. */
@@ -33,6 +33,7 @@ export default defineAction({
           ...(project.stacking ? { stacking: project.stacking } : {}),
           repos: repoRefs(project),
           reposText: reposText(project),
+          repoPrompts: repoPrompts(project),
         })),
       new GithubTaskReader(ctx.services.github),
       {

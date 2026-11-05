@@ -7,7 +7,9 @@
  *      globales de la config y las de cada `projects/<id>/actions/`.
  *   3. Las fuentes: el datasource YAML de la global (lo que declara `runner.yaml`) y el de cada
  *      proyecto (lo que declara su `project.yaml`), cuyas pipelines llevan `scope.projectId`
- *      (`engine/withScope.ts`); las arma `DefinitionPipelineSource`, y releen su índice si cambia.
+ *      (`engine/withScope.ts`) y, si algún repo del catálogo trae notas, sus agentes las suman al
+ *      prompt (`engine/withRepoPrompts.ts`); las arma `DefinitionPipelineSource`, y releen su índice
+ *      si cambia.
  *   4. El engine, desde `engine:` de runner.yaml (`engine/mountEngine.ts`): el store de
  *      ejecuciones en SQLite (`bun-sqlite`), el tick y el clasificador de los `whenText`.
  */
@@ -27,7 +29,7 @@ import {
   withMembers,
 } from '@ia-flow/agent-engine'
 import { YamlDefinitionSource } from '@ia-flow/agent-engine-datasource-yaml'
-import { DefinitionPipelineSource } from '@ia-flow/agent-engine-definitions'
+import { DefinitionPipelineSource, type DefinitionSource } from '@ia-flow/agent-engine-definitions'
 import { GithubClient } from '@ia-flow/github-api'
 import type { GithubAuth } from '@ia-flow/github-auth'
 import { SlackClient } from '@ia-flow/slack-api'
@@ -41,6 +43,7 @@ import type { ProjectConfig, RunnerConfig } from './config/RunnerConfig.js'
 import { LocalClaims } from './engine/LocalClaims.js'
 import { mountEngine, type StoreDriver } from './engine/mountEngine.js'
 import { revalidateTask } from './engine/revalidateTask.js'
+import { withRepoPrompts } from './engine/withRepoPrompts.js'
 import { withScope } from './engine/withScope.js'
 import { trackWorking } from './engine/workingMarker.js'
 import { resolveGithubAuth, verifyGithubAuth } from './github/githubAuth.js'
@@ -162,6 +165,16 @@ async function githubIdentity(opts: MountOptions): Promise<{ auth: GithubAuth; m
   return { auth: resolved.auth, mode: resolved.mode }
 }
 
+/** La fuente de un proyecto: sus pipelines con `scope.projectId` y, si algún repo de su catálogo
+ *  trae `prompt`, sus agentes con las notas del repo de la task al final del prompt. Sin notas en
+ *  el catálogo, los prompts quedan como los escribe el YAML. */
+function projectSource(project: ProjectConfig): DefinitionSource {
+  const scoped = withScope(new YamlDefinitionSource({ id: project.id, ...project.source }), {
+    projectId: project.id,
+  })
+  return project.repos.some((repo) => repo.prompt?.trim()) ? withRepoPrompts(scoped) : scoped
+}
+
 export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promise<MountedRunner> {
   const warnings: string[] = []
   const { auth, mode: githubAuthMode } = await githubIdentity(opts)
@@ -213,12 +226,7 @@ export async function mountRunner(cfg: RunnerConfig, opts: MountOptions): Promis
     { id: GLOBAL_SOURCE, source: globalSource },
     ...cfg.projects.map((project) => ({
       id: project.id,
-      source: new DefinitionPipelineSource(
-        withScope(new YamlDefinitionSource({ id: project.id, ...project.source }), {
-          projectId: project.id,
-        }),
-        catalogs,
-      ),
+      source: new DefinitionPipelineSource(projectSource(project), catalogs),
     })),
   ]
 

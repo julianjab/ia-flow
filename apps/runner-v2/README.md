@@ -81,6 +81,33 @@ al montar un proyecto, el runner le pone `scope.projectId: <id>` a cada una de s
 de ese proyecto —los que publica `resolve_task`—; la global recibe todo. El engine lo arma el
 runner desde `engine:` de runner.yaml (`src/engine/mountEngine.ts`).
 
+### El catálogo de repos (`repos/`)
+
+Cada `repos/*.yaml` es un repo del proyecto (`RepoDefSchema` en `src/config/RunnerConfig.ts`):
+lo que reconoce el intake (`githubOwner`/`githubRepo`), lo que ven los prompts en
+`{{project.repos}}` y, opcional, las notas que todo agente necesita cuando trabaja en él:
+
+```yaml
+# repos/subscriptions.yaml
+name: subscriptions
+description: Monorepo de suscripciones (FastAPI)
+githubOwner: la-haus
+githubRepo: subscriptions
+prompt: |                     # opcional, markdown
+  Tres paquetes con su propio `uv`: core/, app/subscriptions/, app/client-api/.
+  Antes de pushear: `uv run ruff format . && uv run ruff check --fix . && make test` en cada uno.
+```
+
+Con `prompt`, el runner lo suma **solo** al final del prompt de CUALQUIER agente del proyecto cuya
+task vive en ese repo (los de `item.repos`), como una sección `## Notas del repo \`<name>\``, sin
+tocar los YAML de los agentes (`src/engine/withRepoPrompts.ts`). Una task con varios repos trae
+las notas de cada uno; un repo sin `prompt` no agrega nada, y una task de otro repo no las ve. El
+texto ya armado también está en `{{task.repo_prompts}}`: un agente que la nombra en su prompt
+decide dónde van, y el runner no la suma otra vez. Va en el prompt del usuario y no en un system
+prompt —los system prompts son el prefijo cacheado de cada agente, y un texto por repo partiría
+ese cache—, así que llega igual a un host remoto (`remote:*`) y al provider `anthropic-api`. Si
+ningún repo del catálogo trae `prompt`, los prompts quedan exactamente como los escribe el YAML.
+
 ### Las actions
 
 Las estándar vienen con el runner (`src/actions/builtin/`): las transiciones y tools de GitHub

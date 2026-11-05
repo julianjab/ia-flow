@@ -30,6 +30,7 @@ Lo arma el intake: `apps/runner-v2/src/intake/payload.ts` (`assemblePayload`) so
 | `item.status`, `item.type`, `item.labels`, `item.repos`, `item.blocked` | la card: lo que filtran los `when` |
 | `task_type`, `repo`, `owner`, `number`, `eventType` | atajos en la raíz |
 | `project.repos` | el catálogo de repos del proyecto, en texto |
+| `task.repo_prompts` | las notas (`prompt` de `repos/*.yaml`) de los repos de la task, una sección `## Notas del repo \`<name>\`` por repo; vacío si ninguno trae. El runner ya la suma sola al final del prompt de todo agente del proyecto: nombrala sólo para ubicarla en otro lado (entonces no se suma otra vez) |
 | `message` | el texto con el que el evento le llega a un agente que ya corre (inyección) |
 | `event.payload.*` | el mismo payload, anidado (así lo leen los `brief`: `{{event.payload.from}}`) |
 
