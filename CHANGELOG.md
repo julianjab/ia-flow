@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.35.0](https://github.com/julianjab/ia-flow/compare/v2.34.0...v2.35.0) (2026-11-05)
+
+
+### Features
+
+* **menubar:** servicio «Host remoto» para levantar esta Mac como host de un runner ([#362](https://github.com/julianjab/ia-flow/issues/362)) ([33ef993](https://github.com/julianjab/ia-flow/commit/33ef9931163abe69dac2b9533911c342801eadef))
+* **runner:** el asistente lee Slack (slack_read_thread, slack_channel_history) ([#365](https://github.com/julianjab/ia-flow/issues/365)) ([3408388](https://github.com/julianjab/ia-flow/commit/3408388fad0fbe1413159b3d8b29cf6d39fd24f9))
+
+
+### Bug Fixes
+
+* **menubar:** abrir pestañas de iTerm con write text, no como command ([#364](https://github.com/julianjab/ia-flow/issues/364)) ([331eea7](https://github.com/julianjab/ia-flow/commit/331eea73b795d110056fd49c76747c2ee5a86ac0))
+* **provider-anthropic-api:** parear también las server tools, no sólo las llamadas MCP ([#366](https://github.com/julianjab/ia-flow/issues/366)) ([2dc7c24](https://github.com/julianjab/ia-flow/commit/2dc7c242da82827cc75c6a74e2bb87660a0fc893))
+* **runner-v2:** destrabar una épica no la mueve a la columna de un hijo ([#367](https://github.com/julianjab/ia-flow/issues/367)) ([9c67810](https://github.com/julianjab/ia-flow/commit/9c67810df4b9da8b40897e1d1703769bc515a19c))
+
 ## [2.34.0](https://github.com/julianjab/ia-flow/compare/v2.33.0...v2.34.0) (2026-11-04)
 
 
