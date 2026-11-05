@@ -25,9 +25,10 @@ src/
 │                         del `providerConfig` y resolución agente → provider → default.
 ├── context.ts            cuánto pesa lo que se reenvía: el tope de cada resultado de tool y el
 │                         `context_management` (borrado server-side de resultados viejos).
-├── conversation.ts       cómo se arma lo que se reenvía: llamadas MCP colgadas pareadas con
-│                         un error, nunca `thinking` al final, siempre termina en el usuario
-│                         (tras un `pause_turn`, "Continuá."). Cada regla salió de un 400 real.
+├── conversation.ts       cómo se arma lo que se reenvía: llamadas server-side colgadas (MCP y
+│                         server tools como la búsqueda de tools) pareadas con un error,
+│                         `tool_reference` a tools que ya no están descartadas, nunca `thinking`
+│                         al final. Cada regla salió de un 400 real.
 ├── tracing.ts            qué deja el provider en la traza — opciones de @traced para `send`
 │                         (`chat <model>`) y `executeTool` (`execute_tool <name>`).
 ├── sse.ts                reensamblado de streaming SSE → misma forma que un response
