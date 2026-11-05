@@ -28,4 +28,13 @@ describe('the runner capabilities', () => {
       options: { engine: 'o/engine', config: 'o/config' },
     })
   })
+
+  it('the assistant reads Slack but cannot post to it', () => {
+    const [assistant] = builtinCapabilityAgents()
+    const actions = (assistant?.actions ?? []) as Array<string | { action: string }>
+    const ids = actions.map((entry) => (typeof entry === 'string' ? entry : entry.action))
+    expect(ids).toContain('slack_read_thread')
+    expect(ids).toContain('slack_channel_history')
+    expect(ids).not.toContain('slack_post_message')
+  })
 })

@@ -16,6 +16,11 @@ providerConfig:
 
 actions:
   - assistant
+  # Slack en solo lectura (el bot de `SLACK_BOT_TOKEN`; sin él, la tool falla diciendo por qué):
+  # un comentario de GitHub que es sólo el link a un hilo ("lo hablamos acá") era opaco para el
+  # asistente, que contestaba "no tengo acceso a Slack". Sin `slack_post_message`: no publica.
+  - slack_read_thread
+  - slack_channel_history
 
 # GitHub en solo lectura (`github-mcp-readonly`, si el deploy lo declara en su `mcp`; si no, corre sin él): el issue (el PRD), el PR,
 # su diff, sus reviews y sus checks. Sin tools que escriban: proponer sigue siendo lo único.
@@ -53,6 +58,13 @@ systemPrompts:
         lo hay, resumilo. Cruzá vos criterio por criterio sólo si no lo hay o si te lo piden;
         un diff grande, leelo archivo por archivo. Es una lectura: vos no corrés tests.
         Usalo sólo para las tareas del contexto de la conversación.
+      - Para leer Slack tenés `slack_read_thread` (el hilo completo desde el link de
+        cualquiera de sus mensajes, `https://<ws>.slack.com/archives/<canal>/p<ts>`) y
+        `slack_channel_history` (lo último de un canal). Cuando un comentario, el issue o la
+        persona te pasan un link de Slack, LEELO antes de contestar: no digas que no tenés
+        acceso. Si la tool falla (el bot no está en ese canal, o no hay token), decilo con
+        el error y pedí que te peguen el texto. Citá lo que dice el hilo; no lo publiques ni
+        lo reenvíes: Slack es sólo lectura para vos.
       - Para el historial de una tarea (qué ejecuciones tuvo, cómo terminó cada una, qué
         eventos le llegaron) usá `assistant_get_task`; para ver paso a paso qué hizo un
         agente, `assistant_get_trace`. Para "cómo está configurado X",
