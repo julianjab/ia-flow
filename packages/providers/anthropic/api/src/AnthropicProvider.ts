@@ -12,7 +12,9 @@ import {
 import { buildContextManagement, CONTEXT_MANAGEMENT_BETA, clipToolResult } from './context.js'
 import {
   awaitsServerCalls,
-  pairOrphanedMcpToolUse,
+  dropUnknownToolReferences,
+  knownToolNames,
+  pairOrphanedServerCalls,
   withAssistant,
   withAssistantThenUser,
 } from './conversation.js'
@@ -262,6 +264,7 @@ export class AnthropicProvider implements Provider {
     const bumpOnTruncation = cfg.bumpMaxTokensOnTruncation
 
     const { tools, apiTools: allTools, connector: apiMcpServers } = await this.runTools(ctx, cfg)
+    const toolNames = knownToolNames(allTools)
 
     const extraBetas: string[] = []
     const taskBudgetTokens = cfg.taskBudgetTokens
@@ -308,16 +311,7 @@ export class AnthropicProvider implements Provider {
           model,
           max_tokens: effectiveMaxTokens,
           system: systemBlocks,
-          messages: pairOrphanedMcpToolUse(messages, (paired) =>
-            this.log.warn(
-              `mcp_tool_use sin result en el mensaje ${paired.index}: pareado con un error (vuelta ${round})`,
-              {
-                'ia.round': round,
-                'ia.message.index': paired.index,
-                'ia.paired': JSON.stringify(paired.paired),
-              },
-            ),
-          ),
+          messages: this.sendable(messages, toolNames, round),
           // Auto-cache a nivel request, además del breakpoint explícito del system: cachea el
           // último bloque cacheable de `messages` y lo corre sola en cada vuelta.
           cache_control: { type: 'ephemeral' },
@@ -512,6 +506,36 @@ export class AnthropicProvider implements Provider {
         ...loaded.tools.map((tool) => asApi(tool, searchable)),
       ],
     }
+  }
+
+  /** La conversación tal como se puede mandar: las llamadas server-side colgadas de un turno
+   *  cerrado, pareadas; y sin `tool_reference` a tools que ya no están (si se conoce el catálogo). */
+  private sendable(
+    messages: AnthropicMessage[],
+    toolNames: ReadonlySet<string> | undefined,
+    round: number,
+  ): AnthropicMessage[] {
+    const paired = pairOrphanedServerCalls(messages, (call) =>
+      this.log.warn(
+        `llamada server-side sin result en el mensaje ${call.index}: pareada con un error (vuelta ${round})`,
+        {
+          'ia.round': round,
+          'ia.message.index': call.index,
+          'ia.paired': JSON.stringify(call.paired),
+        },
+      ),
+    )
+    if (!toolNames) return paired
+    return dropUnknownToolReferences(paired, toolNames, (dropped) =>
+      this.log.warn(
+        `tool_reference a tools que ya no están en el mensaje ${dropped.index}: descartadas (vuelta ${round})`,
+        {
+          'ia.round': round,
+          'ia.message.index': dropped.index,
+          'ia.tools': dropped.tools.join(','),
+        },
+      ),
+    )
   }
 
   @traced(chatTrace)

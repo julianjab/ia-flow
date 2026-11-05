@@ -67,8 +67,9 @@ function applyContentBlockStart(
   const idx = evt.index as number
   blocks[idx] = { ...(evt.content_block as Record<string, unknown>) }
   // Cualquier bloque que streamea su input vía `input_json_delta` arranca con `input` ya
-  // presente — no sólo `tool_use` local, también `mcp_tool_use` remoto. `mcp_tool_result`
-  // (calculado server-side, sin `input`) cae sin tocar.
+  // presente — no sólo `tool_use` local, también `mcp_tool_use` y `server_tool_use` (la
+  // búsqueda de tools, web search…) remotos. Sus results (`mcp_tool_result`,
+  // `tool_search_tool_result`…, calculados server-side, sin `input`) caen sin tocar.
   if ('input' in blocks[idx]) pendingToolJson[idx] = ''
 }
 

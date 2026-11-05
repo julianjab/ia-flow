@@ -207,26 +207,56 @@ export const chatTrace: TraceOptions<
     }
 
     for (const block of data.content) {
+      const event = serverSideEvent(block)
+      if (event) span.addEvent(...event)
+      else if (block.type === 'text' && block.text) {
+        span.addEvent('assistant.text', { 'ia.text': truncate(block.text) })
+      }
       if (block.type === 'mcp_tool_use') {
-        span.addEvent('mcp_tool_use', {
-          'gen_ai.tool.name': block.name ?? '',
-          'ia.mcp.server': block.server_name ?? '',
-          'ia.tool.input': truncate(block.input),
-        })
         this.log.info(`tool MCP "${block.server_name}.${block.name}"`, {
           'gen_ai.tool.name': block.name ?? '',
           'ia.tool.input': truncate(block.input, 500),
         })
-      } else if (block.type === 'mcp_tool_result') {
-        span.addEvent('mcp_tool_result', {
-          'ia.tool.is_error': (block as { is_error?: boolean }).is_error === true,
-          'ia.tool.result': truncate((block as { content?: unknown }).content),
-        })
-      } else if (block.type === 'text' && block.text) {
-        span.addEvent('assistant.text', { 'ia.text': truncate(block.text) })
       }
     }
   },
+}
+
+/** El evento de span de un bloque que corrió del lado de la API —una llamada MCP o una server
+ *  tool (la búsqueda de tools diferidas, web search…) y su result—, o `undefined` si no es uno. */
+function serverSideEvent(
+  block: AnthropicContentBlock,
+): [string, Record<string, string | boolean>] | undefined {
+  if (block.type === 'mcp_tool_use') {
+    return [
+      'mcp_tool_use',
+      {
+        'gen_ai.tool.name': block.name ?? '',
+        'ia.mcp.server': block.server_name ?? '',
+        'ia.tool.input': truncate(block.input),
+      },
+    ]
+  }
+  if (block.type === 'server_tool_use') {
+    return [
+      'server_tool_use',
+      { 'gen_ai.tool.name': block.name ?? '', 'ia.tool.input': truncate(block.input) },
+    ]
+  }
+  if (block.type === 'mcp_tool_result') {
+    return [
+      'mcp_tool_result',
+      { 'ia.tool.is_error': block.is_error === true, 'ia.tool.result': truncate(block.content) },
+    ]
+  }
+  if (block.tool_use_id != null && block.type.endsWith('_tool_result')) {
+    // `tool_search_tool_result`, `web_search_tool_result`…: el error viene como un `content.type`
+    // `*_tool_result_error`, no como `is_error`.
+    const content = block.content as { type?: unknown } | null
+    const isError = typeof content?.type === 'string' && content.type.endsWith('_tool_result_error')
+    return [block.type, { 'ia.tool.is_error': isError, 'ia.tool.result': truncate(block.content) }]
+  }
+  return undefined
 }
 
 /** `execute_tool <name>` por cada tool local que pide el modelo — en ERROR si devolvió error. */
