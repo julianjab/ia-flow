@@ -64,8 +64,27 @@ export interface BashRunToolOptions {
 /** El scope de la credencial: git sólo la manda a URLs bajo este prefijo. */
 const GITHUB_URL_SCOPE = 'https://github.com/'
 
-/** Los subcomandos de git que hablan con el remoto — los únicos que reciben la credencial. */
-const GIT_NETWORK_SUBCOMMANDS = new Set(['push', 'fetch', 'pull', 'ls-remote'])
+/** Los subcomandos de git que hablan con el remoto — los únicos que reciben la credencial.
+ *  `clone` entra (la-haus/crm-claude-agents#133: `git clone https://github.com/<org>/<repo>` daba
+ *  "could not read Username" y no había otra forma obvia de traer un repo), con los chequeos
+ *  propios de `cloneCredentialRisk`. */
+const GIT_NETWORK_SUBCOMMANDS = new Set(['push', 'fetch', 'pull', 'ls-remote', 'clone'])
+
+/**
+ * Lo que `clone` acepta y los demás subcomandos de red no, y que con un token en juego lo pone en
+ * riesgo: `--config`/`-c<k>=<v>` (opción DEL subcomando, distinta del `-c` global que la policy ya
+ * rechaza; persiste en el repo nuevo y puede declarar un helper que corre con el header en
+ * `GIT_CONFIG_PARAMETERS` — ver README → "Límites honestos") y `--template` (copia hooks al repo
+ * nuevo). Prefijos cortos a propósito: git acepta abreviar long options (`--conf=`), y en `clone`
+ * no hay otra opción que empiece con `--c` ni con `--te`.
+ */
+function cloneCredentialRisk(argv: string[], subcommandIndex: number): string | undefined {
+  if (argv[subcommandIndex] !== 'clone') return undefined
+  const risky = argv
+    .slice(subcommandIndex + 1)
+    .find((token) => token.startsWith('--c') || /^-c./.test(token) || token.startsWith('--te'))
+  return risky ? `${risky} en git clone` : undefined
+}
 
 /**
  * Por qué un `git` NO puede recibir la credencial, o `undefined` si puede. Complementa los
@@ -83,6 +102,8 @@ function gitCredentialRisk(argv: string[]): string | undefined {
   const globals = argv.slice(1, subcommandIndex === -1 ? undefined : subcommandIndex)
   if (globals.length > 0) return `opciones globales antes del subcomando (${globals.join(' ')})`
   if (argv[subcommandIndex] === 'var') return 'git var (vuelca la config)'
+  const cloneRisk = cloneCredentialRisk(argv, subcommandIndex)
+  if (cloneRisk) return cloneRisk
   const leaking = argv.find(
     (token) =>
       token.startsWith('--git-dir') ||
