@@ -35,6 +35,7 @@ import {
 } from './parentEvents.js'
 import { blockersRefined, notifyBlockersRefined } from './refinedBlockers.js'
 import { notifyRelatedMerged } from './relatedMerged.js'
+import type { RepoPromptEntry } from './repoPrompts.js'
 import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { stackedOn, taskStack } from './stack.js'
@@ -52,6 +53,8 @@ export interface ResolveTaskProject {
   repos: string[]
   /** `{{project.repos}}` de los prompts: el catálogo en texto. */
   reposText: string
+  /** Los repos del catálogo con sus notas (`prompt`): `{{task.repo_prompts}}`. */
+  repoPrompts?: RepoPromptEntry[]
   /** Las tasks con este label avanzan sobre prerrequisitos construidos (ver `stacking` en
    *  `project.yaml`). */
   stacking?: { label: string }
@@ -432,6 +435,7 @@ class ProjectResolver {
         projectId: this.project.id,
         branch,
         repos: this.project.reposText,
+        ...(this.project.repoPrompts ? { repoPrompts: this.project.repoPrompts } : {}),
       })
     const draft = build(known ?? '')
     const failed = unmet(options.when ?? [], draft.payload)
@@ -577,6 +581,7 @@ class ProjectResolver {
       projectId: this.project.id,
       branch: context.openPr.headRef,
       repos: this.project.reposText,
+      ...(this.project.repoPrompts ? { repoPrompts: this.project.repoPrompts } : {}),
     })
     const failed = unmet(when, built.payload)
     if (failed) return { skip: `${ref} (un PR sin issue) no cumple el when del intake: ${failed}` }

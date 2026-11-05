@@ -1,6 +1,7 @@
 /**
  * Lo que las actions globales necesitan del proyecto de la fuente que las pide.
  */
+import type { RepoPromptEntry } from '../../intake/repoPrompts.js'
 import type { ActionContext, ProjectConfig } from '../defineAction.js'
 
 /** El proyecto de la fuente que la pide: una action de proyecto no va en la fuente global. */
@@ -26,4 +27,21 @@ export function reposText(project: ProjectConfig): string {
         `- ${repo.name} (${repo.githubOwner}/${repo.githubRepo}): ${repo.description ?? ''}`,
     )
     .join('\n')
+}
+
+/** Los repos del catálogo que traen notas (`prompt`): de acá arma el intake
+ *  `{{task.repo_prompts}}`, sólo con las del repo de cada task. */
+export function repoPrompts(project: ProjectConfig): RepoPromptEntry[] {
+  return project.repos.flatMap(({ name, githubOwner, githubRepo, prompt }) =>
+    prompt?.trim()
+      ? [
+          {
+            name,
+            prompt,
+            ...(githubOwner ? { githubOwner } : {}),
+            ...(githubRepo ? { githubRepo } : {}),
+          },
+        ]
+      : [],
+  )
 }

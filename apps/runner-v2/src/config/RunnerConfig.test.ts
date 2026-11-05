@@ -293,6 +293,13 @@ describe('project.yaml board: { kind: issues }', () => {
     expect(project?.issuesBoard).toBeUndefined()
   })
 
+  it('keeps the prompt of a catalog repo: its notes for the agents of its tasks', () => {
+    const notes =
+      '        - name: ia-flow\n          githubOwner: julianjab\n          githubRepo: ia-flow\n          prompt: |\n            Corré `bun run check`.\n'
+    const project = loadRunnerConfig(withIssuesBoard(columns, notes)).projects[0]
+    expect(project?.repos[0]?.prompt).toBe('Corré `bun run check`.\n')
+  })
+
   it('needs a repo to read the issues of', () => {
     expect(() => loadRunnerConfig(withIssuesBoard(columns, '        []\n'))).toThrow(
       /necesita algún repo/,

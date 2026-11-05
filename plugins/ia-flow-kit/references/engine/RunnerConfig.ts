@@ -282,6 +282,10 @@ export const RepoDefSchema = z.looseObject({
   description: z.string().optional(),
   githubOwner: z.string().optional(),
   githubRepo: z.string().optional(),
+  /** Notas del repo (markdown) para todo agente cuya task vive en él: el runner las suma al final
+   *  de su prompt como `## Notas del repo \`<name>\`` (ver `intake/repoPrompts.ts`), y quedan en
+   *  `{{task.repo_prompts}}`. Sin esto, el repo no agrega nada. */
+  prompt: z.string().optional(),
 })
 export type RepoDef = z.infer<typeof RepoDefSchema> & { projectId: string }
 

@@ -90,3 +90,26 @@ describe('taskPayload — news', () => {
     expect(taskOf(payload).comments).toContain('antes')
   })
 })
+
+describe('taskPayload — repo_prompts', () => {
+  const repoPrompts = [
+    { name: 'api', githubOwner: 'la-haus', githubRepo: 'api', prompt: 'Notas de api.' },
+    { name: 'web', githubOwner: 'la-haus', githubRepo: 'web', prompt: 'Notas de web.' },
+  ]
+  const notes = (payload: Record<string, unknown>) =>
+    (payload.task as { repo_prompts: string }).repo_prompts
+
+  it('task.repo_prompts trae sólo las notas del repo de la task', () => {
+    const { payload } = taskPayload({ ...base, repoPrompts })
+    expect(notes(payload)).toBe('## Notas del repo `api`\n\nNotas de api.')
+    expect(notes(payload)).not.toContain('web')
+    // Los briefs la leen igual bajo event.payload.
+    expect(notes((payload.event as { payload: Record<string, unknown> }).payload)).toBe(
+      notes(payload),
+    )
+  })
+
+  it('sin catálogo con notas, la variable existe vacía', () => {
+    expect(notes(taskPayload(base).payload)).toBe('')
+  })
+})

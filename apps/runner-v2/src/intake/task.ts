@@ -15,6 +15,7 @@ import {
   taskTimeline,
 } from '@ia-flow/github-tools'
 import { assemblePayload, type EventArgs } from './payload.js'
+import { type RepoPromptEntry, repoPromptsText } from './repoPrompts.js'
 import { refOfUrl } from './stack.js'
 
 type Input = Record<string, unknown>
@@ -82,6 +83,9 @@ export interface TaskInput {
   branch: string
   /** `{{project.repos}}` de los prompts. */
   repos: string
+  /** El catálogo de repos con sus notas: de acá sale `{{task.repo_prompts}}`, sólo con las del
+   *  repo de la task. */
+  repoPrompts?: readonly RepoPromptEntry[]
 }
 
 /** `item.blocked`: hay prerrequisitos abiertos. `item.kind`: `pr` para una task que es sólo un PR
@@ -167,6 +171,8 @@ export function taskPayload(input: TaskInput) {
     payload: assemblePayload(args, issue, {
       repos: input.repos,
       branch: input.branch,
+      // Los repos de la task son los de `item.repos`: hoy, el del issue.
+      repoPrompts: repoPromptsText(input.repoPrompts, input.owner, [input.repo]),
     }),
     // `repo`/`issue` además del proyecto: la telemetría los hereda a todo lo que corre debajo.
     // `kind: pr` en una task sin card: lo que mira el board (la marca "en curso") la salta.
