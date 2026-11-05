@@ -178,9 +178,9 @@ describe('AnthropicProvider diagnostics', () => {
 
     await provider(fetchImpl).run(resumed)
 
-    expect(find('warn', 'mcp_tool_use sin result')?.attributes).toMatchObject({
+    expect(find('warn', 'llamada server-side sin result')?.attributes).toMatchObject({
       'ia.message.index': 1,
-      'ia.paired': JSON.stringify([{ id: 'm1', name: 'search_code' }]),
+      'ia.paired': JSON.stringify([{ type: 'mcp_tool_use', id: 'm1', name: 'search_code' }]),
     })
   })
 

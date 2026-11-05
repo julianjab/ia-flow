@@ -129,6 +129,51 @@ describe('mcpTransport: client', () => {
     })
   })
 
+  it('al retomar, descarta las tool_reference a tools de un MCP que ya no está (#822)', async () => {
+    const mcp = fakeMcpServer({ token: 'ghs', tools: [{ name: 'get_me' }] })
+    const api = anthropicApi([done])
+    const provider = new AnthropicProvider({
+      id: 'x',
+      model: 'claude-x',
+      apiKey: 'sk',
+      stream: false,
+      mcpTransport: 'client',
+      fetchImpl: api.fetchImpl,
+      mcpFetchImpl: mcp.fetchImpl,
+    })
+    const references = (...names: string[]) => ({
+      type: 'tool_search_tool_result',
+      tool_use_id: 's1',
+      content: {
+        type: 'tool_search_tool_search_result',
+        tool_references: names.map((tool_name) => ({ type: 'tool_reference', tool_name })),
+      },
+    })
+
+    await provider.run(
+      ctxFor({
+        mcpServers: [github],
+        providerConfig: {
+          resumeMessages: [
+            { role: 'user', content: 'hola' },
+            {
+              role: 'assistant',
+              content: [
+                { type: 'server_tool_use', id: 's1', name: 'tool_search_tool_regex', input: {} },
+                references('memory-mcp__read_graph', 'github-mcp__get_me'),
+                { type: 'text', text: 'ya las tengo' },
+              ],
+            },
+            { role: 'user', content: 'Continuá.' },
+          ],
+        },
+      }),
+    )
+
+    const messages = api.bodies[0]?.messages as Array<{ content: unknown[] }>
+    expect(messages[1]?.content[1]).toEqual(references('github-mcp__get_me'))
+  })
+
   it('un MCP que no responde no tumba la corrida: el agente corre sin sus tools', async () => {
     const down = fakeMcpServer({ tools: [], initializeStatus: 502 })
     const api = anthropicApi([done])
