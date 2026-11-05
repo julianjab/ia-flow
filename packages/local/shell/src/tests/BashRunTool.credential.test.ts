@@ -37,8 +37,22 @@ describe('BashRunTool — gitCredential', () => {
       'git fetch origin',
       'git pull --ff-only origin main',
       'git ls-remote origin',
+      'git clone --depth 1 https://github.com/la-haus/subscriptions.git /tmp/subs',
     ]) {
       expect(await tool(async () => 'tok').handler({ command }), command).toContain('extraHeader')
+    }
+  })
+
+  it('refuses a credentialed clone that sets config or a template (could run a helper with the header)', async () => {
+    const t = tool(async () => 'tok')
+    for (const command of [
+      'git clone --config credential.helper=!x https://github.com/o/r.git d',
+      'git clone --config=core.fsmonitor=x https://github.com/o/r.git d',
+      'git clone --conf=core.fsmonitor=x https://github.com/o/r.git d',
+      'git clone -ccore.fsmonitor=x https://github.com/o/r.git d',
+      'git clone --template=/tmp/t https://github.com/o/r.git d',
+    ]) {
+      await expect(t.handler({ command }), command).rejects.toThrow(/bash_run:.*git clone/)
     }
   })
 

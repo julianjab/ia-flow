@@ -62,13 +62,14 @@ new BashRunTool({ baseDir, policy, gitCredential: () => auth.getToken() });
 ```
 
 Con esto el agente puede publicar su branch sin tener el token en disco ni en su entorno. Sólo los
-`git` de red (`push`, `fetch`, `pull`, `ls-remote`) reciben la credencial, como
+`git` de red (`push`, `fetch`, `pull`, `ls-remote`, `clone`) reciben la credencial, como
 `-c http.https://github.com/.extraHeader=…` en el argv de ESE comando: acotada a GitHub, pedida en
 cada llamada (los installation tokens rotan) y con los hooks apagados (`core.hooksPath=/dev/null`)
 — git pasa sus `-c` a los procesos hijos, y un hook versionado (`.husky/`) es editable por el
 agente. `git commit` y el resto corren sin credencial y con sus hooks. Con credencial, además, se
 rechazan las formas que podrían leerla o desviarla: opciones globales antes del subcomando
-(`-C`, `--git-dir`, `--namespace`…), `git var`, `--work-tree`/`--git-dir`/`--exec-path`.
+(`-C`, `--git-dir`, `--namespace`…), `git var`, `--work-tree`/`--git-dir`/`--exec-path`, y en
+`clone` su `--config`/`-c<k>=<v>` y `--template` (persisten config u hooks en el repo nuevo).
 
 ## La policy — `allow`/`deny`, `deny` siempre gana
 
