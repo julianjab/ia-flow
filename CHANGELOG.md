@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.36.0](https://github.com/julianjab/ia-flow/compare/v2.35.0...v2.36.0) (2026-11-05)
+
+
+### Features
+
+* **runner-v2:** notas por repo en el prompt de los agentes ([#370](https://github.com/julianjab/ia-flow/issues/370)) ([74d0d61](https://github.com/julianjab/ia-flow/commit/74d0d613a493414f4378c79e6c0a089bf670a5fb))
+
+
+### Bug Fixes
+
+* **shell:** git clone recibe la credencial de GitHub en bash_run ([#368](https://github.com/julianjab/ia-flow/issues/368)) ([18a5b51](https://github.com/julianjab/ia-flow/commit/18a5b511e816c6712160ddb84eb0f9777d81868f))
+
 ## [2.35.0](https://github.com/julianjab/ia-flow/compare/v2.34.0...v2.35.0) (2026-11-05)
 
 
