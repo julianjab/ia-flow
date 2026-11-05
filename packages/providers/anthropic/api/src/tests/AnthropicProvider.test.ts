@@ -512,6 +512,39 @@ describe('AnthropicProvider.run', () => {
         'mcp_tool_result',
       ])
     })
+
+    it('pairs an unanswered tool search left in a resumed conversation (subscriptions#2034)', async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse({ content: [{ type: 'text', text: 'listo' }], stop_reason: 'end_turn' }),
+        )
+
+      await providerWith(fetchImpl).run(
+        ctxFor({
+          providerConfig: {
+            resumeMessages: [
+              { role: 'user', content: 'hola' },
+              {
+                role: 'assistant',
+                content: [
+                  { type: 'thinking', thinking: 'x', signature: 's' },
+                  { type: 'server_tool_use', id: 's1', name: 'tool_search_tool_regex', input: {} },
+                ],
+              },
+              { role: 'user', content: 'Continuá.' },
+            ],
+          },
+        }),
+      )
+
+      const assistant = bodiesOf(fetchImpl)[0]?.messages[1] as { content: unknown[] }
+      expect(assistant.content.at(-1)).toEqual({
+        type: 'tool_search_tool_result',
+        tool_use_id: 's1',
+        content: { type: 'tool_search_tool_result_error', error_code: 'unavailable' },
+      })
+    })
   })
 
   it('throws once maxToolRounds is exceeded without converging', async () => {
@@ -1020,6 +1053,23 @@ describe('AnthropicProvider.run', () => {
         { type: 'tool_result', tool_use_id: 'tu_1', content: 'x' },
       ])
       // Nadie la leyó: queda en la bandeja para la vuelta siguiente.
+      expect(inbox).toEqual([['esperá']])
+    })
+
+    it('does not add text either while a server tool (the tool search) is pending', async () => {
+      const mixed = {
+        content: [
+          { type: 'tool_use', id: 'tu_1', name: 'noop', input: {} },
+          { type: 'server_tool_use', id: 's1', name: 'tool_search_tool_regex', input: {} },
+        ],
+        stop_reason: 'tool_use',
+      }
+      const inbox = [[], ['esperá']]
+      await provider([mixed, done]).run(ctxFor({ tools: [noop], inbox: () => inbox.shift() ?? [] }))
+
+      expect(bodies[1]?.messages.at(-1)?.content).toEqual([
+        { type: 'tool_result', tool_use_id: 'tu_1', content: 'x' },
+      ])
       expect(inbox).toEqual([['esperá']])
     })
   })
