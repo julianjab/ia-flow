@@ -183,24 +183,30 @@ final class AppModel: ObservableObject {
 }
 
 /// Corre `command` en iTerm: en una ventana nueva o, con `tab`, en una pestaña de la ventana del frente (una ventana
-/// nueva si no hay ninguna). El shell de login trae el PATH de siempre. false sin iTerm. `command` no debe traer
-/// comillas dobles: va adentro de un string de AppleScript.
+/// nueva si no hay ninguna). false sin iTerm.
+///
+/// La sesión abre el shell de login del perfil por defecto y el comando se le escribe (`write text`): al salir queda
+/// el mismo shell. No va como `command` de la sesión: iTerm lo guardaría en una copia del perfil que heredan sus
+/// splits, y ⌘D en esa pestaña volvería a correrlo.
 @discardableResult
 func runInITerm(_ command: String, tab: Bool = false) -> Bool {
     guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.googlecode.iterm2") != nil else { return false }
+    let text = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     let open = tab ? """
         if (count of windows) = 0 then
-            create window with default profile command "\(command)"
+            set s to current session of (create window with default profile)
         else
-            tell current window to create tab with default profile command "\(command)"
+            tell current window to set t to (create tab with default profile)
+            set s to current session of t
         end if
     """ : """
-        create window with default profile command "\(command)"
+        set s to current session of (create window with default profile)
     """
     let script = """
     tell application "iTerm"
         activate
     \(open)
+        tell s to write text "\(text)"
     end tell
     """
     let p = Process()

@@ -676,8 +676,8 @@ final class RunnerModel: ObservableObject {
         guard let ref = RunnerSearch.split(raw) else { return }
         let name = "\(ref.owner)/\(ref.repo)/" + (pr.map { "pr-\($0)" } ?? "issue-\(ref.number)")
         let command = "claude --worktree \(name)"
-        // Desde ~/development (donde el hook busca los clones), y al salir de Claude queda el shell: se ve si falló.
-        if !runInITerm("/bin/zsh -lc 'cd ~/development && \(command); exec /bin/zsh -l'", tab: true) {
+        // Desde ~/development (donde el hook busca los clones); al salir de Claude queda el shell: se ve si falló.
+        if !runInITerm("cd ~/development && \(command)", tab: true) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(command, forType: .string)
             toast?("Sin iTerm: el comando quedó copiado")
