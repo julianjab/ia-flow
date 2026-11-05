@@ -246,11 +246,12 @@ export function mountInbox(
     rerunReview: taskDesk.rerunReview,
     rerunStage: taskDesk.rerunStage,
     stop: taskDesk.stop,
-    resumeStage: (ref) =>
+    resumeStage: (ref, current) =>
       resumeStage(
         store.activity.eventsForTask(ref, RESUME_EVENTS),
         store.activity.executions({ taskRef: ref, limit: 1 })[0],
         cfg.inbox.statuses,
+        current,
       ),
     // Tras una acción desde la bandeja: la relectura va en segundo plano y avisa con lo que cambió.
     changed: (ref) => {

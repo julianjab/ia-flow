@@ -145,6 +145,7 @@ describe('what the inbox offers', () => {
 describe('running a declared action as the person', () => {
   function setup() {
     const calls: string[] = []
+    const asked: Array<string | undefined> = []
     const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       calls.push(`${init?.method ?? 'GET'} ${String(input)} ${init?.body ?? ''}`.trim())
       return Response.json(
@@ -174,11 +175,14 @@ describe('running a declared action as the person', () => {
       rerunReview: async () => 'ok',
       rerunStage: async () => 'ok',
       stop: () => 'ok',
-      resumeStage: () => 'Refine',
+      resumeStage: (_ref, current) => {
+        asked.push(current)
+        return 'Refine'
+      },
       changed: () => {},
       fetchImpl,
     })
-    return { actions, calls }
+    return { actions, calls, asked }
   }
 
   it('comments as a person, takes blocked off, and only then moves the card back', async () => {
@@ -195,6 +199,16 @@ describe('running a declared action as the person', () => {
       'DELETE https://api.github.com/repos/o/r/issues/1/labels/blocked',
       'BOARD {"Status":"Refine"}',
     ])
+  })
+
+  it('tells resumeStage the column the card is in now', async () => {
+    const { actions, asked } = setup()
+    await actions.run(
+      'o/r#1',
+      { action: 'answer_and_unblock', comment: 'Sólo upgrades.' },
+      { token: 't', login: 'julian' },
+    )
+    expect(asked).toEqual(['Blocked'])
   })
 
   it('rejects a missing required comment before asking GitHub anything', async () => {
