@@ -40,8 +40,9 @@ export interface TaskActionsOptions {
   rerunStage(ref: string, by: string): Promise<string>
   /** Le pide al agente que corre para la tarea que termine (suave: lo lee en su próxima vuelta). */
   stop(ref: string, by: string): string
-  /** La columna a la que vuelve una tarea trabada (la de la ejecución que falló), si se sabe. */
-  resumeStage(ref: string): string | undefined
+  /** La columna a la que vuelve una tarea trabada (la de la ejecución que falló), si se sabe.
+   *  `current` es la columna en la que está la card ahora. */
+  resumeStage(ref: string, current?: string): string | undefined
   /** Después de un cambio: que la bandeja relea el board. */
   changed(ref: string): void
   /** El comentario que la bandeja publicó a nombre de la persona ("Responder y destrabar"): el
@@ -158,11 +159,13 @@ export class TaskActions {
       ? await this.runDeclared(request.action, declared, ref, request, client, {
           projectId: item.project_id,
           login: github.login,
+          status: item.status,
         })
       : await this.apply(request, ref, client, {
           board: this.options.boards.writerFor(item.project_id, client),
           pr: item.pr?.number,
           login: github.login,
+          status: item.status,
         })
     this.log.info(`${github.login}: ${request.action} sobre ${ref} → ${message}`, {
       'ia.issue': ref,
@@ -181,10 +184,13 @@ export class TaskActions {
       board,
       pr,
       login,
+      status,
     }: {
       board: BoardWriter | undefined
       pr: number | undefined
       login: string
+      /** La columna en la que está la card. */
+      status: string | undefined
     },
   ): Promise<string> {
     const target = parseRef(ref)
@@ -227,7 +233,7 @@ export class TaskActions {
         // comentarios), después el label y por último la columna. `update_issue` cambia la columna
         // antes que los labels, así que en un solo update el evento de la columna llegaría con
         // `blocked` puesto y el pipeline de la etapa lo ignoraría.
-        const stage = this.options.resumeStage(ref)
+        const stage = this.options.resumeStage(ref, status)
         if (!stage) {
           throw new TaskActionError(
             `no sé a qué etapa devolver ${ref}: no encuentro la ejecución que falló`,
@@ -276,11 +282,11 @@ export class TaskActions {
     ref: string,
     request: TaskActionRequest,
     client: GithubClient,
-    who: { projectId: string; login: string },
+    who: { projectId: string; login: string; status: string | undefined },
   ): Promise<string> {
     const facts: TaskFacts | undefined = await this.options.inbox.taskFacts(ref)
     if (!facts) throw new TaskActionError(`${ref} no está en ningún board de este runner`, 404)
-    const stage = this.options.resumeStage(ref)
+    const stage = this.options.resumeStage(ref, who.status)
     const done = await runTaskAction({
       def,
       id,
