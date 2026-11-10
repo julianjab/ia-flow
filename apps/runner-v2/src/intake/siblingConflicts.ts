@@ -5,10 +5,17 @@
  * que quedó en conflicto. Sólo los del mismo repo y contra la misma base que el mergeado: un PR de
  * otro repo, o apilado sobre otra rama, no recibió ese merge.
  *
+ * Con `scope: 'board'` mira además cada task del board del mismo repo con PR abierto, sea o no
+ * hermana: cualquier merge a la base puede dejarla en conflicto. En subscriptions#2261 el merge de
+ * #2260 (sin épica en común) le metió cuatro conflictos a un PR en Build; el implementer de esa
+ * corrida ya había traído `main` y su `git fetch` no tenía credenciales en el host, así que cerró
+ * sin cambios, y nada lo volvió a disparar hasta que una persona lo tomó ~20 h después.
+ *
  * Un webhook repetido (un reintento de GitHub, un redelivery) no vuelve a avisar: lo ya avisado por
  * (PR mergeado, hermano) queda en `announced`.
  */
 import type { DomainEvent, PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { BoardCard } from '@ia-flow/github-tools'
 import type { EventFields } from '@ia-flow/github-webhook'
 import type { IssueRef, Resolved } from './parentEvents.js'
 
@@ -42,6 +49,9 @@ export interface SiblingPort {
     task: IssueRef & { pr: number },
     fields: EventFields,
   ): Promise<DomainEvent<unknown> | { skip: string }>
+  /** Con `scope: 'board'`: las tasks abiertas del board en `repo` (`owner/repo`) que tienen PR. Sin
+   *  esto, sólo los hermanos. */
+  boardTasks?(repo: string): Promise<IssueRef[]>
   /** Si el PR del hermano estaba apilado sobre el mergeado (`stacking`): ése recibe
    *  `issue.base_merged`, que ya trae la base, y no hace falta avisarle además del conflicto. */
   stackedOnMerged?(sibling: IssueRef): Promise<boolean>
@@ -110,6 +120,43 @@ async function conflicted(
   return { pr }
 }
 
+const CARD_REF = /^([^/]+)\/([^#]+)#(\d+)$/
+
+/** `boardTasks` sobre las cards del board: las de `repo` (`owner/repo`) que tienen PR. Que el PR
+ *  siga abierto lo confirma después `openPullOf`. */
+export function boardTasksWithPr(
+  cards: () => Promise<BoardCard[]>,
+): (repo: string) => Promise<IssueRef[]> {
+  return async (repo) =>
+    (await cards()).flatMap((card) => {
+      const match = CARD_REF.exec(card.ref)
+      if (!card.pr || !match?.[1] || !match[2] || !match[3]) return []
+      const task = { owner: match[1], repo: match[2], number: Number(match[3]) }
+      return `${task.owner}/${task.repo}`.toLowerCase() === repo.toLowerCase() ? [task] : []
+    })
+}
+
+/** A quién se le mira el conflicto: el hermano de la épica (con el hijo mergeado y la épica), o
+ *  una task cualquiera del board en el repo. */
+interface Candidate {
+  sibling: IssueRef
+  child?: IssueRef
+  epic?: IssueRef
+}
+
+/** Las tasks del board en `repo` con PR que no son hermanas ni las que cerró el merge. */
+async function boardCandidates(
+  port: SiblingPort,
+  repo: string,
+  exclude: Set<string>,
+): Promise<{ found: Candidate[]; skipped: string[] }> {
+  if (!port.boardTasks) return { found: [], skipped: ['el board no lista sus tasks'] }
+  const found = (await port.boardTasks(repo))
+    .filter((task) => !exclude.has(keyOf(task)))
+    .map((sibling) => ({ sibling }))
+  return { found, skipped: found.length === 0 ? [`ninguna otra task de ${repo} tiene PR`] : [] }
+}
+
 /** Los hermanos de cada hijo cerrado (sin repetir), con el hijo y la épica de cada uno. */
 async function siblingsOf(
   port: SiblingPort,
@@ -147,21 +194,59 @@ async function siblingsOf(
   return { found: [...found.values()], skipped }
 }
 
-/** `issue.pr_conflict` sobre cada hermano de la épica cuyo PR abierto quedó en conflicto con la
- *  base después del merge de `merged` (contra `base`, la branch en la que entró). */
+/** A quién se le mira el conflicto: los hermanos de la épica (`epic`, el default) o además
+ *  cualquier task del board en el repo con PR (`board`). */
+export type ConflictScope = 'epic' | 'board'
+
+/** Los candidatos del merge según `scope`: los hermanos primero (traen la épica), y en `board`
+ *  el resto de las tasks del repo con PR. */
+async function candidatesOf(
+  port: SiblingPort,
+  closed: IssueRef[],
+  repo: string,
+  scope: ConflictScope,
+): Promise<{ found: Candidate[]; skipped: string[] }> {
+  const siblings: { found: Candidate[]; skipped: string[] } =
+    closed.length > 0 ? await siblingsOf(port, closed, repo) : { found: [], skipped: [] }
+  if (scope !== 'board') return siblings
+  const exclude = new Set([...closed, ...siblings.found.map((c) => c.sibling)].map(keyOf))
+  const board = await boardCandidates(port, repo, exclude)
+  return {
+    found: [...siblings.found, ...board.found],
+    skipped: [...siblings.skipped, ...board.skipped],
+  }
+}
+
+/** Lo que viaja en `issue.pr_conflict`: el PR mergeado, y si es un hermano, el hijo y la épica. */
+function conflictExtra(mergedPr: string, { child, epic }: Candidate): Record<string, string> {
+  return {
+    mergedPr,
+    ...(child ? { mergedChild: refOf(child) } : {}),
+    ...(epic ? { epic: refOf(epic) } : {}),
+  }
+}
+
+/** `issue.pr_conflict` sobre cada hermano de la épica (o, con `scope: 'board'`, cada task del
+ *  board en el repo) cuyo PR abierto quedó en conflicto con la base después del merge de `merged`
+ *  (contra `base`, la branch en la que entró). */
 export async function notifySiblingConflicts(
   port: SiblingPort,
   ctx: PipelineExecutionContext,
   merged: { owner: string; repo: string; pr: number; base?: string },
+  scope: ConflictScope = 'epic',
 ): Promise<Resolved> {
   const closed = await port.closingIssues(merged.owner, merged.repo, merged.pr)
-  if (closed.length === 0) return { skipped: `PR #${merged.pr} no cierra ningún issue` }
+  if (closed.length === 0 && scope !== 'board') {
+    return { skipped: `PR #${merged.pr} no cierra ningún issue` }
+  }
   const mergedPr = `${merged.owner}/${merged.repo}#${merged.pr}`
-  const { found, skipped } = await siblingsOf(port, closed, `${merged.owner}/${merged.repo}`)
+  const repo = `${merged.owner}/${merged.repo}`
+  const { found, skipped } = await candidatesOf(port, closed, repo, scope)
   // En paralelo: cada uno puede esperar a que GitHub recalcule su `mergeable`. Uno que falla
   // (un 404 de su PR) no tira a los demás.
   const results = await Promise.all(
-    found.map(async ({ sibling, child, epic }) => {
+    found.map(async (candidate) => {
+      const { sibling } = candidate
       // Se reserva ANTES de esperar a GitHub: dos entregas del mismo merge casi juntas (un
       // reintento, un redelivery) no pasan las dos. Si no se publica, se suelta.
       const key = `${mergedPr.toLowerCase()}→${keyOf(sibling)}`
@@ -184,7 +269,7 @@ export async function notifySiblingConflicts(
                 { ...sibling, pr: hit.pr },
                 {
                   emit: PR_CONFLICT,
-                  extra: { mergedPr, mergedChild: refOf(child), epic: refOf(epic) },
+                  extra: conflictExtra(mergedPr, candidate),
                 },
               )
       } catch (err) {

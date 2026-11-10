@@ -8,6 +8,11 @@ type Payload = Record<string, unknown>
 
 const text = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
+/** `issue.pr_conflict`: qué entró a la base y, si fue un hermano de la épica, de quién. */
+function prConflict(payload: Payload): string {
+  return `El PR de esta tarea quedó en conflicto con la rama base: se mergeó ${text(payload.mergedPr)}${payload.mergedChild ? `, de ${text(payload.mergedChild)} (hermana en la épica ${text(payload.epic)})` : ''}. Traé la base (\`git fetch origin && git merge origin/<base>\`; el worktree ya arranca con \`origin/<base>\` al día, así que si tu \`git fetch\` no tiene credenciales mergeá ese), resolvé los conflictos conservando los dos cambios, corré la puerta previa al push y pusheá.`
+}
+
 export function eventMessage(type: string, payload: Payload): string {
   const pr = (payload.pr as { number?: number } | undefined)?.number
   const where = pr ? ` en el PR #${pr}` : ''
@@ -29,7 +34,7 @@ export function eventMessage(type: string, payload: Payload): string {
     case 'issue.child_closed':
       return `Se cerró el sub-issue ${text(payload.child)} (${text(payload.stateReason) || 'completed'}).`
     case 'issue.pr_conflict':
-      return `El PR de esta tarea quedó en conflicto con la rama base: se mergeó ${text(payload.mergedPr)}, de ${text(payload.mergedChild)} (hermana en la épica ${text(payload.epic)}). Traé la base (\`git fetch origin && git merge origin/<base>\`), resolvé los conflictos conservando los dos cambios, corré la puerta previa al push y pusheá.`
+      return prConflict(payload)
     case 'issue.base_merged':
       return `Se mergeó ${text(payload.mergedPr)}, el prerrequisito sobre cuya rama (\`${text(payload.from)}\`) estaba apilado el PR de esta tarea: ahora apunta a \`${text(payload.to)}\`. Traé esa rama (\`git fetch origin && git merge origin/${text(payload.to)}\`); en un conflicto sobre lo del prerrequisito vale lo que ya entró. Corré la puerta previa al push y pusheá.`
     case 'issue.child_labeled':
