@@ -36,7 +36,13 @@ import {
 import { blockersRefined, notifyBlockersRefined } from './refinedBlockers.js'
 import { notifyRelatedMerged } from './relatedMerged.js'
 import type { RepoPromptEntry } from './repoPrompts.js'
-import { Announced, notifySiblingConflicts, type SiblingPort } from './siblingConflicts.js'
+import {
+  Announced,
+  boardTasksWithPr,
+  type ConflictScope,
+  notifySiblingConflicts,
+  type SiblingPort,
+} from './siblingConflicts.js'
 import { locateSlack, type SlackLocateDeps } from './slack.js'
 import { stackedOn, taskStack } from './stack.js'
 import { taskPayload } from './task.js'
@@ -92,8 +98,10 @@ const Input = z.strictObject({
   notifyParentOfLabels: z.array(z.string().min(1)).min(1).optional(),
   /** En vez del evento de la task: `issue.pr_conflict` sobre cada hermano de la épica (mismo repo)
    *  cuyo PR abierto quedó en conflicto con la base por el merge de este PR, con `mergedPr`,
-   *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993). */
-  notifySiblingConflicts: z.boolean().optional(),
+   *  `mergedChild` y `epic`. GitHub no avisa cuando un PR pasa a `DIRTY` (subscriptions#1993).
+   *  Con `board`, además cada task abierta del board en ese repo con PR, sea o no hermana (sólo con
+   *  `mergedPr`): cualquier merge a la base puede dejarla en conflicto (subscriptions#2261). */
+  notifySiblingConflicts: z.union([z.boolean(), z.literal('board')]).optional(),
   /**
    * Qué tasks son de este runner: filas como el `when` de una pipeline (se combinan de izquierda a
    * derecha), contra el evento de la task YA armado —`item.labels`, `item.status`, `item.type`,
@@ -303,7 +311,10 @@ class ProjectResolver {
   ): Promise<Resolved> | undefined {
     if (input.unblockDependents) return this.unblocked(raw, ctx, when)
     if (input.notifyParent) return this.childClosed(raw, ctx, when)
-    if (input.notifySiblingConflicts) return this.siblingConflicts(raw, ctx, when)
+    if (input.notifySiblingConflicts) {
+      const scope = input.notifySiblingConflicts === 'board' ? 'board' : 'epic'
+      return this.siblingConflicts(raw, ctx, when, scope)
+    }
     if (input.notifyRelatedMerged) {
       return this.relatedMerged(raw, ctx, when, input.notifyRelatedMerged)
     }
@@ -761,6 +772,7 @@ class ProjectResolver {
     raw: Record<string, unknown>,
     ctx: PipelineExecutionContext,
     when: Condition[],
+    scope: ConflictScope,
   ): Promise<Resolved> {
     const merged = mergedPullRequest(raw)
     if ('skip' in merged) return { skipped: merged.skip }
@@ -769,10 +781,12 @@ class ProjectResolver {
     }
     // La branch en la que entró: un hermano apilado sobre otra no recibió este merge.
     const { base } = await this.reader.mergeability(merged.owner, merged.repo, merged.pr)
-    return notifySiblingConflicts(this.siblingPort(when, merged), ctx, {
-      ...merged,
-      ...(base ? { base } : {}),
-    })
+    return notifySiblingConflicts(
+      this.siblingPort(when, merged),
+      ctx,
+      { ...merged, ...(base ? { base } : {}) },
+      scope,
+    )
   }
 
   /** Lo que `notifySiblingConflicts` necesita de esta acción. */
@@ -795,6 +809,7 @@ class ProjectResolver {
           await reader.subIssues(parent.owner, parent.repo, parent.number),
           this.project.repos,
         ),
+      ...(this.project.cards ? { boardTasks: boardTasksWithPr(this.project.cards) } : {}),
       openPullOf: (task) => reader.openPullOf(task.owner, task.repo, task.number),
       mergeability: (owner, repo, pr) => reader.mergeability(owner, repo, pr),
       publish: (ctx, task, fields) => this.publish(ctx, task, fields, { when }),

@@ -746,6 +746,14 @@ stacking:
   (y el PR de la card desde la rama vinculada, en el board) son **sólo** de un proyecto con
   `stacking`: sin él, el intake y el board leen lo mismo que antes, sólo lo que GitHub vincula.
 
+**Un PR que queda en conflicto con la base.** GitHub no manda ningún evento cuando un PR pasa a
+`DIRTY`. `resolve_task` con `notifySiblingConflicts`, sobre el `pull_request` mergeado, mira el
+`mergeable` de los PRs abiertos contra la misma base y publica `issue.pr_conflict` (con `mergedPr`)
+sobre cada task que quedó en conflicto. Con `true`, sólo los hermanos de la épica del issue que cerró
+el merge (con `mergedChild` y `epic`). Con `board`, además cada task abierta del board en ese repo
+con PR, sea o no hermana (subscriptions#2261: un merge sin épica en común dejó un PR en Build en
+conflicto, y nada lo relanzó). Un mismo merge no avisa dos veces a la misma task.
+
 **Una épica que se entera de un hijo trabado.** `resolve_task` con `notifyParentOfLabels: [blocked]`
 publica `issue.child_labeled` (`child`, `label`) sobre el padre cuando un sub-issue recibe uno de
 esos labels, como `notifyParent` (`issue.child_closed`) y `notifyParentOfStatus`

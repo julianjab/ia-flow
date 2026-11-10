@@ -6,7 +6,7 @@ import {
   type PipelineExecutionContext,
 } from '@ia-flow/agent-engine'
 import type { GithubClient } from '@ia-flow/github-api'
-import type { GithubTaskReader } from '@ia-flow/github-tools'
+import type { BoardCard, GithubTaskReader } from '@ia-flow/github-tools'
 import { IssuesBoard } from '../board/IssuesBoard.js'
 import { ResolveTaskAction } from './ResolveTaskAction.js'
 
@@ -717,13 +717,17 @@ describe('resolve_task notifySiblingConflicts', () => {
     sender: { login: 'julian' },
   })
 
-  async function resolve(mergeable: boolean | null) {
+  async function resolve(
+    mergeable: boolean | null,
+    opts: { scope?: true | 'board'; closing?: number[]; cards?: BoardCard[] } = {},
+  ) {
     const base = reader([]) as unknown as Record<string, unknown>
     const fake = {
       ...base,
       withItemCache: () => fake,
       withStacking: () => fake,
-      closingIssues: async () => [{ owner: 'o', repo: 'r', number: 12 }],
+      closingIssues: async () =>
+        (opts.closing ?? [12]).map((number) => ({ owner: 'o', repo: 'r', number })),
       parentOf: async () => ({ owner: 'o', repo: 'r', number: 5 }),
       subIssues: async () => [
         { number: 12, state: 'open', repository_url: 'https://api.github.com/repos/o/r' },
@@ -746,8 +750,12 @@ describe('resolve_task notifySiblingConflicts', () => {
       bus,
       capabilities: { invoke: async () => ({ branch: 'feat/x' }) },
     } as unknown as PipelineExecutionContext
-    const action = new ResolveTaskAction(() => [project], fake as unknown as GithubTaskReader)
-    const result = await action.execute(action.input.parse({ notifySiblingConflicts: true }), ctx)
+    const withCards = opts.cards ? { ...project, cards: async () => opts.cards ?? [] } : project
+    const action = new ResolveTaskAction(() => [withCards], fake as unknown as GithubTaskReader)
+    const result = await action.execute(
+      action.input.parse({ notifySiblingConflicts: opts.scope ?? true }),
+      ctx,
+    )
     return { result, published }
   }
 
@@ -762,6 +770,30 @@ describe('resolve_task notifySiblingConflicts', () => {
       message: expect.stringContaining('quedó en conflicto con la rama base: se mergeó o/r#20'),
     })
     expect(published[0]?.scope).toMatchObject({ projectId: 'p', issue: 'o/r#7' })
+  })
+
+  it("with 'board', a board task outside the epic gets it too, without epic fields", async () => {
+    const card = {
+      ref: 'o/r#7',
+      projectId: 'p',
+      title: 't',
+      url: '',
+      labels: [],
+      updatedAt: '',
+      blockedBy: [],
+      pr: { number: 21, url: '' },
+    }
+    const { result, published } = await resolve(false, {
+      scope: 'board',
+      closing: [],
+      cards: [card],
+    })
+    expect(result).toEqual({ emitted: ['o/r#7'] })
+    expect(published[0]?.payload).not.toHaveProperty('epic')
+    expect(published[0]?.payload).toMatchObject({
+      mergedPr: 'o/r#20',
+      message: expect.stringContaining('se mergeó o/r#20. Traé la base'),
+    })
   })
 
   it('a sibling still mergeable gets nothing', async () => {
