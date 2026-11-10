@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.37.0](https://github.com/julianjab/ia-flow/compare/v2.36.0...v2.37.0) (2026-11-10)
+
+
+### Features
+
+* **runner-v2:** avisar del conflicto con la base a cualquier task del board ([#371](https://github.com/julianjab/ia-flow/issues/371)) ([7240cbb](https://github.com/julianjab/ia-flow/commit/7240cbbd3c42954c04ac357abced3deab1eb4128))
+
 ## [2.36.0](https://github.com/julianjab/ia-flow/compare/v2.35.0...v2.36.0) (2026-11-05)
 
 
