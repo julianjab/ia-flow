@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import type { PipelineExecutionContext } from '@ia-flow/agent-engine'
+import type { BoardCard } from '@ia-flow/github-tools'
 import type { EventFields } from '@ia-flow/github-webhook'
 import type { IssueRef } from './parentEvents.js'
-import { notifySiblingConflicts, PR_CONFLICT, type SiblingPort } from './siblingConflicts.js'
+import {
+  boardTasksWithPr,
+  notifySiblingConflicts,
+  PR_CONFLICT,
+  type SiblingPort,
+} from './siblingConflicts.js'
 
 const ref = (repo: string, number: number): IssueRef => ({ owner: 'la-haus', repo, number })
 const ctx = {} as PipelineExecutionContext
@@ -185,5 +191,92 @@ describe('notifySiblingConflicts', () => {
     expect(await notifySiblingConflicts(port, ctx, merged)).toEqual({
       skipped: 'PR #2000 no cierra ningún issue',
     })
+  })
+})
+
+describe("notifySiblingConflicts con scope: 'board'", () => {
+  /** #2261 en Build (PR #2261), sin épica en común con el mergeado; #1993 es el hermano. */
+  function boardPort(mergeable: Record<number, Array<boolean | null>>) {
+    const base = portOf(mergeable)
+    const openPullOf = base.port.openPullOf
+    base.port.openPullOf = async (task) => (task.number === 2242 ? 2261 : openPullOf(task))
+    base.port.boardTasks = async () => [
+      ref('subscriptions', 1992),
+      ref('subscriptions', 1993),
+      ref('subscriptions', 2242),
+    ]
+    return base
+  }
+
+  it('avisa a una task del board que no es hermana, sólo con el PR mergeado', async () => {
+    const { port, published } = boardPort({ 2261: [false] })
+
+    const result = await notifySiblingConflicts(port, ctx, merged, 'board')
+
+    expect(result).toEqual({ emitted: ['la-haus/subscriptions#2242'] })
+    expect(published).toEqual([
+      {
+        task: { ...ref('subscriptions', 2242), pr: 2261 },
+        fields: { emit: PR_CONFLICT, extra: { mergedPr: 'la-haus/subscriptions#2000' } },
+      },
+    ])
+  })
+
+  it('un hermano que también está en el board se avisa una vez, con la épica', async () => {
+    const { port, published, asked } = boardPort({ 2001: [false], 2261: [true] })
+
+    await notifySiblingConflicts(port, ctx, merged, 'board')
+
+    expect(published.map((p) => p.fields.extra)).toEqual([
+      {
+        mergedPr: 'la-haus/subscriptions#2000',
+        mergedChild: 'la-haus/subscriptions#1992',
+        epic: 'la-haus/subscriptions#1991',
+      },
+    ])
+    expect(asked.filter((pr) => pr === 2001)).toHaveLength(1)
+  })
+
+  it('un merge que no cierra ningún issue igual mira el board', async () => {
+    const { port, published } = boardPort({ 2261: [false] })
+    port.closingIssues = async () => []
+
+    const result = await notifySiblingConflicts(port, ctx, merged, 'board')
+
+    expect(result).toEqual({ emitted: ['la-haus/subscriptions#2242'] })
+    expect(published).toHaveLength(1)
+  })
+
+  it("sin scope (o 'epic') no mira el board", async () => {
+    const { port, published } = boardPort({ 2261: [false] })
+    port.closingIssues = async () => [ref('subscriptions', 5)]
+
+    await notifySiblingConflicts(port, ctx, merged)
+
+    expect(published).toEqual([])
+  })
+})
+
+describe('boardTasksWithPr', () => {
+  const card = (ref: string, pr?: number): BoardCard =>
+    ({
+      ref,
+      projectId: 'p',
+      title: ref,
+      url: '',
+      labels: [],
+      updatedAt: '',
+      blockedBy: [],
+      ...(pr ? { pr: { number: pr, url: '' } } : {}),
+    }) as BoardCard
+
+  it('las cards del repo con PR', async () => {
+    const tasks = boardTasksWithPr(async () => [
+      card('la-haus/subscriptions#2242', 2261),
+      card('la-haus/subscriptions#2250'),
+      card('la-haus/lh-seller-v2-frontend#77', 90),
+    ])
+
+    expect(await tasks('La-Haus/subscriptions')).toEqual([ref('subscriptions', 2242)])
   })
 })
