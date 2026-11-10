@@ -43,9 +43,11 @@ export default defineAction({
             const [root] = await ctx.services.slack.replies({ channel, ts: threadTs })
             if (!root) return undefined
             const botId = await ctx.services.slack.botUserId().catch(() => undefined)
+            const fromSelf = botId !== undefined && root.user === botId
             return {
               text: root.text ?? '',
-              fromBot: root.bot_id !== undefined || (botId !== undefined && root.user === botId),
+              fromBot: root.bot_id !== undefined || fromSelf,
+              fromSelf,
             }
           },
           permalink: (channel, ts) => ctx.services.slack.permalink(channel, ts),

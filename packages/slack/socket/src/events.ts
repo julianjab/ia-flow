@@ -1,7 +1,9 @@
 /**
  * De un payload crudo de la Events API de Slack a lo que el runner necesita — puro, sin I/O.
- * Sólo pasan los mensajes de PERSONAS: los de un bot, los editados o borrados (`subtype`) y los
- * del propio bot se descartan acá, para que lo que el agente publique nunca lo despierte de nuevo.
+ * Pasan los mensajes de PERSONAS y, de otros bots, sólo las RESPUESTAS dentro de un hilo: los
+ * reviewers son agentes (bots de Slack) y contestan en el hilo del pedido de review. El resto de lo
+ * que publica un bot (mensajes sueltos, raíces de hilo), lo editado o borrado (`subtype`) y lo del
+ * propio bot se descarta acá, para que lo que el agente publique nunca lo despierte de nuevo.
  */
 
 /** Un mensaje humano que le importa al runner: una mención al bot o un mensaje (de hilo o no). */
@@ -22,12 +24,15 @@ export interface SlackSocketEvent {
   isThreadReply: boolean
   /** Los ids de Slack mencionados en el texto (`<@U…>`), sin repetir. */
   mentions: string[]
+  /** Lo publicó otro bot (un agente reviewer), no una persona. Sólo pasa si es respuesta de hilo. */
+  fromBot: boolean
 }
 
 interface RawSlackEvent {
   type?: unknown
   subtype?: unknown
   bot_id?: unknown
+  bot_profile?: unknown
   user?: unknown
   text?: unknown
   channel?: unknown
@@ -53,9 +58,22 @@ export function stripMention(text: string, userId: string): string {
 }
 
 /**
- * El payload de un envelope `events_api` como `SlackSocketEvent`, o `undefined` si no es un
- * mensaje humano que valga la pena: otro tipo de evento, un bot, un `subtype` (edición, borrado,
- * join…), el propio bot (`botUserId`) o uno sin texto, canal o autor.
+ * Quién escribió, o `undefined` si el `subtype` lo descarta (edición, borrado, join…). Un bot que
+ * publica con su token trae `bot_id` y su usuario en `user`; uno viejo (webhook, `subtype:
+ * bot_message`) sólo `bot_id`: ahí el autor es el `bot_id`.
+ */
+function authorOf(event: RawSlackEvent): { user: string; fromBot: boolean } | undefined {
+  const botId = str(event.bot_id)
+  const fromBot = botId !== undefined
+  if (event.subtype !== undefined && !(fromBot && event.subtype === 'bot_message')) return undefined
+  const user = str(event.user) ?? botId
+  return user ? { user, fromBot } : undefined
+}
+
+/**
+ * El payload de un envelope `events_api` como `SlackSocketEvent`, o `undefined` si no vale la
+ * pena: otro tipo de evento, un `subtype` descartado (`authorOf`), un bot que no contesta en un
+ * hilo, el propio bot (`botUserId`) o uno sin texto, canal o autor.
  */
 export function parseSlackEvent(
   payload: unknown,
@@ -65,24 +83,26 @@ export function parseSlackEvent(
   const event = body?.event
   if (!event) return undefined
   if (event.type !== 'app_mention' && event.type !== 'message') return undefined
-  if (event.subtype !== undefined || event.bot_id !== undefined) return undefined
-  const user = str(event.user)
+  const author = authorOf(event)
   const channel = str(event.channel)
   const ts = str(event.ts)
   const text = typeof event.text === 'string' ? event.text : undefined
   const eventId = str(body?.event_id)
-  if (!user || !channel || !ts || !text || !eventId) return undefined
-  if (user === options.botUserId) return undefined
+  if (!author || !channel || !ts || !text || !eventId) return undefined
+  if (author.user === options.botUserId) return undefined
   const threadTs = str(event.thread_ts)
+  const isThreadReply = threadTs !== undefined && threadTs !== ts
+  if (author.fromBot && (!isThreadReply || event.type !== 'message')) return undefined
   return {
     kind: event.type,
     eventId,
     channel,
-    user,
+    user: author.user,
     text,
     ts,
     ...(threadTs ? { threadTs } : {}),
-    isThreadReply: threadTs !== undefined && threadTs !== ts,
+    isThreadReply,
     mentions: parseMentions(text),
+    fromBot: author.fromBot,
   }
 }

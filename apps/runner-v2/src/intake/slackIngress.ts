@@ -4,7 +4,7 @@
  * Acá no se interpreta nada: qué mensaje es un pedido, de qué task es un hilo y quién lo atiende es
  * trabajo de las pipelines de entrada (`on: [slack.message]`), igual que con GitHub.
  *
- *   @ia-flow/slack-socket (ack, dedupe, sin bots) → engine.dispatch(slack.message)
+ *   @ia-flow/slack-socket (ack, dedupe, bots sólo en hilos) → engine.dispatch(slack.message)
  *
  * Si ninguna pipeline escucha `slack.message` el mensaje se descarta en silencio: el bot recibe TODO
  * lo que se escribe en sus canales y anotarlo cada vez sólo haría ruido.
@@ -55,6 +55,7 @@ export function slackMessageEvent(
       ts: event.ts,
       ...(event.threadTs ? { threadTs: event.threadTs } : {}),
       isThreadReply: event.isThreadReply,
+      fromBot: event.fromBot,
       kind: event.kind,
       eventId: event.eventId,
       mentions: event.mentions,
@@ -79,7 +80,7 @@ export async function startSlackIngress(
 ): Promise<SlackIngress | undefined> {
   const { log } = options
   // El id del bot hace falta para no despertarse con lo que uno mismo publica; sin bot token se
-  // sigue igual (los mensajes de bots ya se descartan por `bot_id`).
+  // sigue igual (de otros bots sólo pasan las respuestas de hilo, `parseSlackEvent`).
   const botUserId = slack.enabled ? await slack.botUserId().catch(() => undefined) : undefined
 
   const dispatch = async (event: SlackSocketEvent) => {

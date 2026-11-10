@@ -19,8 +19,12 @@ type Raw = Record<string, unknown>
 
 /** Lo que necesita de Slack: el mensaje raíz de un hilo, su link y el nombre de alguien. */
 export interface SlackThreadPort {
-  /** El mensaje que abrió el hilo; `fromBot`: lo publicó el bot (no una persona). */
-  rootOf(channel: string, threadTs: string): Promise<{ text: string; fromBot: boolean } | undefined>
+  /** El mensaje que abrió el hilo; `fromBot`: lo publicó un bot (no una persona); `fromSelf`: lo
+   *  publicó ESTE runner (su `request_slack_review`). */
+  rootOf(
+    channel: string,
+    threadTs: string,
+  ): Promise<{ text: string; fromBot: boolean; fromSelf?: boolean } | undefined>
   permalink(channel: string, ts: string): Promise<string>
   userName(userId: string): Promise<string>
 }
@@ -54,6 +58,12 @@ export async function locateSlack(raw: Raw, deps: SlackLocateDeps): Promise<Loca
   }
   const root = await deps.threads.rootOf(channel, threadTs)
   if (!root?.fromBot) return { skip: 'el hilo no es un pedido del bot' }
+  // La respuesta de otro bot (un agente reviewer) sólo cuenta en un hilo que abrió ESTE runner: en
+  // el canal de agentes los bots conversan entre sí en hilos que también linkean PRs, y cada uno de
+  // esos mensajes no puede volverse un comentario de la task.
+  if (raw.fromBot === true && root.fromSelf !== true) {
+    return { skip: 'la respuesta de un bot en un hilo que no abrió este runner' }
+  }
   const pr = PR_URL.exec(root.text)
   const issue = ISSUE_REF.exec(root.text)
   if (!pr && !issue) return { skip: 'el mensaje que abrió el hilo no trae un issue ni un PR' }

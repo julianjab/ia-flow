@@ -29,8 +29,10 @@ socket.stop()
 - **Ack inmediato** de cada envelope (Slack reintenta lo que no se confirma en 3 s).
 - **Una entrega por mensaje**: Slack manda `app_mention` Y `message` para la misma mención, y repite
   el evento si reintenta — se deduplica por `event_id` y por `canal:ts`.
-- **Sólo mensajes humanos**: se descartan los de bots (`bot_id`), los editados o borrados
-  (`subtype`) y los del propio bot (`botUserId`), para que lo que el agente publique no lo despierte.
+- **Personas, y bots sólo en hilos**: de otros bots (`bot_id`) pasan únicamente las respuestas
+  dentro de un hilo —los reviewers son agentes y contestan en el hilo del pedido— marcadas con
+  `fromBot`. Se descartan los editados o borrados (`subtype`) y los del propio bot (`botUserId`),
+  para que lo que el agente publique no lo despierte.
 - **Reconexión sola** cuando Slack cierra la conexión (`disconnect`, cada pocas horas) o se cae, con
   espera creciente (1 s → 30 s). `start()` tira si la PRIMERA conexión no se puede abrir.
 - Un `onEvent` que tira se loguea y no corta la conexión.
