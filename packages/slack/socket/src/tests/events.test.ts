@@ -50,9 +50,14 @@ describe('parseSlackEvent', () => {
 
   describe('another bot', () => {
     const reply = { type: 'message', thread_ts: '99.0', bot_id: 'B1', user: 'UGORDO' }
+    const self = { botUserId: 'UBOT' }
+
+    it('drops every bot message when its own id is unknown (it could be its own: a loop)', () => {
+      expect(parseSlackEvent(payload(reply))).toBeUndefined()
+    })
 
     it('passes its reply inside a thread, marked as fromBot (a reviewer answering a review request)', () => {
-      expect(parseSlackEvent(payload(reply))).toMatchObject({
+      expect(parseSlackEvent(payload(reply), self)).toMatchObject({
         kind: 'message',
         user: 'UGORDO',
         isThreadReply: true,
@@ -62,20 +67,25 @@ describe('parseSlackEvent', () => {
 
     it('uses the bot_id as author for a legacy bot_message without user', () => {
       expect(
-        parseSlackEvent(payload({ ...reply, user: undefined, subtype: 'bot_message' })),
+        parseSlackEvent(payload({ ...reply, user: undefined, subtype: 'bot_message' }), self),
       ).toMatchObject({ user: 'B1', fromBot: true })
     })
 
     it('drops its messages outside a thread, its thread roots and its mentions', () => {
-      expect(parseSlackEvent(payload({ ...reply, thread_ts: undefined }))).toBeUndefined()
-      expect(parseSlackEvent(payload({ ...reply, thread_ts: '100.1' }))).toBeUndefined()
-      expect(parseSlackEvent(payload({ ...reply, type: 'app_mention' }))).toBeUndefined()
+      expect(parseSlackEvent(payload({ ...reply, thread_ts: undefined }), self)).toBeUndefined()
+      expect(parseSlackEvent(payload({ ...reply, thread_ts: '100.1' }), self)).toBeUndefined()
+      expect(parseSlackEvent(payload({ ...reply, type: 'app_mention' }), self)).toBeUndefined()
     })
 
     it('drops its edits, and a bot_message subtype from a person', () => {
-      expect(parseSlackEvent(payload({ ...reply, subtype: 'message_changed' }))).toBeUndefined()
       expect(
-        parseSlackEvent(payload({ type: 'message', thread_ts: '99.0', subtype: 'bot_message' })),
+        parseSlackEvent(payload({ ...reply, subtype: 'message_changed' }), self),
+      ).toBeUndefined()
+      expect(
+        parseSlackEvent(
+          payload({ type: 'message', thread_ts: '99.0', subtype: 'bot_message' }),
+          self,
+        ),
       ).toBeUndefined()
     })
 

@@ -10,7 +10,7 @@ const ROOT =
   '<@U1> porfavor revisar\nhttps://github.com/la-haus/subscriptions/pull/12\nIssue: la-haus/subscriptions#7'
 
 function thread(
-  root: { text: string; fromBot: boolean; fromSelf?: boolean } | null = {
+  root: { text: string; fromBot: boolean; fromSelf?: boolean; author?: string } | null = {
     text: ROOT,
     fromBot: true,
   },
@@ -53,6 +53,13 @@ describe('locateSlack', () => {
       await locateSlack(reply({ author: 'UGORDO', fromBot: true }), { threads: port }),
     ).toEqual({
       skip: 'la respuesta de un bot en un hilo que no abrió este runner',
+    })
+  })
+
+  it('skips the reply of the same bot that opened the thread (the runner answering itself)', async () => {
+    const { port } = thread({ text: ROOT, fromBot: true, fromSelf: true, author: 'UBOT' })
+    expect(await locateSlack(reply({ author: 'UBOT', fromBot: true }), { threads: port })).toEqual({
+      skip: 'la respuesta del mismo bot que abrió el hilo',
     })
   })
 
