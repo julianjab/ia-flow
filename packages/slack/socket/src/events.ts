@@ -73,7 +73,7 @@ function authorOf(event: RawSlackEvent): { user: string; fromBot: boolean } | un
 /**
  * El payload de un envelope `events_api` como `SlackSocketEvent`, o `undefined` si no vale la
  * pena: otro tipo de evento, un `subtype` descartado (`authorOf`), un bot que no contesta en un
- * hilo, el propio bot (`botUserId`) o uno sin texto, canal o autor.
+ * hilo, el propio bot (`botUserId`; sin él, ningún bot) o uno sin texto, canal o autor.
  */
 export function parseSlackEvent(
   payload: unknown,
@@ -93,6 +93,9 @@ export function parseSlackEvent(
   const threadTs = str(event.thread_ts)
   const isThreadReply = threadTs !== undefined && threadTs !== ts
   if (author.fromBot && (!isThreadReply || event.type !== 'message')) return undefined
+  // Sin el id del propio bot no hay cómo distinguir sus mensajes de los de otro bot: dejarlos pasar
+  // haría que lo que el runner publica en el hilo lo vuelva a despertar, en bucle.
+  if (author.fromBot && !options.botUserId) return undefined
   return {
     kind: event.type,
     eventId,

@@ -24,7 +24,7 @@ export interface SlackThreadPort {
   rootOf(
     channel: string,
     threadTs: string,
-  ): Promise<{ text: string; fromBot: boolean; fromSelf?: boolean } | undefined>
+  ): Promise<{ text: string; fromBot: boolean; fromSelf?: boolean; author?: string } | undefined>
   permalink(channel: string, ts: string): Promise<string>
   userName(userId: string): Promise<string>
 }
@@ -47,6 +47,25 @@ export function replyInstructions(channel: string, thread: string): string {
   return `Este pedido llegó por Slack, en el hilo ${thread}. Al terminar, contestá en ese hilo con \`slack_post_message\` (channel: \`${channel}\`, thread: \`${thread}\`) contando qué cambiaste, o por qué no pudiste.`
 }
 
+/**
+ * Por qué la respuesta de un bot (un agente reviewer) no cuenta, o `undefined` si cuenta. Sólo en
+ * un hilo que abrió ESTE runner: en el canal de agentes los bots conversan entre sí en hilos que
+ * también linkean PRs, y cada uno de esos mensajes no puede volverse un comentario de la task. Y
+ * nunca la del mismo bot que abrió el hilo (el runner contestándose: un bucle).
+ */
+function botReplySkip(
+  fromBot: boolean,
+  root: { fromSelf?: boolean; author?: string },
+  author: string,
+): string | undefined {
+  if (!fromBot) return undefined
+  if (root.fromSelf !== true) return 'la respuesta de un bot en un hilo que no abrió este runner'
+  if (root.author !== undefined && root.author === author) {
+    return 'la respuesta del mismo bot que abrió el hilo'
+  }
+  return undefined
+}
+
 export async function locateSlack(raw: Raw, deps: SlackLocateDeps): Promise<Location> {
   const channel = text(raw.channel)
   const threadTs = text(raw.threadTs)
@@ -58,12 +77,8 @@ export async function locateSlack(raw: Raw, deps: SlackLocateDeps): Promise<Loca
   }
   const root = await deps.threads.rootOf(channel, threadTs)
   if (!root?.fromBot) return { skip: 'el hilo no es un pedido del bot' }
-  // La respuesta de otro bot (un agente reviewer) sólo cuenta en un hilo que abrió ESTE runner: en
-  // el canal de agentes los bots conversan entre sí en hilos que también linkean PRs, y cada uno de
-  // esos mensajes no puede volverse un comentario de la task.
-  if (raw.fromBot === true && root.fromSelf !== true) {
-    return { skip: 'la respuesta de un bot en un hilo que no abrió este runner' }
-  }
+  const botSkip = botReplySkip(raw.fromBot === true, root, author)
+  if (botSkip) return { skip: botSkip }
   const pr = PR_URL.exec(root.text)
   const issue = ISSUE_REF.exec(root.text)
   if (!pr && !issue) return { skip: 'el mensaje que abrió el hilo no trae un issue ni un PR' }

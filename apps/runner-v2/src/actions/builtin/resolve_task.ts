@@ -48,6 +48,7 @@ export default defineAction({
               text: root.text ?? '',
               fromBot: root.bot_id !== undefined || fromSelf,
               fromSelf,
+              ...(root.user ? { author: root.user } : {}),
             }
           },
           permalink: (channel, ts) => ctx.services.slack.permalink(channel, ts),
