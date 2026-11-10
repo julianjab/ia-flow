@@ -9,7 +9,12 @@ import { locateSlack, type SlackThreadPort } from './slack.js'
 const ROOT =
   '<@U1> porfavor revisar\nhttps://github.com/la-haus/subscriptions/pull/12\nIssue: la-haus/subscriptions#7'
 
-function thread(root: { text: string; fromBot: boolean } | null = { text: ROOT, fromBot: true }) {
+function thread(
+  root: { text: string; fromBot: boolean; fromSelf?: boolean } | null = {
+    text: ROOT,
+    fromBot: true,
+  },
+) {
   const calls: string[] = []
   const port: SlackThreadPort = {
     rootOf: async (channel, threadTs) => {
@@ -34,6 +39,28 @@ const reply = (extra: Record<string, unknown> = {}) => ({
 })
 
 describe('locateSlack', () => {
+  it('takes the reply of a reviewer agent (a bot) in a thread this runner opened', async () => {
+    const { port } = thread({ text: ROOT, fromBot: true, fromSelf: true })
+    const location = await locateSlack(reply({ author: 'UGORDO', fromBot: true }), {
+      threads: port,
+    })
+    expect(location).toMatchObject({ owner: 'la-haus', repo: 'subscriptions', number: 7, pr: 12 })
+  })
+
+  it('skips the reply of a bot in a thread another bot opened (agents talking among themselves)', async () => {
+    const { port } = thread({ text: ROOT, fromBot: true, fromSelf: false })
+    expect(
+      await locateSlack(reply({ author: 'UGORDO', fromBot: true }), { threads: port }),
+    ).toEqual({
+      skip: 'la respuesta de un bot en un hilo que no abrió este runner',
+    })
+  })
+
+  it('still takes a person replying in a thread another bot opened', async () => {
+    const { port } = thread({ text: ROOT, fromBot: true, fromSelf: false })
+    expect(await locateSlack(reply(), { threads: port })).toMatchObject({ number: 7 })
+  })
+
   it('turns a reply in the bot thread into a comment on the issue, from the thread itself', async () => {
     const { port } = thread()
     const location = await locateSlack(reply(), {

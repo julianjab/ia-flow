@@ -27,6 +27,7 @@ const human = (extra: Partial<SlackSocketEvent> = {}): SlackSocketEvent => ({
   ts: '10.1',
   isThreadReply: false,
   mentions: ['UBOT'],
+  fromBot: false,
   ...extra,
 })
 
@@ -54,6 +55,12 @@ describe('slackMessageEvent', () => {
       isThreadReply: true,
       mentionsBot: false,
     })
+  })
+
+  it('carries fromBot, so a pipeline can tell a reviewer agent from a person', () => {
+    const reply = human({ kind: 'message', threadTs: '9.0', isThreadReply: true, fromBot: true })
+    expect(slackMessageEvent(reply, 'UBOT').payload).toMatchObject({ fromBot: true })
+    expect(slackMessageEvent(human(), 'UBOT').payload).toMatchObject({ fromBot: false })
   })
 })
 
