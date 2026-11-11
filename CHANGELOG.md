@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.38.0](https://github.com/julianjab/ia-flow/compare/v2.37.0...v2.38.0) (2026-11-11)
+
+
+### Features
+
+* las tools le muestran imágenes al modelo, y view_image para el asistente ([#374](https://github.com/julianjab/ia-flow/issues/374)) ([f60720b](https://github.com/julianjab/ia-flow/commit/f60720b0a1768c2b3a783cdf37758771a756ea18))
+* **web:** «Pedir diseño» y el estado del diseño en el PRD por aprobar de claw-agents ([#373](https://github.com/julianjab/ia-flow/issues/373)) ([8c28c23](https://github.com/julianjab/ia-flow/commit/8c28c23bfaf2e339df57923bb757ce882587996b))
+
 ## [2.37.0](https://github.com/julianjab/ia-flow/compare/v2.36.0...v2.37.0) (2026-11-10)
 
 
