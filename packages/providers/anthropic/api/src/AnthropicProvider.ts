@@ -1,4 +1,10 @@
-import type { Provider, ProviderRunContext, ProviderRunOutput, Tool } from '@ia-flow/agent-engine'
+import {
+  type Provider,
+  type ProviderRunContext,
+  type ProviderRunOutput,
+  type Tool,
+  toolContentText,
+} from '@ia-flow/agent-engine'
 import { createLogger, traced } from '@ia-flow/telemetry'
 import {
   AnthropicClient,
@@ -9,7 +15,7 @@ import {
   type AnthropicRetryInfo,
   type AnthropicSendOptions,
 } from './AnthropicClient.js'
-import { buildContextManagement, CONTEXT_MANAGEMENT_BETA, clipToolResult } from './context.js'
+import { buildContextManagement, CONTEXT_MANAGEMENT_BETA, toolResultContent } from './context.js'
 import {
   awaitsServerCalls,
   dropUnknownToolReferences,
@@ -422,7 +428,7 @@ export class AnthropicProvider implements Provider {
         await Promise.all(toolUseBlocks.map((block) => this.executeTool(block, tools)))
       ).map((result) => ({
         ...result,
-        content: clipToolResult(result.content, cfg.maxToolResultChars),
+        content: toolResultContent(result.content, cfg.maxToolResultChars),
       }))
       // Una tool terminal que devolvió OK (`submit_<salida>` validado) cierra el turno ahí: no
       // hace falta otra vuelta a la API para que el modelo diga "listo".
@@ -557,7 +563,7 @@ export class AnthropicProvider implements Provider {
   private async executeTool(block: AnthropicContentBlock, tools: Tool[]): Promise<ToolResultBlock> {
     const { onToolCall, onToolResult } = this.options
     const finish = (content: string, isError: boolean): ToolResultBlock => {
-      onToolResult?.(block.name ?? '', content, block.id)
+      onToolResult?.(block.name ?? '', toolContentText(content), block.id)
       return {
         type: 'tool_result',
         tool_use_id: block.id,

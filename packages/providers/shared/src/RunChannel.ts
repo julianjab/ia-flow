@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type Tool, WAIT_TOOL_NAME } from '@ia-flow/agent-engine'
+import { type Tool, toolContentText, WAIT_TOOL_NAME } from '@ia-flow/agent-engine'
 import {
   type Context,
   createLogger,
@@ -117,7 +117,8 @@ export class RunChannel {
       { parent: this.options.parent, scope: SCOPE },
     )
     try {
-      const text = await tool.handler(args ?? {})
+      // Sin imágenes: este canal sólo lleva texto (`toolContent` de agent-engine).
+      const text = toolContentText(await tool.handler(args ?? {}))
       span.setAttribute('ia.tool.result', truncate(text))
       if (tool.terminal) {
         this.endingValue ??= endingOf(tool)

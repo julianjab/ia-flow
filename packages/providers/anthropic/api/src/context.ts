@@ -10,6 +10,7 @@
  *     conversación pasa un umbral. Nosotros seguimos guardando el historial entero, así que
  *     checkpoints y reanudaciones no cambian.
  */
+import { parseToolContent } from '@ia-flow/agent-engine'
 import type { AnthropicClearToolUsesConfig } from './runConfig.js'
 
 export const CONTEXT_MANAGEMENT_BETA = 'context-management-2025-06-27'
@@ -59,4 +60,30 @@ export function clipToolResult(content: string, maxChars: number): string {
   return `${content.slice(0, maxChars)}
 
 [Resultado recortado: se muestran los primeros ${maxChars} de ${content.length} caracteres. No pidas el contenido entero otra vez: pedí sólo la parte que necesitás (un rango de líneas, una búsqueda por texto o por símbolo).]`
+}
+
+/** Un bloque del `content` de un `tool_result` que lleva imágenes. */
+export type ToolResultContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+
+/**
+ * Lo que entra a la conversación por el resultado de una tool: el texto recortado, o —si la tool
+ * devolvió imágenes (`toolContent` de agent-engine)— sus bloques, con cada texto recortado y las
+ * imágenes enteras (el modelo las ve; la traza no: lee `toolContentText`).
+ */
+export function toolResultContent(
+  content: string,
+  maxChars: number,
+): string | ToolResultContentBlock[] {
+  const blocks = parseToolContent(content)
+  if (!blocks) return clipToolResult(content, maxChars)
+  return blocks.map((block) =>
+    block.type === 'text'
+      ? { type: 'text', text: clipToolResult(block.text, maxChars) }
+      : {
+          type: 'image',
+          source: { type: 'base64', media_type: block.mediaType, data: block.data },
+        },
+  )
 }
