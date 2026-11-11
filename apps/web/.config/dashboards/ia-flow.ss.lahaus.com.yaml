@@ -86,8 +86,18 @@ decisions:
     chips:
       - { text: sin bloqueos, when: [ { field: task.blocked_by, op: eq, value: 0 } ] }
       - { text: 'destraba {{task.unlocks}}', tone: hot, when: [ { field: task.unlocks, op: gt, value: 0 } ] }
+      # El designer (front y app móvil) deja su paquete en Refined: una propuesta sin Figma se
+      # aprueba con la misma acción que el PRD (pasar a Build).
+      - text: propuesta de diseño — aprobar el PRD la aprueba
+        tone: warn
+        when: [ { field: item.labels, op: contains, value: design-proposal } ]
+      - text: con paquete de diseño
+        when:
+          - { field: item.labels, op: contains, value: design-ready }
+          - { field: item.labels, op: notContains, value: design-proposal, logic: and }
     said: '{{run.summary}}'
-    actions: [ approve_prd, back_to_refine ]
+    # `request_design` («Pedir diseño») sólo lo ofrece el runner en los repos con designer.
+    actions: [ approve_prd, request_design, back_to_refine ]
     primary: approve_prd
 
   # Esperar a otro issue no es una decisión: se ve en la cola, pero un PR listo para mergear
