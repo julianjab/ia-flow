@@ -31,6 +31,7 @@ import {
   ReviewPullRequestAction,
   UpdateIssueAction,
   UpdateIssueBodyAction,
+  ViewImageAction,
 } from '@ia-flow/github-tools'
 import { type ActionContext, defineAction } from '../defineAction.js'
 import { projectOf } from './project.js'
@@ -91,6 +92,30 @@ export default [
   ),
   withClient('merge_pr', (ctx) => new MergePullRequestAction({ client: ctx.services.github })),
   withClient('react_to_comment', (ctx) => new ReactToCommentAction(ctx.services.github)),
+  // Una imagen para el modelo (`toolContent`): de un repo de los proyectos del runner, con su
+  // credencial, o de los hosts de Figma (`options.hosts` los pisa). La usa el asistente de diseño.
+  defineAction({
+    id: 'view_image',
+    create: (ctx) => {
+      const repos = new Set(
+        ctx
+          .projects()
+          .flatMap((project) =>
+            project.repos.map((r) =>
+              `${r.githubOwner ?? project.board.owner}/${r.githubRepo ?? r.name}`.toLowerCase(),
+            ),
+          ),
+      )
+      const hosts = Array.isArray(ctx.options.hosts)
+        ? ctx.options.hosts.filter((h): h is string => typeof h === 'string')
+        : undefined
+      return new ViewImageAction({
+        client: ctx.services.github,
+        allowRepo: (owner, repo) => repos.has(`${owner}/${repo}`.toLowerCase()),
+        ...(hosts ? { hosts } : {}),
+      })
+    },
+  }),
   withClient(
     'update_issue_body',
     // El link del hilo de review (`request_slack_review`) sobrevive a que un agente reescriba el PRD.

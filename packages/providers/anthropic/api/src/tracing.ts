@@ -3,7 +3,7 @@
  * el loop de tools no mezcla spans con la lógica. Convenciones GenAI de OpenTelemetry (`gen_ai.*`),
  * las que Datadog/Grafana ya saben leer.
  */
-import type { Tool } from '@ia-flow/agent-engine'
+import { type Tool, toolContentText } from '@ia-flow/agent-engine'
 import {
   isLogLevelEnabled,
   type Logger,
@@ -275,7 +275,8 @@ export const toolTrace: TraceOptions<
   }),
   onResult(span, result, block) {
     const name = { 'gen_ai.tool.name': block.name ?? '' }
-    span.setAttribute('ia.tool.result', truncate(result.content))
+    // Sin el base64 de una imagen (`toolContent`): el texto y una línea por imagen.
+    span.setAttribute('ia.tool.result', truncate(toolContentText(result.content)))
     this.log.info(`tool "${block.name}"`, {
       ...name,
       'ia.tool.input': truncate(block.input, 500),

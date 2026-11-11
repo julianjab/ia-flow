@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Tool } from '@ia-flow/agent-engine'
+import { type Tool, toolContentText } from '@ia-flow/agent-engine'
 import { endingOf, type RunEnding } from '@ia-flow/provider-shared'
 import { type Context, markError, startSpan, truncate } from '@ia-flow/telemetry'
 import type { RunResult, ToolResult } from './protocol.js'
@@ -58,7 +58,8 @@ export class RemoteRun {
       { parent: this.options.parent, scope: SCOPE },
     )
     try {
-      const text = await tool.handler(input ?? {})
+      // Sin imágenes: este canal sólo lleva texto (`toolContent` de agent-engine).
+      const text = toolContentText(await tool.handler(input ?? {}))
       span.setAttribute('ia.tool.result', truncate(text))
       if (tool.terminal) this.endingValue ??= endingOf(tool)
       return { text, isError: false }

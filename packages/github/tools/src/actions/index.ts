@@ -85,3 +85,5 @@ export type { ProjectRef, UpdateIssueActionOptions } from './UpdateIssueAction.j
 export { UpdateIssueAction, UpdateIssueInput } from './UpdateIssueAction.js'
 export type { UpdateIssueBodyActionOptions } from './UpdateIssueBodyAction.js'
 export { UpdateIssueBodyAction, UpdateIssueBodyInput } from './UpdateIssueBodyAction.js'
+export type { ViewImageActionOptions } from './ViewImageAction.js'
+export { FIGMA_IMAGE_HOSTS, MAX_IMAGE_BYTES, ViewImageAction } from './ViewImageAction.js'

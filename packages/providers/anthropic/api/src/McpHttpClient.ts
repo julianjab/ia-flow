@@ -6,6 +6,12 @@
  * Una respuesta puede venir como JSON o como un stream SSE con el mensaje JSON-RPC adentro; el
  * servidor puede abrir una sesión (`Mcp-Session-Id`), que se reenvía en cada request.
  */
+import {
+  TOOL_IMAGE_MEDIA_TYPES,
+  type ToolContentBlock,
+  type ToolImageMediaType,
+  toolContent,
+} from '@ia-flow/agent-engine'
 import type { McpAuthorizationToken } from './AnthropicProvider.js'
 
 /** La versión del protocolo que se negocia en `initialize`. */
@@ -188,23 +194,51 @@ function parseMessage(text: string): JsonRpcMessage {
 interface ContentPart {
   type?: string
   text?: string
+  /** Una imagen o un audio, en base64. */
+  data?: string
   mimeType?: string
   resource?: { uri?: string; text?: string }
 }
 
-/** El `content` de un `tools/call` como texto: el modelo lee un `tool_result` de texto. */
+/** Una imagen que el modelo puede ver: un tipo que la API acepta, con sus bytes. */
+function isViewableImage(part: ContentPart): boolean {
+  return (
+    part.type === 'image' &&
+    typeof part.data === 'string' &&
+    part.data.length > 0 &&
+    TOOL_IMAGE_MEDIA_TYPES.includes(part.mimeType as ToolImageMediaType)
+  )
+}
+
+/** El `content` de un `tools/call` para el `tool_result`: texto, o —si trae imágenes que el modelo
+ *  puede ver (una captura de Figma)— `toolContent` con el texto y las imágenes. */
 function contentText(result: Record<string, unknown>): string {
   const parts = Array.isArray(result.content) ? (result.content as ContentPart[]) : []
-  const text = parts
-    .map((part) => {
-      if (part.type === 'text') return part.text ?? ''
-      if (part.type === 'resource') return part.resource?.text ?? part.resource?.uri ?? ''
-      if (part.type === 'image' || part.type === 'audio')
-        return `[${part.type} ${part.mimeType ?? ''}]`
-      return JSON.stringify(part)
+  if (parts.some(isViewableImage)) {
+    const blocks: ToolContentBlock[] = parts.flatMap((part): ToolContentBlock[] => {
+      if (isViewableImage(part)) {
+        return [
+          {
+            type: 'image',
+            mediaType: part.mimeType as ToolImageMediaType,
+            data: part.data as string,
+          },
+        ]
+      }
+      const text = partText(part)
+      return text ? [{ type: 'text', text }] : []
     })
-    .filter(Boolean)
-    .join('\n')
+    return toolContent(blocks)
+  }
+  const text = parts.map(partText).filter(Boolean).join('\n')
   if (text) return text
   return result.structuredContent !== undefined ? JSON.stringify(result.structuredContent) : ''
+}
+
+/** Una parte del `content` como texto (una imagen que no se puede ver, como una línea). */
+function partText(part: ContentPart): string {
+  if (part.type === 'text') return part.text ?? ''
+  if (part.type === 'resource') return part.resource?.text ?? part.resource?.uri ?? ''
+  if (part.type === 'image' || part.type === 'audio') return `[${part.type} ${part.mimeType ?? ''}]`
+  return JSON.stringify(part)
 }

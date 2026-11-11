@@ -4,7 +4,7 @@ import type {
   ProviderRunContext,
   Tool,
 } from '@ia-flow/agent-engine'
-import { createEvent } from '@ia-flow/agent-engine'
+import { createEvent, toolContent } from '@ia-flow/agent-engine'
 import { describe, expect, it, vi } from 'vitest'
 import { AnthropicProvider, parseAnthropicAgentConfig } from '../AnthropicProvider.js'
 import { buildContextManagement, clipToolResult } from '../context.js'
@@ -187,6 +187,29 @@ describe('AnthropicProvider — contexto', () => {
     const result = lastToolResult(requests[1]?.body)
     expect(result?.content).toBe(clipToolResult(huge, 100))
     expect(onToolResult).toHaveBeenCalledWith('read', huge, 'tu_1')
+  })
+
+  it('un resultado con imágenes (toolContent) entra como bloques; onToolResult lo ve sin el base64', async () => {
+    const onToolResult = vi.fn()
+    const { provider, requests } = readThenFinish({ maxToolResultChars: 100, onToolResult })
+    const data = Buffer.from('png').toString('base64')
+    const withImage = toolContent([
+      { type: 'text', text: 'z'.repeat(500) },
+      { type: 'image', mediaType: 'image/png', data },
+    ])
+
+    await provider.run(ctxFor({ tools: [readTool(withImage)] }))
+
+    const result = lastToolResult(requests[1]?.body)
+    expect(result?.content).toEqual([
+      { type: 'text', text: clipToolResult('z'.repeat(500), 100) },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+    ])
+    expect(onToolResult).toHaveBeenCalledWith(
+      'read',
+      `${'z'.repeat(500)}\n[imagen image/png, 0 KB]`,
+      'tu_1',
+    )
   })
 
   it('el tope por default deja pasar un resultado normal', async () => {

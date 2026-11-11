@@ -38,6 +38,13 @@ export type { ToolConstructor } from './agent/ToolRegistry.js'
 export { ToolRegistry } from './agent/ToolRegistry.js'
 export { Toolset } from './agent/Toolset.js'
 export { NO_TRANSITION_OUTCOMES, TurnProtocol } from './agent/TurnProtocol.js'
+export type { ToolContentBlock, ToolImageMediaType } from './agent/toolContent.js'
+export {
+  parseToolContent,
+  TOOL_IMAGE_MEDIA_TYPES,
+  toolContent,
+  toolContentText,
+} from './agent/toolContent.js'
 export type { AgentWaits, Waiting } from './agent/WaitTool.js'
 export { WAIT_TOOL_NAME, WaitTool } from './agent/WaitTool.js'
 export { YIELD_TOOL_NAME, YieldTool } from './agent/YieldTool.js'
