@@ -1,3 +1,4 @@
+import { parseToolContent } from '@ia-flow/agent-engine'
 import { describe, expect, it } from 'vitest'
 import { MCP_PROTOCOL_VERSION, McpError, McpHttpClient } from '../McpHttpClient.js'
 import { fakeMcpServer } from './fakeMcpServer.js'
@@ -59,7 +60,8 @@ describe('McpHttpClient', () => {
           call: () => ({
             content: [
               { type: 'text', text: 'uno' },
-              { type: 'image', mimeType: 'image/png', data: 'x' },
+              // Un SVG no es una imagen que la API acepte: queda como una línea de texto.
+              { type: 'image', mimeType: 'image/svg+xml', data: 'x' },
               { type: 'resource', resource: { uri: 'file://a', text: 'dos' } },
             ],
           }),
@@ -74,11 +76,35 @@ describe('McpHttpClient', () => {
     const client = new McpHttpClient({ url: URL, fetchImpl: server.fetchImpl })
 
     expect(await client.callTool('mixed', {})).toEqual({
-      text: 'uno\n[image image/png]\ndos',
+      text: 'uno\n[image image/svg+xml]\ndos',
       isError: false,
     })
     expect(await client.callTool('fails', {})).toEqual({ text: 'Bad credentials', isError: true })
     expect((await client.callTool('structured', {})).text).toBe('{"login":"x"}')
+  })
+
+  it('una imagen que el modelo puede ver viaja como imagen (toolContent), con el texto', async () => {
+    const server = fakeMcpServer({
+      tools: [
+        {
+          name: 'screenshot',
+          call: () => ({
+            content: [
+              { type: 'text', text: 'el frame' },
+              { type: 'image', mimeType: 'image/png', data: 'iVBORw0K' },
+              { type: 'resource', resource: { uri: 'file://a', text: 'dos' } },
+            ],
+          }),
+        },
+      ],
+    })
+    const client = new McpHttpClient({ url: URL, fetchImpl: server.fetchImpl })
+    const { text } = await client.callTool('screenshot', {})
+    expect(parseToolContent(text)).toEqual([
+      { type: 'text', text: 'el frame' },
+      { type: 'image', mediaType: 'image/png', data: 'iVBORw0K' },
+      { type: 'text', text: 'dos' },
+    ])
   })
 
   it('resuelve el token en cada request cuando es una función', async () => {
