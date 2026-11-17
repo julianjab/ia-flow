@@ -37,8 +37,8 @@ Chat Completions. Como API key, el `LLM_GATEWAY_TOKEN`.
 
 ## Cloud Run
 
-`.github/workflows/deploy-gateway.yml` lo publica en Cloud Run sólo a mano (*Run workflow* o
-`gh workflow run deploy-gateway.yml` sobre `main`): typecheck + tests, `bun run bundle`, la imagen de
+`.github/workflows/deploy-gateway.yml` lo publica en Cloud Run en cada push a `main` que lo toque
+(o a mano con *Run workflow*): typecheck + tests, `bun run bundle`, la imagen de
 [`deploy/Dockerfile`](deploy/Dockerfile) y `gcloud run deploy`. Para uso propio: una instancia, a
 cero sin tráfico, dentro del free tier.
 

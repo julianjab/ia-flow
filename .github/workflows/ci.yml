@@ -1,10 +1,9 @@
 name: CI
 
-# Solo a mano (Julián, 2026-11-17): el repo es privado y los minutos de Actions cuentan. Nada corre
-# por push ni por PR; se lanza con `gh workflow run <archivo>` cuando Julián lo pide.
-# La validación de cada cambio es la local (lint + typecheck + test) antes del push.
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}
