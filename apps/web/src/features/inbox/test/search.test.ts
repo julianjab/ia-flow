@@ -3,6 +3,7 @@ import {
   close,
   exactRef,
   githubSearchUrl,
+  haystack,
   matches,
   parseSearch,
   searchCards,
@@ -111,5 +112,18 @@ describe('exactRef y GitHub', () => {
     expect(githubSearchUrl(parseSearch('cobro')!, 'acme')).toBe(
       'https://github.com/search?q=org%3Aacme%20cobro&type=issues',
     )
+  })
+})
+
+describe('haystack', () => {
+  it('el título y el repo, sin el owner, y la misma lista para la misma card', () => {
+    const first = haystack('la-haus/subscriptions#12', 'Perfilado del Lead')
+    expect(first).toEqual(['perfilado', 'del', 'lead', 'subscriptions'])
+    expect(haystack('la-haus/subscriptions#12', 'Perfilado del Lead')).toBe(first)
+  })
+
+  it('un título nuevo de la misma card no reusa las palabras viejas', () => {
+    haystack('la-haus/ims#3', 'Uno')
+    expect(haystack('la-haus/ims#3', 'Otro')).toEqual(['otro', 'ims'])
   })
 })
