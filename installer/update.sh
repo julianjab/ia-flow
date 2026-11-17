@@ -71,6 +71,8 @@ healthy() {
 }
 
 # setup.sh de la versión nueva: la pone en `current`, reinstala el menú y reinicia la web
+# (IA_FLOW_FROM_UPDATER: que no recargue el job del actualizador, que es el que está corriendo esto)
+export IA_FLOW_FROM_UPDATER=1
 if "$dest/setup.sh" && healthy && sleep 10 && healthy; then
   # quedan las $KEEP más nuevas (la que corre siempre entre ellas)
   vers=()

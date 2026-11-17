@@ -128,10 +128,12 @@ plist "$MENU" "<string>$APP/Contents/MacOS/IAFlowMenu</string>" "  <key>RunAtLoa
   <key>LimitLoadToSessionType</key><string>Aqua</string>"
 reload "$MENU"
 
-# 5. el actualizador: cada media hora
+# 5. el actualizador: cada media hora. Si este setup.sh lo corre él mismo (update.sh), recargarlo sería un bootout
+# de su propio job: launchd mataría a update.sh y a este script a mitad de camino. El plist nuevo vale desde el
+# próximo login, y update.sh ya se copió arriba (cada vuelta corre el de $SUPPORT).
 plist "$UPDATE" "<string>/bin/bash</string><string>$SUPPORT/update.sh</string>" "  <key>StartInterval</key><integer>1800</integer>
   <key>ProcessType</key><string>Background</string>"
-reload "$UPDATE"
+[[ "${IA_FLOW_FROM_UPDATER:-}" == 1 ]] || reload "$UPDATE"
 
 # 6. el túnel, si hay con qué (cloudflared con login): no lo tener no es un error de la instalación
 "$SUPPORT/tunnel.sh" || echo "sin túnel: $SUPPORT/tunnel.sh lo explica"
