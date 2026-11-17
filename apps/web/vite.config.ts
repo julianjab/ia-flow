@@ -98,7 +98,11 @@ export default defineConfig(({ mode }) => {
       // Los componentes que llaman al server con URL absoluta caen a
       // `import.meta.env.VITE_API_BASE`; sin esto su default hardcodeado
       // seguiría apuntando a :3001 aunque el server corra en otro puerto.
-      'import.meta.env.VITE_API_BASE': JSON.stringify(env.VITE_API_BASE || apiTarget),
+      // `IA_FLOW_API_SAME_ORIGIN=1` (el build del instalador): rutas relativas, `/api` lo proxea quien sirve la
+      // web (`scripts/serve/serve.ts`), así el mismo build anda en localhost y detrás del túnel.
+      'import.meta.env.VITE_API_BASE': JSON.stringify(
+        env.IA_FLOW_API_SAME_ORIGIN === '1' ? '' : env.VITE_API_BASE || apiTarget,
+      ),
     },
     server: {
       port: web.port,
