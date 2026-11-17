@@ -106,8 +106,9 @@ jobs:
     needs: runner
     name: IA Flow.app (dmg)
     # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
-    # Linux. Es también el único job que cuesta minutos de macOS runner.
-    runs-on: macos-14
+    # Linux. macos-15: GitHub ya no acepta macos-14 («The configuration
+    # 'macos-14-arm64-us-default' is not supported», release v2.39.0).
+    runs-on: macos-15
     timeout-minutes: 30
     permissions:
       contents: write
@@ -149,7 +150,7 @@ jobs:
       # electron-builder.yml y la nota de Gatekeeper en las notas de la release.
       #
       # `mdutil -i off` apaga la indexación de Spotlight antes de empaquetar:
-      # en macos-14 el volumen recién montado del .dmg queda indexándose y
+      # en macOS (visto en macos-14) el volumen recién montado del .dmg queda indexándose y
       # `hdiutil detach` falla de forma intermitente ("Exit code 1/3/16",
       # reintentado 6 veces por electron-builder hasta abortar el build) — es
       # lo que dejó la release v1.2.0 sin .dmg.
@@ -190,7 +191,7 @@ jobs:
     # Después del desktop, por el mismo `append_body` sobre la MISMA Release.
     needs: desktop
     name: IAFlow.pkg (menú + web)
-    # macos-15 y no 14: el menú (Swift) se compila con el Xcode que trae, y swiftc de macos-14 es más viejo.
+    # macos-15, como el desktop: el menú (Swift) se compila con el Xcode que trae.
     runs-on: macos-15
     timeout-minutes: 20
     permissions:
