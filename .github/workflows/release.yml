@@ -226,7 +226,7 @@ jobs:
             ### Instalador para Mac (menú + web)
 
             `IAFlow.pkg` deja corriendo el menú de la barra, la web en `localhost:5173` (con `/api` hacia el
-            runner de `~/.config/ia-flow/web.env`) y, si la Mac tiene el login de `cloudflared`, su túnel. Después
+            runner de `~/.config/ia-flow/web.env`) y, si se le da un host con Cloudflare Access, su túnel. Después
             se actualiza solo desde estas releases (`IAFlow-runtime.tar.gz`). Apple silicon; sin firmar:
 
             ```bash

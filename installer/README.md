@@ -7,7 +7,7 @@ del usuario:
 | --- | --- |
 | `link.julianjab.ia-flow-menu` | el menú de la barra (`~/Applications/IAFlowMenu.app`, en modo instalado) |
 | `link.julianjab.ia-flow-web` | la web: el build de `apps/web` servido por `apps/web/scripts/serve/serve.ts` en `localhost:5173`, con `/api` hacia el runner |
-| `link.julianjab.tunnel.ia-flow-web` | el túnel de Cloudflare de la web (si hay `cloudflared` con login) |
+| `link.julianjab.tunnel.ia-flow-web` | el túnel de Cloudflare de la web: opt-in, con `IA_FLOW_TUNNEL_HOST` y `cloudflared` con login |
 | `link.julianjab.ia-flow-update` | el actualizador: cada 30 min mira el último release de `julianjab/ia-flow` |
 
 ## Archivos
@@ -30,8 +30,9 @@ del usuario:
 (`launchctl kickstart -k gui/$(id -u)/link.julianjab.ia-flow-web`) y, si cambió el host, corré
 `~/Library/Application\ Support/IAFlow/tunnel.sh`.
 
-El túnel no crea la política de Cloudflare Access: un host sin ella queda abierto (el runner sigue pidiendo su
-token; la web no).
+El túnel es opt-in (`IA_FLOW_TUNNEL_HOST` viene vacío) porque no crea la política de Cloudflare Access: un host sin
+ella deja abiertos la web y el proxy a los runners de `IA_FLOW_PROXY_RUNNERS`. Elegí un host que ya tenga su Access
+(como `app.julianjab.link`) y corré `tunnel.sh`.
 
 Logs: `~/Library/Logs/ia-flow/` (`install.log`, `ia-flow-web.log`, `ia-flow-menu.log`, `ia-flow-update.log`,
 `tunnel.log`).

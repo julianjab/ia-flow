@@ -79,8 +79,10 @@ IA_FLOW_RUNNER_URL=http://localhost:3001
 # Runners extra, cada uno bajo /<nombre>/ (nombre=URL,…):
 # IA_FLOW_PROXY_RUNNERS=prod=https://runner.interno
 IA_FLOW_WEB_PORT=5173
-# El hostname del túnel de Cloudflare (tunnel.sh). Vacío: sin túnel.
-IA_FLOW_TUNNEL_HOST=app.julianjab.link
+# El hostname del túnel de Cloudflare (tunnel.sh). Vacío: sin túnel. Ponelo SÓLO si ese host ya tiene su política
+# de Cloudflare Access: el túnel publica la web y el proxy a los runners de arriba, y tunnel.sh no crea la política.
+# Después: ~/Library/Application\ Support/IAFlow/tunnel.sh
+IA_FLOW_TUNNEL_HOST=
 ENV
 fi
 

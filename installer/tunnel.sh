@@ -4,8 +4,9 @@
 #   tunnel.sh            crea o reusa el túnel de esta Mac, su DNS, su config y su LaunchAgent
 #   tunnel.sh --remove   baja el LaunchAgent (el túnel y su DNS quedan en Cloudflare)
 # Sale con 0 si no hay nada que hacer (sin host, u otro túnel de esta Mac ya sirve ese host) y con 3 si falta
-# cloudflared o su login (`cloudflared tunnel login`). No crea la política de Cloudflare Access: un host sin ella
-# queda abierto (el runner sigue pidiendo su token, la web no).
+# cloudflared o su login (`cloudflared tunnel login`). Es opt-in: sin IA_FLOW_TUNNEL_HOST no hace nada. No crea la
+# política de Cloudflare Access, y un host sin ella deja abiertos la web y el proxy a los runners de
+# IA_FLOW_PROXY_RUNNERS: el host se elige recién cuando ya tiene su Access.
 set -euo pipefail
 CONFIG="$HOME/.config/ia-flow/web.env"
 LABEL=link.julianjab.tunnel.ia-flow-web
@@ -85,4 +86,4 @@ PLIST
 launchctl bootout "gui/$uid/$LABEL" 2>/dev/null || true
 for _ in $(seq 1 20); do launchctl print "gui/$uid/$LABEL" >/dev/null 2>&1 || break; sleep 0.5; done
 launchctl bootstrap "gui/$uid" "$PLIST"
-echo "túnel $name: https://$host → 127.0.0.1:$port (sin Cloudflare Access, el host queda abierto)"
+echo "túnel $name: https://$host → 127.0.0.1:$port (protegido sólo si $host tiene su política de Cloudflare Access)"
