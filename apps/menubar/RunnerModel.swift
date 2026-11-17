@@ -219,7 +219,15 @@ final class RunnerModel: ObservableObject {
     @Published private(set) var busy: Set<String> = []
 
     /// Lo que se escribe en el buscador: filtra todas las secciones y busca en el resto del board.
-    @Published var query = "" { didSet { if query != oldValue { searchChanged() } } }
+    @Published var query = "" {
+        didSet {
+            guard query != oldValue else { return }
+            search = RunnerSearch(query)
+            searchChanged()
+        }
+    }
+    /// Lo que se busca, interpretado una vez por cambio de `query` (no en cada lectura: cada tarea lo pide).
+    private(set) var search: RunnerSearch?
     /// Las cards del board fuera de la bandeja que coinciden.
     @Published private(set) var boardResults: [BoardItem] = []
     /// Las tareas buscadas fuera de la bandeja, ya con sus acciones (las primeras del board, o la ref exacta).
@@ -385,8 +393,6 @@ final class RunnerModel: ObservableObject {
 
     /// `subscriptions` de `la-haus/subscriptions#12`.
     func repoName(_ ref: String) -> String? { RunnerSearch.split(ref)?.repo }
-
-    var search: RunnerSearch? { RunnerSearch(query) }
 
     /// El repo elegido en el tag del buscador (sólo el nombre, `subscriptions`); nil = todos.
     @Published var repoFilter: String? {

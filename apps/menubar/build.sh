@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Compila la barra de menú a dist/IAFlowMenu.app.
 # Uso: apps/menubar/build.sh [--install | --login]
+#   IA_FLOW_MENU_BUNDLED=1  la del instalador (installer/build.sh): sin la ruta del repo, con los servicios de la
+#                           web y el túnel instalados (Core.swift, `isInstalled`)
 #   --install  la copia a ~/Applications
 #   --login    --install + LaunchAgent link.julianjab.ia-flow-menu: arranca con la sesión y se relanza si
 #              se cae (no si se sale con «Salir»). Cierre antes cualquier instancia abierta a mano.
@@ -40,7 +42,12 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>IAFlowRoot</key><string>$root</string>
 </dict></plist>
 PLIST
-codesign --force --sign - "$app" >/dev/null 2>&1 || true
+if [[ "${IA_FLOW_MENU_BUNDLED:-}" == 1 ]]; then
+  /usr/libexec/PlistBuddy -c "Delete :IAFlowRoot" -c "Add :IAFlowBundled bool true" "$app/Contents/Info.plist"
+fi
+# El requisito por identificador (y no por el hash de esta firma ad hoc): el permiso del micrófono se ata a él, así
+# una versión nueva no lo vuelve a pedir.
+codesign --force --sign - -r='designated => identifier "dev.julianjab.ia-flow-menu"' "$app" >/dev/null 2>&1 || true
 echo "listo: $app"
 
 if [[ "${1:-}" == "--install" || "${1:-}" == "--login" ]]; then

@@ -165,26 +165,49 @@ struct TaskRow: View {
 struct SearchField: View {
     @ObservedObject var runner: RunnerModel
     @FocusState private var focused: Bool
+    /// Lo que se escribe vive acá y llega a `runner.query` tras una pausa corta: cada cambio de `query` redibuja todo
+    /// lo que observa al runner (la bandeja entera), y hacerlo en cada tecla atrasaba al campo.
+    @State private var text = ""
+    @State private var pending: DispatchWorkItem?
 
     var body: some View {
         FieldBox {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass").font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
                 repoMenu
-                TextField("Número, link o texto", text: $runner.query)
+                TextField("Número, link o texto", text: $text)
                     .focused($focused)
-                    .onAppear { focused = true }  // con ⌘K se escribe de una
-                    .onExitCommand { runner.clearSearch() }
+                    .onAppear { text = runner.query; focused = true }  // con ⌘K se escribe de una
+                    .onExitCommand { commit(""); runner.clearSearch() }
+                    .onSubmit { commit(text) }
+                    .onChange(of: text) { _, value in schedule(value) }
+                    // lo que cambia `query` desde afuera (limpiar, abrir la lupa con una ref) se ve en el campo
+                    .onChange(of: runner.query) { _, value in if value != text { pending?.cancel(); text = value } }
                 if runner.searching { ProgressView().controlSize(.small).scaleEffect(0.5).frame(width: 14, height: 14) }
                 if runner.filtering {
                     Text("\(runner.resultCount)").font(.lh(11, .semibold)).foregroundStyle(.secondary)
-                    Button { runner.clearSearch(); runner.repoFilter = nil } label: {
+                    Button { commit(""); runner.clearSearch(); runner.repoFilter = nil } label: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                     }
                     .buttonStyle(.plain).help("Limpiar búsqueda y repo")
                 }
             }
         }
+    }
+
+    /// Borrar todo se ve de una; lo demás espera a que se deje de escribir un momento.
+    private func schedule(_ value: String) {
+        pending?.cancel()
+        guard !value.isEmpty else { commit(value); return }
+        let work = DispatchWorkItem { commit(value) }
+        pending = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func commit(_ value: String) {
+        pending?.cancel()
+        pending = nil
+        if runner.query != value { runner.query = value }
     }
 
     /// El selector de repo: un tag al inicio del campo («Todos» o el repo, con su color).

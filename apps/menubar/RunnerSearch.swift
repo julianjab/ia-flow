@@ -44,9 +44,7 @@ struct RunnerSearch: Equatable {
     /// PR— y el repo (y el owner, si se dio) también; el texto, por título o ref.
     func matches(ref: String, title: String, pr: Int? = nil) -> Bool {
         if text != nil {
-            // del ref, sólo el repo: el owner (`la-haus`) está en todas y haría coincidir cualquier cosa
-            let repo = RunnerSearch.split(ref)?.repo ?? ref
-            let haystack = RunnerSearch.words("\(title) \(repo)")
+            let haystack = RunnerSearch.haystack(ref: ref, title: title)
             return !words.isEmpty && words.allSatisfy { word in haystack.contains { RunnerSearch.close(word, $0) } }
         }
         guard let parts = RunnerSearch.split(ref) else { return false }
@@ -55,6 +53,27 @@ struct RunnerSearch: Equatable {
         if let owner, parts.owner.lowercased() != owner.lowercased() { return false }
         return true
     }
+
+    /// Las palabras de una tarea (su título y, del ref, sólo el repo: el owner —`la-haus`— está en todas y haría
+    /// coincidir cualquier cosa). Se guardan: cada tecla las pedía otra vez para cada tarea de la bandeja y del board.
+    static func haystack(ref: String, title: String) -> [String] {
+        let key = "\(ref)\u{0}\(title)" as NSString
+        if let cached = haystacks.object(forKey: key) { return cached.words }
+        let words = RunnerSearch.words("\(title) \(split(ref)?.repo ?? ref)")
+        haystacks.setObject(Words(words), forKey: key)
+        return words
+    }
+
+    private final class Words {
+        let words: [String]
+        init(_ words: [String]) { self.words = words }
+    }
+
+    private static let haystacks: NSCache<NSString, Words> = {
+        let cache = NSCache<NSString, Words>()
+        cache.countLimit = 5000
+        return cache
+    }()
 
     /// Sin tildes ni mayúsculas, partido en palabras (`assignable_stages` → `assignable`, `stages`).
     static func words(_ text: String) -> [String] {
@@ -98,10 +117,28 @@ struct RunnerSearch: Equatable {
     }
 }
 
+/// Los regex ya compilados, por patrón: compilar un `NSRegularExpression` cuesta mucho más que usarlo, y el buscador
+/// los pedía varias veces por tarea en cada tecla. Con candado: también se usan fuera del hilo principal.
+private enum RegexCache {
+    private static var compiled: [String: NSRegularExpression] = [:]
+    private static let lock = NSLock()
+
+    static func regex(_ pattern: String) -> NSRegularExpression? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let regex = compiled[pattern] { return regex }
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        // los patrones con datos adentro (RunTrace arma uno por campo) no deben crecer sin fin
+        if compiled.count > 200 { compiled.removeAll() }
+        compiled[pattern] = regex
+        return regex
+    }
+}
+
 extension String {
     /// Los grupos de la primera coincidencia de `pattern`, o nil.
     func firstMatch(_ pattern: String) -> [String]? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+        guard let regex = RegexCache.regex(pattern),
               let match = regex.firstMatch(in: self, range: NSRange(startIndex..., in: self)) else { return nil }
         return (1..<match.numberOfRanges).map { i in
             Range(match.range(at: i), in: self).map { String(self[$0]) } ?? ""

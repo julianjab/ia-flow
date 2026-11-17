@@ -1,7 +1,7 @@
 import type { BoardRest } from '@ia-flow/shared'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter } from 'vue-router'
 
 const getBoardRest = vi.fn()
@@ -16,6 +16,7 @@ vi.mock('@/features/inbox/api', () => ({
 
 import InboxSearch from '@/features/inbox/InboxSearch.vue'
 import SearchResults from '@/features/inbox/SearchResults.vue'
+import { SEARCH_DEBOUNCE_MS } from '@/features/inbox/state/search'
 import { useInboxStore } from '@/features/inbox/store'
 import { inbox, item } from '@/features/inbox/test/fixtures'
 
@@ -46,6 +47,13 @@ const router = createRouter({
   ],
 })
 
+/** Escribe en el campo y espera la pausa del filtrado. */
+async function type(w: ReturnType<typeof render>['w'], text: string) {
+  await w.get('input').setValue(text)
+  vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+  await flushPromises()
+}
+
 function render() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -66,14 +74,15 @@ function render() {
 
 describe('el buscador de la bandeja', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
     getBoardRest.mockReset().mockResolvedValue(rest)
     getTaskDetail.mockReset().mockResolvedValue({ item: {}, executions: [], events: [], trace: [] })
   })
+  afterEach(() => vi.useRealTimers())
 
   it('escribir trae el board y lista lo que coincide; tocar uno lo abre en grande', async () => {
     const { w, store } = render()
-    await w.get('input').setValue('cobro')
-    await flushPromises()
+    await type(w, 'cobro')
     expect(getBoardRest).toHaveBeenCalledOnce()
     expect(w.findAll('[data-test="hit"]').map((h) => h.text())).toEqual([
       expect.stringContaining('Cobro mensual'),
@@ -88,8 +97,7 @@ describe('el buscador de la bandeja', () => {
 
   it('una ref exacta que no está se ofrece igual, y al pie «Buscar en GitHub» dentro de la app', async () => {
     const { w, store } = render()
-    await w.get('input').setValue('web#77')
-    await flushPromises()
+    await type(w, 'web#77')
     expect(w.find('[data-test="hit"]').exists()).toBe(false)
     await w.get('[data-test="exact"] button').trigger('click')
     expect(store.openRef).toBe('acme/web#77')
@@ -99,8 +107,7 @@ describe('el buscador de la bandeja', () => {
 
   it('sin coincidencias lo dice; Escape vacía el campo', async () => {
     const { w, store } = render()
-    await w.get('input').setValue('zzzz')
-    await flushPromises()
+    await type(w, 'zzzz')
     expect(w.text()).toContain('Nada coincide con «zzzz»')
     await w.get('input').trigger('keydown', { key: 'Escape' })
     expect(store.searchQuery).toBe('')

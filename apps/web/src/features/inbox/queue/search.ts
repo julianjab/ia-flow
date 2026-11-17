@@ -45,9 +45,8 @@ export function splitRef(ref: string): { owner: string; repo: string; number: nu
  */
 export function matches(search: Search, ref: string, title: string, pr?: number): boolean {
   if (search.words) {
-    // del ref, sólo el repo: el owner (`la-haus`) está en todas y haría coincidir cualquier cosa
-    const haystack = words(`${title} ${splitRef(ref)?.repo ?? ref}`)
-    return search.words.length > 0 && search.words.every((w) => haystack.some((c) => close(w, c)))
+    const words = haystack(ref, title)
+    return search.words.length > 0 && search.words.every((w) => words.some((c) => close(w, c)))
   }
   const parts = splitRef(ref)
   if (!parts) return false
@@ -56,6 +55,23 @@ export function matches(search: Search, ref: string, title: string, pr?: number)
   if (search.repo && parts.repo.toLowerCase() !== search.repo.toLowerCase()) return false
   if (search.owner && parts.owner.toLowerCase() !== search.owner.toLowerCase()) return false
   return true
+}
+
+const HAYSTACK_LIMIT = 5000
+const haystacks = new Map<string, string[]>()
+
+/**
+ * Las palabras de una card: su título y, del ref, sólo el repo (el owner —`la-haus`— está en todas y haría coincidir
+ * cualquier cosa). Se guardan: cada tecla las pedía otra vez para cada card de la bandeja y del board.
+ */
+export function haystack(ref: string, title: string): string[] {
+  const key = `${ref}\u0000${title}`
+  const cached = haystacks.get(key)
+  if (cached) return cached
+  if (haystacks.size >= HAYSTACK_LIMIT) haystacks.clear()
+  const found = words(`${title} ${splitRef(ref)?.repo ?? ref}`)
+  haystacks.set(key, found)
+  return found
 }
 
 /** Sin tildes ni mayúsculas, partido en palabras (`assignable_stages` → `assignable`, `stages`). */

@@ -52,5 +52,7 @@ confirmá en el archivo antes de nombrar uno. Las actions propias de un deploy v
 | `slack_read_thread` | `packages/slack/tools/src/actions/SlackReadThreadAction.ts` |
 | `stop_agent` | `apps/runner-v2/src/actions/builtin/tasks.ts` |
 | `update_issue` | `apps/runner-v2/src/actions/builtin/github.ts` |
+| `view_image` | `apps/runner-v2/src/actions/builtin/github.ts` |
+| `view_image` | `packages/github/tools/src/actions/ViewImageAction.ts` |
 | `workspace_reset` | `apps/runner-v2/src/actions/builtin/workspace.ts` |
 | `workspace_reset` | `packages/local/workspace/src/actions/ResetWorkspaceAction.ts` |

@@ -1,0 +1,3 @@
+# Lo que ia-flow usa de la Mac y no trae adentro (bun sí viene en el .pkg). `setup.sh --tools` lo baja.
+brew "cloudflared"
+brew "gh"
