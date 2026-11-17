@@ -22,9 +22,16 @@ interface SearchDeps {
   restLoading: Ref<boolean>
 }
 
+/** Cuánto espera el filtrado a que se deje de escribir: el campo muestra cada tecla al instante. */
+export const SEARCH_DEBOUNCE_MS = 120
+
 export function createSearch(deps: SearchDeps) {
+  /** Lo que está escrito en el campo, tecla a tecla. */
   const query = ref('')
-  const search = computed(() => parseSearch(query.value))
+  /** Lo que se filtra: `query` tras una pausa corta (vaciarlo es inmediato). */
+  const term = ref('')
+  const search = computed(() => parseSearch(term.value))
+  let pending: ReturnType<typeof setTimeout> | undefined
 
   const hits = computed(() => {
     const s = search.value
@@ -70,7 +77,16 @@ export function createSearch(deps: SearchDeps) {
 
   function setQuery(value: string): void {
     query.value = value
-    if (search.value && !deps.rest.value && !deps.restLoading.value) void deps.loadRest()
+    clearTimeout(pending)
+    // el resto del board se pide en la primera tecla: llega mientras se sigue escribiendo
+    if (value.trim() && !deps.rest.value && !deps.restLoading.value) void deps.loadRest()
+    if (!value.trim()) {
+      term.value = value
+      return
+    }
+    pending = setTimeout(() => {
+      term.value = value
+    }, SEARCH_DEBOUNCE_MS)
   }
 
   return {
