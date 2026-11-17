@@ -222,6 +222,9 @@ apps/menubar/build.sh --install  # además la copia a ~/Applications
 apps/menubar/build.sh --login    # --install + LaunchAgent: arranca con la sesión
 ```
 
+Sin el repo: `IAFlow.pkg` de cada release (ver [`installer/`](../../installer/README.md)) instala el menú en modo
+instalado (`IAFlowBundled`): sus servicios por defecto son la web y el túnel que deja el instalador, y se actualiza solo.
+
 - La web corre en modo normal (`vite build` + `vite preview`), sin watch ni HMR; gateway y runner no hacen watch.
 - Servicios: `~/.config/ia-flow-menubar/services.json` (se crea con defaults; "Editar servicios…"
   lo abre). Cada uno: `command`, `cwd`, `port`, `url`, `env` opcional. Cambios → reabrir la app.

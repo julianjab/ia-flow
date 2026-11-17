@@ -1,0 +1,27 @@
+#!/bin/bash
+# Corre como root al terminar el .pkg: setup.sh como el usuario con la sesión abierta (el menú, la web, el túnel y
+# el actualizador quedan andando al cerrar el Installer). Si faltan gh o cloudflared y hay Homebrew, los baja en
+# segundo plano y vuelve a intentar el túnel.
+rt="/Library/Application Support/IAFlow/pkg"
+user="$(stat -f%Su /dev/console)"
+if [[ -z "$user" || "$user" == root || "$user" == loginwindow ]]; then
+  echo "sin sesión de usuario: al entrar, corre \"$rt/setup.sh\""
+  exit 0
+fi
+uid="$(id -u "$user")"
+home="$(dscl . -read "/Users/$user" NFSHomeDirectory | awk '{print $2}')"
+log="$home/Library/Logs/ia-flow/install.log"
+mkdir -p "$home/Library/Logs/ia-flow" && chown "$user" "$home/Library/Logs/ia-flow"
+touch "$log" && chown "$user" "$log"
+as_user() { launchctl asuser "$uid" sudo -u "$user" -H "$@" >>"$log" 2>&1; }
+
+as_user "$rt/setup.sh"
+
+if ! [[ -x /opt/homebrew/bin/cloudflared || -x /usr/local/bin/cloudflared ]] && [[ -x /opt/homebrew/bin/brew ]]; then
+  (
+    as_user "$rt/setup.sh" --tools
+    as_user "$home/Library/Application Support/IAFlow/tunnel.sh"
+  ) </dev/null &
+  disown
+fi
+exit 0

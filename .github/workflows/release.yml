@@ -7,6 +7,8 @@
 #   ia-flow-runner-<v>.tar.gz      el bundle + Dockerfile.example + VERSION + BUN_VERSION
 #   SHA256SUMS                     para `ADD --checksum`
 #   IA Flow-<version>-<arch>.dmg   la app de escritorio
+#   IAFlow.pkg                     el instalador para Mac: menú + web + túnel (installer/)
+#   IAFlow-runtime.tar.gz(.sha256) lo mismo suelto, lo que baja el actualizador del .pkg
 #
 # No se publican imágenes: el bundle se referencia con un `ADD` desde el
 # Dockerfile de cada deploy, sobre su base y con su config.
@@ -183,3 +185,50 @@ jobs:
 
             La app no trae server: se conecta al que elijas en su pantalla de
             servers.
+
+  installer:
+    # Después del desktop, por el mismo `append_body` sobre la MISMA Release.
+    needs: desktop
+    name: IAFlow.pkg (menú + web)
+    # macos-15 y no 14: el menú (Swift) se compila con el Xcode que trae, y swiftc de macos-14 es más viejo.
+    runs-on: macos-15
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Mismo pin que ci.yml y scripts/package-release.ts: es el bun que viaja dentro del .pkg.
+          bun-version: "1.4.2"
+
+      - run: bun install --frozen-lockfile
+
+      - name: Empaquetar
+        run: ./installer/build.sh "${TAG#v}"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+
+      - name: Adjuntar a la Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: |
+            installer/dist/IAFlow.pkg
+            installer/dist/IAFlow-runtime.tar.gz
+            installer/dist/IAFlow-runtime.tar.gz.sha256
+          append_body: true
+          body: |
+
+            ### Instalador para Mac (menú + web)
+
+            `IAFlow.pkg` deja corriendo el menú de la barra, la web en `localhost:5173` (con `/api` hacia el
+            runner de `~/.config/ia-flow/web.env`) y, si la Mac tiene el login de `cloudflared`, su túnel. Después
+            se actualiza solo desde estas releases (`IAFlow-runtime.tar.gz`). Apple silicon; sin firmar:
+
+            ```bash
+            xattr -d com.apple.quarantine ~/Downloads/IAFlow.pkg && open ~/Downloads/IAFlow.pkg
+            ```
