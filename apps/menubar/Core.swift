@@ -27,7 +27,7 @@ let home = ProcessInfo.processInfo.environment["IA_FLOW_MENUBAR_HOME"] ?? FileMa
 let configDir = "\(home)/.config/ia-flow-menubar"
 let logDir = "\(home)/.local/state/ia-flow/menubar"
 
-func defaultServices(root: String) -> [ServiceSpec] {
+func repoServices(root: String) -> [ServiceSpec] {
     [
         // IA_FLOW_ALLOWED_HOSTS: sin él vite sólo acepta localhost y un túnel de julianjab.link da 403.
         ServiceSpec(id: "web", name: "Web", command: "bun run --cwd apps/web vite build && bun run --cwd apps/web preview", cwd: root, port: 5173, url: "http://localhost:5173",
@@ -57,10 +57,31 @@ func defaultServices(root: String) -> [ServiceSpec] {
     ]
 }
 
+/// La app que trae el instalador (`installer/`, `IAFlowBundled` en su Info.plist): sin el repo al lado.
+let isInstalled = Bundle.main.object(forInfoDictionaryKey: "IAFlowBundled") as? Bool == true
+
+/// Instalada, lo que dejó corriendo `installer/setup.sh`: la web y su túnel, como LaunchAgents. El menú los prende y
+/// apaga con launchctl; el estado sale del puerto de la web y del de métricas de cloudflared.
+func installedServices() -> [ServiceSpec] {
+    func agent(_ label: String) -> (start: String, stop: String) {
+        let plist = "$HOME/Library/LaunchAgents/\(label).plist"
+        return ("launchctl bootstrap gui/$(id -u) \(plist) 2>/dev/null; launchctl kickstart -k gui/$(id -u)/\(label)",
+                "launchctl bootout gui/$(id -u)/\(label)")
+    }
+    let web = agent("link.julianjab.ia-flow-web"), tunnel = agent("link.julianjab.tunnel.ia-flow-web")
+    return [
+        ServiceSpec(id: "installed-web", name: "Web", command: web.start, cwd: home, port: 5173, url: "http://localhost:5173",
+            env: nil, stopCommand: web.stop),
+        ServiceSpec(id: "installed-tunnel", name: "Túnel de la web", command: tunnel.start, cwd: home, port: 45173, url: nil,
+            env: nil, stopCommand: tunnel.stop),
+    ]
+}
+
 /// Lee `services.json`; si no existe lo crea con los defaults para que se pueda editar.
 func loadServices() -> [ServiceSpec] {
     let root = (Bundle.main.object(forInfoDictionaryKey: "IAFlowRoot") as? String)
         ?? FileManager.default.currentDirectoryPath
+    func defaultServices(root: String) -> [ServiceSpec] { isInstalled ? installedServices() : repoServices(root: root) }
     let path = "\(configDir)/services.json"
     // El archivo existe pero no se puede leer (una coma de más, un tipo equivocado): NO se pisa con los defaults,
     // que es lo que borraría los servicios propios. Se usan en memoria y el error queda en el log de la app.
