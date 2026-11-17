@@ -1,5 +1,26 @@
 # Changelog
 
+## [2.39.0](https://github.com/julianjab/ia-flow/compare/v2.38.0...v2.39.0) (2026-11-17)
+
+
+### Features
+
+* **installer:** IAFlow.pkg con el menú, la web y su túnel, que se actualiza solo ([e8a7337](https://github.com/julianjab/ia-flow/commit/e8a7337f64ec6f0a5a8cd4f81aeef7690540aa8e))
+* **menubar:** modo instalado, con la web y el túnel como servicios ([b73cb66](https://github.com/julianjab/ia-flow/commit/b73cb66733319e65c5469d13a528a435e428e9b4))
+* **web:** servidor propio para la web instalada ([cc99009](https://github.com/julianjab/ia-flow/commit/cc990096c36aeb4e091be024100df6e685c49b4f))
+
+
+### Bug Fixes
+
+* **installer:** el actualizador no recarga su propio job ([376c873](https://github.com/julianjab/ia-flow/commit/376c873763ffc999d99a59258fd3b4ca5a7236a8))
+* **installer:** el túnel de la web es opt-in ([733452b](https://github.com/julianjab/ia-flow/commit/733452ba1414a96fd5870ae352b52a236384f582))
+
+
+### Performance Improvements
+
+* **menubar:** el buscador responde al escribir ([ff61a31](https://github.com/julianjab/ia-flow/commit/ff61a314cb0cfef2286a4d5b4b3233df5705f3e3))
+* **web:** el buscador de la bandeja no filtra en cada tecla ([7f091e0](https://github.com/julianjab/ia-flow/commit/7f091e0a15c717604839a60c3d30bf05ef5a2d8b))
+
 ## [2.38.0](https://github.com/julianjab/ia-flow/compare/v2.37.0...v2.38.0) (2026-11-11)
 
 
