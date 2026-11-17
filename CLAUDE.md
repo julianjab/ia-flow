@@ -5,6 +5,12 @@
 - El toolkit (subagentes, comandos, hooks, settings) está en [`.claude/README.md`](.claude/README.md).
 - `architecture-guardian` antes de un commit que agrega carpetas o imports entre paquetes;
   `engine-agent-author` para agentes y pipelines del engine; `web-verifier` al tocar `apps/web`.
+- **GitHub Actions, solo cuando Julián lo pide** (2026-11-17: el repo es privado y los minutos
+  cuentan). Ningún workflow corre por push ni por PR: CI, Release Please, Release y Deploy gateway
+  son `workflow_dispatch`. No lances `gh workflow run`, no mergees el Release PR ni pushees tags
+  `v*` sin su pedido explícito en ese momento; el gate de cada push es lint + typecheck + test
+  locales. Una release son dos corridas de `gh workflow run release-please.yml`: la primera abre o
+  actualiza el Release PR; tras mergearlo, la segunda crea la tag y publica (`release.yml`).
 - Pedí confirmación antes de `gh pr merge`. Leer `.env*` y `rm -rf` están denegados.
 
 ## Paridad API ↔ web

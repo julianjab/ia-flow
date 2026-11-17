@@ -20,9 +20,12 @@
 # mismo sin agregar un secreto que rotar.
 name: Release Please
 
+# Solo a mano (Julián, 2026-11-17): el repo es privado y los minutos de Actions cuentan. Nada corre
+# por push ni por PR; se lanza con `gh workflow run <archivo>` cuando Julián lo pide.
+# Una release son dos corridas: la primera abre o actualiza el Release PR; después de mergearlo,
+# otra corrida sobre main crea el tag y la Release y llama a release.yml.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -43,8 +46,8 @@ jobs:
           release-type: simple
           package-name: ia-flow
 
-  # Sólo cuando el Release PR se mergeó de verdad. En los pushes normales a
-  # main, release-please únicamente actualiza el PR y esto no corre.
+  # Sólo cuando el Release PR se mergeó de verdad. En las demás corridas,
+  # release-please únicamente actualiza el PR y esto no corre.
   publish:
     needs: release-please
     if: needs.release-please.outputs.released == 'true'

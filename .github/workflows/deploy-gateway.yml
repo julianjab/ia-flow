@@ -1,4 +1,4 @@
-# Publica `apps/llm-gateway` en Cloud Run en cada push a main que lo toque.
+# Publica `apps/llm-gateway` en Cloud Run, a mano (`gh workflow run deploy-gateway.yml`).
 #
 # El proyecto de GCP se prepara una vez con `apps/llm-gateway/deploy/setup-gcp.sh`, que deja las
 # variables `GCP_*` del repo. Sin ellas el job no corre (no falla): el repo sigue verde mientras
@@ -8,16 +8,9 @@
 # a `refs/heads/main` de este repo. Los tokens viven en Secret Manager, nunca en el repo ni en el CI.
 name: Deploy gateway
 
+# Solo a mano (Julián, 2026-11-17): el repo es privado y los minutos de Actions cuentan. Nada corre
+# por push ni por PR; se lanza con `gh workflow run <archivo>` cuando Julián lo pide.
 on:
-  push:
-    branches: [main]
-    paths:
-      - apps/llm-gateway/**
-      - packages/providers/anthropic/api/**
-      - packages/telemetry/**
-      - packages/agent-engine/**
-      - bun.lock
-      - .github/workflows/deploy-gateway.yml
   workflow_dispatch:
 
 concurrency:
