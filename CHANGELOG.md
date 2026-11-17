@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.39.1](https://github.com/julianjab/ia-flow/compare/v2.39.0...v2.39.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **installer:** el menú arranca al instalar y no aparece tres veces ([d19165a](https://github.com/julianjab/ia-flow/commit/d19165a7dcf38d111136caed179a1b9853ab727a))
+
 ## [2.39.0](https://github.com/julianjab/ia-flow/compare/v2.38.0...v2.39.0) (2026-11-17)
 
 
