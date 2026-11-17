@@ -42,7 +42,7 @@ concurrency:
 jobs:
   runner:
     name: Runner (ia-flow-runner.js)
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 15
     permissions:
       contents: write
@@ -105,7 +105,7 @@ jobs:
     name: IA Flow.app (dmg)
     # macOS obligatorio: un .dmg se construye con `hdiutil`, que no existe en
     # Linux. Es también el único job que cuesta minutos de macOS runner.
-    runs-on: macos-14
+    runs-on: ${{ vars.RUNNER_MACOS || 'macos-14' }}
     timeout-minutes: 30
     permissions:
       contents: write
@@ -153,7 +153,8 @@ jobs:
       # lo que dejó la release v1.2.0 sin .dmg.
       - name: Empaquetar
         run: |
-          sudo mdutil -a -i off 2>/dev/null || true
+          # Sólo en el runner de GitHub: en la Mac de Julián (runner self-hosted) apagaría Spotlight.
+          if [ "$RUNNER_ENVIRONMENT" = github-hosted ]; then sudo mdutil -a -i off 2>/dev/null || true; fi
           bun run --cwd apps/desktop dist
 
       - name: Adjuntar a la Release

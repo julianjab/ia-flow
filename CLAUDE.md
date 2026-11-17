@@ -11,6 +11,10 @@
   `v*` sin su pedido explícito en ese momento; el gate de cada push es lint + typecheck + test
   locales. Una release son dos corridas de `gh workflow run release-please.yml`: la primera abre o
   actualiza el Release PR; tras mergearlo, la segunda crea la tag y publica (`release.yml`).
+  Corren en la Mac de Julián, no en GitHub: los jobs leen `runs-on` de las variables del repo
+  `RUNNER` (pods de podman, label `jab-linux`) y `RUNNER_MACOS` (la Mac directo, label `jab-mac`);
+  vacías, vuelven al runner hospedado. Los runners se manejan con `~/.config/gh-runners/` (README).
+  Un job con `container:`/`services:` o binarios de Linux x64 se queda en `ubuntu-latest`.
 - Pedí confirmación antes de `gh pr merge`. Leer `.env*` y `rm -rf` están denegados.
 
 ## Paridad API ↔ web
