@@ -15,7 +15,11 @@ mkdir -p "$home/Library/Logs/ia-flow" && chown "$user" "$home/Library/Logs/ia-fl
 touch "$log" && chown "$user" "$log"
 as_user() { launchctl asuser "$uid" sudo -u "$user" -H "$@" >>"$log" 2>&1; }
 
-as_user "$rt/setup.sh"
+as_user "$rt/setup.sh" && {
+  # la copia del .pkg ya se instaló: fuera de Spotlight, para que no aparezca como otra app
+  mkdir -p "$rt/menu.noindex" && rsync -a --delete "$rt/IAFlowMenu.app/" "$rt/menu.noindex/IAFlowMenu.app/" \
+    && find "$rt/IAFlowMenu.app" -delete
+}
 
 if ! [[ -x /opt/homebrew/bin/cloudflared || -x /usr/local/bin/cloudflared ]] && [[ -x /opt/homebrew/bin/brew ]]; then
   (

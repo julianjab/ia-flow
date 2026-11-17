@@ -122,13 +122,28 @@ reload "$WEB"
 # 4. el menú: arranca con la sesión y se relanza tras un crash, no tras «Salir»
 mkdir -p "$HOME/Applications"
 launchctl bootout "gui/$uid/$MENU" 2>/dev/null || true
-rsync -a --delete "$rt/IAFlowMenu.app/" "$APP/"
+# El menú viejo tarda en cerrar (detiene lo que levantó). Si el nuevo arranca antes, su guarda de instancia única lo
+# hace salir con 0 y launchd no lo relanza (KeepAlive sólo tras un fallo): se espera a que termine
+for _ in $(seq 1 40); do pgrep -x IAFlowMenu >/dev/null || break; sleep 0.5; done
+pkill -KILL -x IAFlowMenu 2>/dev/null || true
+# La copia de cada versión va en una carpeta .noindex: Spotlight no la lista como otra app (la del runtime suelto
+# queda en la raíz, que es donde la busca el update.sh de 2.39.0)
+# (la de la raíz, si está, es la recién copiada; la de menu.noindex, la de una corrida anterior de esta versión)
+menu_src="$rt/IAFlowMenu.app"
+[[ -d "$menu_src" ]] || menu_src="$rt/menu.noindex/IAFlowMenu.app"
+rsync -a --delete "$menu_src/" "$APP/"
+if [[ "$menu_src" == "$rt/IAFlowMenu.app" ]]; then
+  mkdir -p "$rt/menu.noindex" && rsync -a --delete "$rt/IAFlowMenu.app/" "$rt/menu.noindex/IAFlowMenu.app/" \
+    && find "$rt/IAFlowMenu.app" -delete
+fi
 plist "$MENU" "<string>$APP/Contents/MacOS/IAFlowMenu</string>" "  <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ThrottleInterval</key><integer>10</integer>
   <key>ProcessType</key><string>Interactive</string>
   <key>LimitLoadToSessionType</key><string>Aqua</string>"
 reload "$MENU"
+for _ in $(seq 1 10); do pgrep -x IAFlowMenu >/dev/null && break; sleep 0.5; done
+pgrep -x IAFlowMenu >/dev/null || launchctl kickstart "gui/$uid/$MENU"
 
 # 5. el actualizador: cada media hora. Si este setup.sh lo corre él mismo (update.sh), recargarlo sería un bootout
 # de su propio job: launchd mataría a update.sh y a este script a mitad de camino. El plist nuevo vale desde el
