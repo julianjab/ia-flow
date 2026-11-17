@@ -193,7 +193,7 @@ jobs:
     needs: desktop
     name: IAFlow.pkg (menú + web)
     # macos-15, como el desktop: el menú (Swift) se compila con el Xcode que trae.
-    runs-on: macos-15
+    runs-on: ${{ vars.RUNNER_MACOS || 'macos-15' }}
     timeout-minutes: 20
     permissions:
       contents: write
