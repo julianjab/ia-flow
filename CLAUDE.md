@@ -5,6 +5,12 @@
 - El toolkit (subagentes, comandos, hooks, settings) está en [`.claude/README.md`](.claude/README.md).
 - `architecture-guardian` antes de un commit que agrega carpetas o imports entre paquetes;
   `engine-agent-author` para agentes y pipelines del engine; `web-verifier` al tocar `apps/web`.
+- **GitHub Actions corren en la Mac de Julián**, no en GitHub (2026-11-17, para no gastar los minutos del
+  plan Free): los jobs leen `runs-on` de las variables del repo `RUNNER` y `RUNNER_MACOS`, las dos en
+  `jab-mac` (la Mac directo: los tests fallan en Linux arm64, `z.strictObject` indefinido); vacías,
+  vuelven al runner hospedado. Los runners son el paquete GhRunners (`apps/gh-runners` de mac-pulse; en
+  cada Mac, `/Library/Application Support/GhRunners/runners.sh status`). `deploy-gateway` se queda en
+  `ubuntu-latest` (imagen amd64). Si un run queda en cola, la Mac está abajo.
 - Pedí confirmación antes de `gh pr merge`. Leer `.env*` y `rm -rf` están denegados.
 
 ## Paridad API ↔ web
