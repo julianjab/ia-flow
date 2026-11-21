@@ -176,3 +176,41 @@ describe('toAnthropicRequest', () => {
     ).toThrow('no es JSON válido')
   })
 })
+
+describe('toAnthropicRequest: system prompt del gateway', () => {
+  const withPrompt = { ...defaults, systemPrompt: 'del gateway' }
+  const user = { role: 'user' as const, content: 'hola' }
+
+  test('con system del cliente: dos bloques, el del gateway primero y solo', () => {
+    const body = toAnthropicRequest(
+      {
+        messages: [
+          { role: 'system', content: 'sé breve' },
+          { role: 'developer', content: 'en español' },
+          user,
+        ],
+      },
+      withPrompt,
+    )
+    expect(body.system).toEqual([
+      { type: 'text', text: 'del gateway' },
+      { type: 'text', text: 'sé breve\n\nen español' },
+    ])
+  })
+
+  test('sin system del cliente sale sólo el del gateway', () => {
+    expect(toAnthropicRequest({ messages: [user] }, withPrompt).system).toBe('del gateway')
+  })
+
+  test('sin prompt del gateway, el system del cliente queda como hoy', () => {
+    const body = toAnthropicRequest(
+      { messages: [{ role: 'system', content: 'sé breve' }, user] },
+      defaults,
+    )
+    expect(body.system).toBe('sé breve')
+  })
+
+  test('sin ninguno no hay `system`', () => {
+    expect('system' in toAnthropicRequest({ messages: [user] }, defaults)).toBe(false)
+  })
+})

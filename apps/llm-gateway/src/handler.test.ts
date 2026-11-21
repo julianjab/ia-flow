@@ -185,7 +185,7 @@ describe('systemPrompt', () => {
     },
   })
 
-  test('va como primer system, antes del que manda el cliente', async () => {
+  test('va como primer bloque system, aparte del que manda el cliente', async () => {
     sent.length = 0
     await call(
       handler,
@@ -197,7 +197,10 @@ describe('systemPrompt', () => {
         ],
       }),
     )
-    expect(sent[0]?.system).toBe('prompt del gateway\n\nde iterm')
+    expect(sent[0]?.system).toEqual([
+      { type: 'text', text: 'prompt del gateway' },
+      { type: 'text', text: 'de iterm' },
+    ])
   })
 
   test('sin system del cliente, es el único', async () => {
