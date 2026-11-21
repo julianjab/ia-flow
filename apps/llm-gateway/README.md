@@ -18,7 +18,7 @@ bun run gateway                              # http://127.0.0.1:4141
 | `LLM_GATEWAY_MAX_TOKENS` | `4096` | Anthropic exige `max_tokens`; OpenAI no |
 | `LLM_GATEWAY_DROP_SAMPLING` | `false` | `1`/`true` descarta `temperature` y `top_p` (modelos que los rechazan) |
 | `LLM_GATEWAY_LOG_BODY` | `false` | `1`/`true` imprime el request completo (headers con su valor, incluido `Authorization`, y body) antes de la auth, y el request real que sale hacia Anthropic (URL, headers con la credencial enmascarada y body, también cada reintento): sólo para depurar |
-| `LLM_GATEWAY_SYSTEM_PROMPT` | — (opcional) | se inserta como primer mensaje `system` de lo que manda el cliente; vacío = nada |
+| `LLM_GATEWAY_SYSTEM_PROMPT` | — (opcional) | va como primer bloque `system`, separado del que manda el cliente, en las dos rutas (chat completions y protocolo nativo); vacío = nada |
 
 ## Endpoints
 

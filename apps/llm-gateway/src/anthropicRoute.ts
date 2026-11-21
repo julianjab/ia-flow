@@ -2,6 +2,7 @@ import { toErrorResponse } from './anthropicToOpenai.js'
 import type { GatewayConfig } from './config.js'
 import type { GatewayLog } from './gatewayLog.js'
 import { BadRequestError } from './openaiToAnthropic.js'
+import { prependSystemPrompt } from './systemPrompt.js'
 
 /** El puerto hacia Anthropic para el formato nativo: el body ya listo → la `Response` cruda.
  *  `extraBetas` son las del cliente, que se suman a las del gateway. */
@@ -37,21 +38,6 @@ export function toAnthropicErrorResponse(err: unknown) {
   return { status, body: anthropicError(body.error.message, body.error.type) }
 }
 
-/** Nuestro prompt y el del cliente van como DOS bloques `system`, no mezclados en un texto: el
- *  nuestro queda solo y primero. Sin `system` del cliente (ausente o vacío), sale sólo el nuestro. */
-function withSystem(system: unknown, prompt: string): unknown {
-  if (!prompt) return system
-  if (system == null || system === '') return prompt
-  if (typeof system === 'string') {
-    return [
-      { type: 'text', text: prompt },
-      { type: 'text', text: system },
-    ]
-  }
-  if (Array.isArray(system)) return [{ type: 'text', text: prompt }, ...system]
-  return system
-}
-
 /** El body de Anthropic que llega → el que sale: el system prompt del gateway va primero, y los
  *  defaults de modelo y `max_tokens` cubren lo que el cliente omite. Pura. */
 export function prepareAnthropicBody(
@@ -72,7 +58,7 @@ export function prepareAnthropicBody(
   }
   body.model = body.model || defaults.model
   body.max_tokens = body.max_tokens ?? defaults.maxTokens
-  const system = withSystem(body.system, defaults.systemPrompt ?? '')
+  const system = prependSystemPrompt(body.system, defaults.systemPrompt ?? '')
   if (system !== undefined) body.system = system
   if (defaults.dropSampling) {
     body.temperature = undefined

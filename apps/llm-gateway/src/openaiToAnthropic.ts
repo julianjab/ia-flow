@@ -1,4 +1,5 @@
 import type { ChatCompletionRequest, ChatMessage, ContentPart, ToolChoice } from './openaiTypes.js'
+import { prependSystemPrompt } from './systemPrompt.js'
 
 /** Un request que el gateway no puede traducir: se contesta 400 con este mensaje. */
 export class BadRequestError extends Error {
@@ -13,6 +14,8 @@ export interface TranslationDefaults {
   maxTokens: number
   /** No reenvía `temperature` ni `top_p`. */
   dropSampling?: boolean
+  /** `LLM_GATEWAY_SYSTEM_PROMPT`: sale como primer bloque `system`, aparte del que manda el cliente. */
+  systemPrompt?: string
 }
 
 type AnthropicBlock = Record<string, unknown>
@@ -163,11 +166,12 @@ export function toAnthropicRequest(
   if (!Array.isArray(request.messages) || request.messages.length === 0) {
     throw new BadRequestError('`messages` debe ser un arreglo no vacío')
   }
-  const system = request.messages
+  const clientSystem = request.messages
     .filter((m) => m.role === 'system' || m.role === 'developer')
     .map((m) => textOf(m.content))
     .filter(Boolean)
     .join('\n\n')
+  const system = prependSystemPrompt(clientSystem, defaults.systemPrompt ?? '')
 
   return {
     model: request.model || defaults.model,

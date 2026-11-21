@@ -11,6 +11,7 @@ OpenAI-compatibles (el chat de iTerm2, editores, scripts) a Claude con una key p
   `/v1/chat/completions`) y SSE. Recibe el puerto `send` hacia Anthropic; no conoce la red.
 - `anthropicRoute.ts` — protocolo nativo de Anthropic: detecta el request, antepone el system prompt y
   reenvía la `Response` cruda (SSE incluido) por el puerto `forward`. Lo pura es `prepareAnthropicBody`.
+- `systemPrompt.ts` — antepone `LLM_GATEWAY_SYSTEM_PROMPT` como primer bloque `system`; lo comparten las dos rutas. Pura.
 - `gatewayLog.ts` — el puerto de logs que el handler necesita.
 - `openaiToAnthropic.ts` — request de OpenAI → body de la Messages API. Pura.
 - `anthropicToOpenai.ts` — respuesta/chunks/errores de Anthropic → formato OpenAI. Pura.
