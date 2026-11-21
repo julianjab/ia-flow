@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.39.2](https://github.com/julianjab/ia-flow/compare/v2.39.1...v2.39.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **llm-gateway:** LLM_GATEWAY_SYSTEM_PROMPT como primer bloque system en chat completions ([#379](https://github.com/julianjab/ia-flow/issues/379)) ([e314df4](https://github.com/julianjab/ia-flow/commit/e314df4cf7e691abf5562f4f3a0add7b3fe55b7c))
+
 ## [2.39.1](https://github.com/julianjab/ia-flow/compare/v2.39.0...v2.39.1) (2026-11-17)
 
 
