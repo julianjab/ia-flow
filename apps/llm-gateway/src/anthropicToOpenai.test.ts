@@ -20,7 +20,12 @@ describe('toChatCompletion', () => {
     )
     expect(completion.choices[0]?.message).toEqual({ role: 'assistant', content: 'hola' })
     expect(completion.choices[0]?.finish_reason).toBe('stop')
-    expect(completion.usage).toEqual({ prompt_tokens: 8, completion_tokens: 2, total_tokens: 10 })
+    expect(completion.usage).toEqual({
+      prompt_tokens: 8,
+      completion_tokens: 2,
+      total_tokens: 10,
+      prompt_tokens_details: { cached_tokens: 3 },
+    })
   })
 
   test('tool_use: tool_calls con argumentos serializados y content null', () => {
@@ -55,6 +60,7 @@ describe('finishReason / usageOf', () => {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_tokens: 0,
+      prompt_tokens_details: { cached_tokens: 0 },
     })
   })
 })

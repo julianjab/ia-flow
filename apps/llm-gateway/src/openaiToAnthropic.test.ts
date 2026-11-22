@@ -3,7 +3,12 @@ import { BadRequestError, toAnthropicRequest } from './openaiToAnthropic.js'
 import type { ChatCompletionRequest } from './openaiTypes.js'
 
 const defaults = { model: 'claude-default', maxTokens: 4096 }
-const translate = (request: ChatCompletionRequest) => toAnthropicRequest(request, defaults)
+const CACHE = { cache_control: { type: 'ephemeral' } }
+/** Estos tests miran la traducción; los breakpoints de caché tienen su describe y promptCache.test.ts. */
+const withoutCache = (body: Record<string, unknown>) =>
+  JSON.parse(JSON.stringify(body, (key, value) => (key === 'cache_control' ? undefined : value)))
+const translate = (request: ChatCompletionRequest) =>
+  withoutCache(toAnthropicRequest(request, defaults))
 
 describe('toAnthropicRequest', () => {
   test('saca los system a `system` y aplica los defaults de modelo y max_tokens', () => {
@@ -14,7 +19,7 @@ describe('toAnthropicRequest', () => {
         { role: 'user', content: 'hola' },
       ],
     })
-    expect(body.system).toBe('sé breve\n\nen español')
+    expect(body.system).toEqual([{ type: 'text', text: 'sé breve\n\nen español' }])
     expect(body.model).toBe('claude-default')
     expect(body.max_tokens).toBe(4096)
     expect(body.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'hola' }] }])
@@ -194,12 +199,14 @@ describe('toAnthropicRequest: system prompt del gateway', () => {
     )
     expect(body.system).toEqual([
       { type: 'text', text: 'del gateway' },
-      { type: 'text', text: 'sé breve\n\nen español' },
+      { type: 'text', text: 'sé breve\n\nen español', ...CACHE },
     ])
   })
 
   test('sin system del cliente sale sólo el del gateway', () => {
-    expect(toAnthropicRequest({ messages: [user] }, withPrompt).system).toBe('del gateway')
+    expect(toAnthropicRequest({ messages: [user] }, withPrompt).system).toEqual([
+      { type: 'text', text: 'del gateway', ...CACHE },
+    ])
   })
 
   test('sin prompt del gateway, el system del cliente queda como hoy', () => {
@@ -207,10 +214,74 @@ describe('toAnthropicRequest: system prompt del gateway', () => {
       { messages: [{ role: 'system', content: 'sé breve' }, user] },
       defaults,
     )
-    expect(body.system).toBe('sé breve')
+    expect(body.system).toEqual([{ type: 'text', text: 'sé breve', ...CACHE }])
   })
 
   test('sin ninguno no hay `system`', () => {
     expect('system' in toAnthropicRequest({ messages: [user] }, defaults)).toBe(false)
+  })
+})
+
+describe('toAnthropicRequest: prompt caching', () => {
+  const user = { role: 'user' as const, content: 'hola' }
+  const tool = (name: string) => ({
+    type: 'function' as const,
+    function: { name, parameters: { type: 'object', properties: {} } },
+  })
+  const marked = (blocks: unknown) =>
+    (blocks as Record<string, unknown>[]).filter((b) => 'cache_control' in b)
+
+  test('con tools y system: marca la última tool, el system y el último mensaje', () => {
+    const body = toAnthropicRequest(
+      { messages: [{ role: 'system', content: 'sé breve' }, user], tools: [tool('a'), tool('b')] },
+      defaults,
+    ) as { tools: unknown[]; system: unknown[]; messages: { content: unknown[] }[] }
+    expect(body.tools[0]).not.toHaveProperty('cache_control')
+    expect(body.tools[1]).toMatchObject(CACHE)
+    expect(body.system).toEqual([{ type: 'text', text: 'sé breve', ...CACHE }])
+    expect(body.messages[0]?.content).toEqual([{ type: 'text', text: 'hola', ...CACHE }])
+  })
+
+  test('sin tools ni system: sólo el último mensaje', () => {
+    const body = toAnthropicRequest({ messages: [user] }, defaults)
+    expect('tools' in body).toBe(false)
+    expect('system' in body).toBe(false)
+    expect(JSON.stringify(body).match(/cache_control/g)).toHaveLength(1)
+  })
+
+  test('system de gateway + cliente: marca sólo el último bloque', () => {
+    const body = toAnthropicRequest(
+      { messages: [{ role: 'system', content: 'cliente' }, user] },
+      { ...defaults, systemPrompt: 'gateway' },
+    )
+    expect(marked(body.system)).toEqual([{ type: 'text', text: 'cliente', ...CACHE }])
+  })
+
+  test('el punto de corte del mensaje va en el último bloque del último mensaje', () => {
+    const body = toAnthropicRequest(
+      {
+        messages: [
+          user,
+          {
+            role: 'assistant',
+            content: null,
+            tool_calls: [{ id: 't1', type: 'function', function: { name: 'a', arguments: '{}' } }],
+          },
+          { role: 'tool', tool_call_id: 't1', content: 'ok' },
+        ],
+      },
+      defaults,
+    ) as { messages: { content: Record<string, unknown>[] }[] }
+    expect(marked(body.messages[0]?.content)).toHaveLength(0)
+    expect(marked(body.messages[1]?.content)).toHaveLength(0)
+    expect(marked(body.messages[2]?.content)).toHaveLength(1)
+  })
+
+  test('un tool_result vacío no se marca', () => {
+    const body = toAnthropicRequest(
+      { messages: [{ role: 'tool', tool_call_id: 't1', content: '' }] },
+      defaults,
+    )
+    expect(JSON.stringify(body)).not.toContain('cache_control')
   })
 })
