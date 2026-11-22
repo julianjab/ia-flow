@@ -29,6 +29,14 @@ bun run gateway                              # http://127.0.0.1:4141
   modelo y `max_tokens` y descarta `temperature`/`top_p` si `LLM_GATEWAY_DROP_SAMPLING`. El token del
   gateway va en `x-api-key`; a Anthropic siempre sale la credencial del gateway.
 
+## Prompt caching
+
+En `/v1/chat/completions` (traducida) el gateway marca con `cache_control: ephemeral` la última tool, el
+último bloque de `system` y el último bloque del último mensaje (máx. 4 breakpoints; respeta los que el
+body ya traiga). Sólo cambia el costo, no la respuesta. `usage.prompt_tokens` sigue siendo el total y
+`usage.prompt_tokens_details.cached_tokens` trae lo leído de la caché. `/v1/messages` y el protocolo
+nativo no se tocan: ahí el cliente decide sus propios breakpoints.
+
 ## iTerm2
 
 Settings > General > AI > **Manage AI Models…**: agregá un modelo con la URL

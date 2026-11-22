@@ -127,7 +127,12 @@ describe('POST /v1/chat/completions', () => {
       'hola',
     )
     expect(chunks.find((c) => c.choices[0]?.finish_reason)?.choices[0].finish_reason).toBe('stop')
-    expect(chunks.at(-1).usage).toEqual({ prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 })
+    expect(chunks.at(-1).usage).toEqual({
+      prompt_tokens: 3,
+      completion_tokens: 2,
+      total_tokens: 5,
+      prompt_tokens_details: { cached_tokens: 0 },
+    })
   })
 
   test('con stream y tools: manda los tool_calls antes del cierre', async () => {
@@ -199,7 +204,7 @@ describe('systemPrompt', () => {
     )
     expect(sent[0]?.system).toEqual([
       { type: 'text', text: 'prompt del gateway' },
-      { type: 'text', text: 'de iterm' },
+      { type: 'text', text: 'de iterm', cache_control: { type: 'ephemeral' } },
     ])
   })
 
@@ -210,7 +215,9 @@ describe('systemPrompt', () => {
       '/v1/chat/completions',
       post({ messages: [{ role: 'user', content: 'hola' }] }),
     )
-    expect(sent[0]?.system).toBe('prompt del gateway')
+    expect(sent[0]?.system).toEqual([
+      { type: 'text', text: 'prompt del gateway', cache_control: { type: 'ephemeral' } },
+    ])
   })
 })
 

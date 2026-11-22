@@ -1,4 +1,5 @@
 import type { ChatCompletionRequest, ChatMessage, ContentPart, ToolChoice } from './openaiTypes.js'
+import { withPromptCache } from './promptCache.js'
 import { prependSystemPrompt } from './systemPrompt.js'
 
 /** Un request que el gateway no puede traducir: se contesta 400 con este mensaje. */
@@ -173,7 +174,7 @@ export function toAnthropicRequest(
     .join('\n\n')
   const system = prependSystemPrompt(clientSystem, defaults.systemPrompt ?? '')
 
-  return {
+  return withPromptCache({
     model: request.model || defaults.model,
     max_tokens: request.max_completion_tokens ?? request.max_tokens ?? defaults.maxTokens,
     messages: toAnthropicMessages(request),
@@ -182,5 +183,5 @@ export function toAnthropicRequest(
       ? samplingFields({ ...request, temperature: undefined, top_p: undefined })
       : samplingFields(request)),
     ...toolFields(request),
-  }
+  })
 }

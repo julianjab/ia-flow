@@ -33,7 +33,12 @@ export function usageOf(response: AnthropicMessagesResponse): Usage {
   const prompt =
     num('input_tokens') + num('cache_read_input_tokens') + num('cache_creation_input_tokens')
   const completion = num('output_tokens')
-  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion }
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    prompt_tokens_details: { cached_tokens: num('cache_read_input_tokens') },
+  }
 }
 
 export function textOfBlocks(content: AnthropicContentBlock[]): string {
