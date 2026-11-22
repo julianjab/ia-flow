@@ -56,4 +56,6 @@ export interface Usage {
   prompt_tokens: number
   completion_tokens: number
   total_tokens: number
+  /** Estándar de OpenAI: lo que salió de la caché de Anthropic (`cache_read_input_tokens`). */
+  prompt_tokens_details?: { cached_tokens: number }
 }
