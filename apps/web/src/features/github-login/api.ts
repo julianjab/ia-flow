@@ -5,6 +5,7 @@ import {
   DevicePollSchema,
   type GithubUserToken,
   GithubUserTokenSchema,
+  RUNNER_TOKEN_REJECTED,
 } from '@ia-flow/shared'
 import axios from 'axios'
 
@@ -26,6 +27,7 @@ export async function pollDeviceFlow(deviceCode: string): Promise<DevicePoll> {
  * Un token nuevo a cambio del `refresh_token` (GitHub rota los dos). `null`:
  * GitHub ya no lo acepta —vencido, usado o revocado— y hay que volver a
  * loguearse. Una falla de red se lanza: no es motivo para cerrar la sesión.
+ * Tampoco el 401 del token del runner (`runner_token`): es del server, no de GitHub.
  */
 export async function refreshGithubToken(refreshToken: string): Promise<GithubUserToken | null> {
   const res = await axios.post<unknown>(
@@ -33,6 +35,17 @@ export async function refreshGithubToken(refreshToken: string): Promise<GithubUs
     { refresh_token: refreshToken },
     { validateStatus: (status) => status < 500 && status !== 404 && status !== 501 },
   )
+  if (res.status === 401 && runnerTokenRejected(res.data)) {
+    throw new Error('El runner rechazó su token (x-ia-flow-token): la sesión de GitHub sigue')
+  }
   if (res.status === 401 || res.status === 400) return null
   return GithubUserTokenSchema.parse(res.data)
+}
+
+function runnerTokenRejected(body: unknown): boolean {
+  return (
+    typeof body === 'object' &&
+    body !== null &&
+    (body as { code?: unknown }).code === RUNNER_TOKEN_REJECTED
+  )
 }
