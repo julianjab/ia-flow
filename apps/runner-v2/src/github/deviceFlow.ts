@@ -5,12 +5,21 @@
  * nunca guarda el token. Un token de device flow se renueva sin `client_secret` (`refresh`): la web
  * guarda el `refresh_token` y lo cambia antes de que venza.
  */
+import { createHash } from 'node:crypto'
 import type { DeviceCode, DevicePoll, GithubUserToken } from '@ia-flow/shared'
+import { createLogger } from '@ia-flow/telemetry'
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const USER_URL = 'https://api.github.com/user'
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
+
+/**
+ * Cuánto se recuerda una renovación. GitHub invalida el `refresh_token` apenas lo canjea: si la
+ * respuesta no llega al cliente (timeout, la Mac que despierta, el pod que se reinicia), su
+ * reintento llega con el viejo y GitHub lo rechazaría. Dentro de esta ventana recibe el mismo par.
+ */
+export const REFRESH_REPLAY_MS = 10 * 60_000
 
 /** GitHub rechazó el `refresh_token` (vencido, ya usado o revocado): hay que volver a loguearse. */
 export class RefreshRejectedError extends Error {}
@@ -22,6 +31,7 @@ export interface DeviceFlowOptions {
    *  scopes da un token que sólo lee lo público; una GitHub App los ignora. */
   scopes?: string
   fetchImpl?: typeof fetch
+  now?: () => number
 }
 
 async function postForm(
@@ -38,11 +48,22 @@ async function postForm(
   return (await res.json()) as Record<string, unknown>
 }
 
+/** La clave del memo: el hash, para no tener tokens en claro en memoria más de lo necesario. */
+const digest = (token: string) => createHash('sha256').update(token).digest('hex')
+
 export class DeviceFlow {
   private readonly fetchImpl: typeof fetch
+  private readonly now: () => number
+  private readonly log = createLogger('runner.github-login')
+  /** Los canjes recientes (y los en curso) por hash del `refresh_token` canjeado. */
+  private readonly renewals = new Map<
+    string,
+    { at: number; grant: Promise<Record<string, unknown>> }
+  >()
 
   constructor(private readonly options: DeviceFlowOptions) {
     this.fetchImpl = options.fetchImpl ?? fetch
+    this.now = options.now ?? Date.now
   }
 
   async start(): Promise<DeviceCode> {
@@ -89,19 +110,50 @@ export class DeviceFlow {
     }
   }
 
-  /** Un token nuevo a cambio del `refresh_token`; GitHub rota los dos. */
+  /**
+   * Un token nuevo a cambio del `refresh_token`; GitHub rota los dos. El mismo `refresh_token`
+   * dentro de `REFRESH_REPLAY_MS` (o mientras se canjea) reusa el canje, sin volver a GitHub.
+   */
   async refresh(refreshToken: string): Promise<GithubUserToken> {
+    const data = await this.exchange(refreshToken)
+    return this.userToken(data, data.access_token as string)
+  }
+
+  /** El canje en GitHub, recordado: sólo uno que salió bien, un error se puede reintentar. */
+  private exchange(refreshToken: string): Promise<Record<string, unknown>> {
+    const now = this.now()
+    for (const [key, renewal] of this.renewals) {
+      if (now - renewal.at > REFRESH_REPLAY_MS) this.renewals.delete(key)
+    }
+    const key = digest(refreshToken)
+    const known = this.renewals.get(key)
+    if (known) {
+      this.log.info('renovación repetida: se reusa el canje anterior')
+      return known.grant
+    }
+    const grant = this.grant(refreshToken)
+    this.renewals.set(key, { at: now, grant })
+    grant.catch(() => this.renewals.delete(key))
+    return grant
+  }
+
+  private async grant(refreshToken: string): Promise<Record<string, unknown>> {
     const data = await postForm(this.fetchImpl, ACCESS_TOKEN_URL, {
       client_id: this.options.clientId,
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     })
     if (typeof data.access_token !== 'string') {
+      const code = String(data.error ?? 'sin código')
+      this.log.warn(`GitHub rechazó la renovación: ${code}`, {
+        error: code,
+        error_description: String(data.error_description ?? ''),
+      })
       throw new RefreshRejectedError(
         `GitHub no renovó el token: ${String(data.error_description ?? data.error ?? 'sin motivo')}`,
       )
     }
-    return this.userToken(data, data.access_token)
+    return data
   }
 
   login(token: string): Promise<string> {
