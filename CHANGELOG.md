@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.40.0](https://github.com/julianjab/ia-flow/compare/v2.39.1...v2.40.0) (2026-11-26)
+
+
+### Features
+
+* **llm-gateway:** prompt caching de Anthropic en chat completions ([#381](https://github.com/julianjab/ia-flow/issues/381)) ([970c755](https://github.com/julianjab/ia-flow/commit/970c75551327b7c1d2f5bcdf4e94c260a9942c8e))
+* **runner-v2:** code en los 401 para distinguir el token del runner del de GitHub ([3442d70](https://github.com/julianjab/ia-flow/commit/3442d70a85d3b06fe6867691084aaed7d489c170))
+
+
+### Bug Fixes
+
+* **llm-gateway:** LLM_GATEWAY_SYSTEM_PROMPT como primer bloque system en chat completions ([#379](https://github.com/julianjab/ia-flow/issues/379)) ([e314df4](https://github.com/julianjab/ia-flow/commit/e314df4cf7e691abf5562f4f3a0add7b3fe55b7c))
+* **menubar:** el 401 del token del runner no cierra la sesión de GitHub ([eeb27e4](https://github.com/julianjab/ia-flow/commit/eeb27e422608d93a9b88a235e7aad9a5d61981c6))
+* **runner-v2:** reusar el canje de un refresh token repetido y loguear los rechazos ([5368ec2](https://github.com/julianjab/ia-flow/commit/5368ec2212ef2a2b3cea3ce87960a03382e77b3b))
+* **web:** el 401 del token del runner no cierra la sesión de GitHub ([54eb047](https://github.com/julianjab/ia-flow/commit/54eb0474c86e0c2413d8a08472d3efc9c27562ec))
+
 ## [2.39.1](https://github.com/julianjab/ia-flow/compare/v2.39.0...v2.39.1) (2026-11-17)
 
 
