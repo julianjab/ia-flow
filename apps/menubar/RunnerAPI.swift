@@ -331,6 +331,7 @@ struct DevicePoll: Codable {
 private struct ErrorBody: Codable {
     let error: String?
     let message: String?
+    let code: String?
 }
 
 // MARK: cliente
@@ -338,9 +339,13 @@ private struct ErrorBody: Codable {
 struct RunnerError: LocalizedError {
     let status: Int
     let message: String
+    /// El `code` del body, si el runner lo manda: distingue dos errores con el mismo status.
+    var code: String? = nil
     var errorDescription: String? { message }
     /// 401/403 del token del runner (no de GitHub): falta o está mal en servers.json.
     var needsRunnerToken: Bool { status == 503 || (status == 401 && message.contains("token")) }
+    /// El runner rechazó su propio token (`x-ia-flow-token`), no el de GitHub.
+    var runnerTokenRejected: Bool { status == 401 && code == "runner_token" }
 }
 
 struct RunnerClient {
@@ -368,7 +373,8 @@ struct RunnerClient {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             let body = try? JSONDecoder().decode(ErrorBody.self, from: data)
-            throw RunnerError(status: status, message: body?.error ?? body?.message ?? "HTTP \(status)")
+            throw RunnerError(status: status, message: body?.error ?? body?.message ?? "HTTP \(status)",
+                              code: body?.code)
         }
         return data
     }

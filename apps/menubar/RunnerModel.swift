@@ -962,8 +962,8 @@ final class RunnerModel: ObservableObject {
         return await task.value
     }
 
-    /// Sólo un rechazo del runner (401: GitHub ya no acepta el refresh token) cierra la sesión; una falla de red la
-    /// deja como estaba, para el próximo intento.
+    /// Sólo un rechazo del runner (401: GitHub ya no acepta el refresh token) cierra la sesión; una falla de red, o el
+    /// 401 del token del propio runner (`runner_token`), la deja como estaba, para el próximo intento.
     @MainActor private func renew(_ session: GithubSession, key: String, server: RunnerServer) async -> GithubSession? {
         guard let refresh = session.refreshToken else { return dropSession(key) }
         do {
@@ -975,7 +975,7 @@ final class RunnerModel: ObservableObject {
             sessions[key] = next
             saveGithubSessions(sessions)
             return next
-        } catch let error as RunnerError where error.status == 401 {
+        } catch let error as RunnerError where error.status == 401 && !error.runnerTokenRejected {
             return dropSession(key)
         } catch {
             return nil
