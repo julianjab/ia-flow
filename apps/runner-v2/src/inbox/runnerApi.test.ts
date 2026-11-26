@@ -1208,6 +1208,17 @@ describe('runner API', () => {
       refresh,
     )
     expect(no.status).toBe(401)
-    expect(await no.json()).toEqual({ error: 'GitHub no renovó el token: expired' })
+    expect(await no.json()).toEqual({
+      error: 'GitHub no renovó el token: expired',
+      code: 'github_refresh_rejected',
+    })
+
+    // El 401 del token del runner dice otra cosa: no es motivo para cerrar la sesión de GitHub.
+    const wrongRunner = await (await start(TOKEN, true, 'clean', renewing as never)).call(
+      '/api/auth/github/refresh',
+      { ...refresh, headers: { 'x-ia-flow-token': 'nope' } },
+    )
+    expect(wrongRunner.status).toBe(401)
+    expect(await wrongRunner.json()).toEqual({ error: 'token inválido', code: 'runner_token' })
   })
 })
