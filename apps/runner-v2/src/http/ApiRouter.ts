@@ -7,6 +7,7 @@
  */
 import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { RUNNER_TOKEN_REJECTED } from '@ia-flow/shared'
 
 export interface ApiRequest {
   method: string
@@ -22,11 +23,13 @@ export interface ApiRequest {
 /** Lo que devuelve un handler va como JSON 200; `undefined`, que ya respondió él (un stream). */
 export type ApiHandler = (req: ApiRequest, res: ServerResponse) => Promise<unknown>
 
-/** Un error con su status HTTP: el mensaje llega tal cual a la web. */
+/** Un error con su status HTTP: el mensaje llega tal cual a la web, y `code` si quien lo lee lo
+ *  tiene que distinguir de otro con el mismo status. */
 export class HttpError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly code?: string,
   ) {
     super(message)
   }
@@ -171,7 +174,7 @@ export class ApiRouter {
     if (!route.public) {
       if (!this.token) return sendJson(res, 503, { error: 'IA_FLOW_API_TOKEN no está configurado' })
       if (!this.authorized(req, url.searchParams))
-        return sendJson(res, 401, { error: 'token inválido' })
+        return sendJson(res, 401, { error: 'token inválido', code: RUNNER_TOKEN_REJECTED })
     }
     const request: ApiRequest = {
       method: route.method,
@@ -189,7 +192,11 @@ export class ApiRouter {
       const body = await route.handler(request, res)
       if (body !== undefined) sendJson(res, 200, body)
     } catch (err) {
-      if (err instanceof HttpError) return sendJson(res, err.status, { error: err.message })
+      if (err instanceof HttpError)
+        return sendJson(res, err.status, {
+          error: err.message,
+          ...(err.code ? { code: err.code } : {}),
+        })
       const message = err instanceof Error ? err.message : String(err)
       this.options.log(`api ${route.method} ${url.pathname}: ${message}`)
       sendJson(res, 500, { error: message })

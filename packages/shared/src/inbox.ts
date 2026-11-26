@@ -546,6 +546,11 @@ export type GithubRefreshRequest = z.infer<typeof GithubRefreshRequestSchema>
 export const GithubUserTokenSchema = z.object(GithubUserTokenFields)
 export type GithubUserToken = z.infer<typeof GithubUserTokenSchema>
 
+/** El `code` de un 401 del runner. Sólo `github_refresh_rejected` cierra la sesión de GitHub:
+ *  `runner_token` es el token del runner (`x-ia-flow-token`), que no tiene que ver con GitHub. */
+export const RUNNER_TOKEN_REJECTED = 'runner_token'
+export const GITHUB_REFRESH_REJECTED = 'github_refresh_rejected'
+
 /** De qué habla el asistente: todo el runner, un proyecto o una tarea. */
 export const AssistantScopeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('general') }),

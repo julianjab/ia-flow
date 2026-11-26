@@ -19,6 +19,7 @@ import {
   CreateIssueRequestSchema,
   type CreateIssueResult,
   DevicePollSchema,
+  GITHUB_REFRESH_REJECTED,
   GithubRefreshRequestSchema,
   type GithubUserToken,
   GithubUserTokenSchema,
@@ -579,14 +580,16 @@ export function runnerApi(options: RunnerApiOptions): ApiRouter {
   })
 
   // La web renueva su token antes de que venza (8 h): un `refresh_token` que GitHub ya no acepta
-  // es un 401 —hay que volver a loguearse—, no un error del runner.
+  // es un 401 —hay que volver a loguearse—, no un error del runner. Con `code` para no confundirlo
+  // con el 401 del token del runner, que no es motivo para cerrar la sesión de GitHub.
   router.post('/api/auth/github/refresh', async (req): Promise<GithubUserToken> => {
     if (!options.deviceFlow) throw new HttpError(501, 'El login con GitHub no está configurado')
     const { refresh_token } = parseBody(GithubRefreshRequestSchema, await req.json())
     try {
       return GithubUserTokenSchema.parse(await options.deviceFlow.refresh(refresh_token))
     } catch (err) {
-      if (err instanceof RefreshRejectedError) throw new HttpError(401, err.message)
+      if (err instanceof RefreshRejectedError)
+        throw new HttpError(401, err.message, GITHUB_REFRESH_REJECTED)
       throw err
     }
   })
